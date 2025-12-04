@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Zeus - Prompt Enhancer</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <img src="icons/icon48.png" alt="Zeus Logo" class="logo">
+      <h1>Zeus</h1>
+      <button id="darkModeToggle" class="dark-mode-toggle" title="Toggle Dark Mode" aria-label="Toggle Dark Mode">
+        <svg class="sun-icon" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+          <circle cx="12" cy="12" r="5" fill="none" stroke="currentColor" stroke-width="2"/>
+          <line x1="12" y1="1" x2="12" y2="3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+          <line x1="12" y1="21" x2="12" y2="23" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+          <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+          <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+          <line x1="1" y1="12" x2="3" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+          <line x1="21" y1="12" x2="23" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+          <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+          <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+        </svg>
+        <svg class="moon-icon" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </button>
+    </div>
+    
+    <div class="section">
+      <h2>API Key Configuration</h2>
+      
+      <div class="api-provider-selection">
+        <label for="aiProvider">Select AI Provider:</label>
+        <select id="aiProvider">
+          <option value="gemini">Gemini</option>
+          <option value="openai">OpenAI</option>
+          <option value="claude">Claude</option>
+        </select>
+      </div>
+
+      <div id="gemini-settings" class="api-settings">
+        <p>Enter your Gemini API key:</p>
+        <div class="input-group">
+          <input type="password" id="geminiApiKey" placeholder="Enter your Gemini API key">
+          <button id="showHideGemini" type="button">Show</button>
+        </div>
+        <label for="geminiModel" class="model-label">Select Model:</label>
+        <select id="geminiModel">
+          <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
+          <option value="gemini-1.5-pro">Gemini 1.5 Pro</option>
+          <option value="gemini-1.5-flash">Gemini 1.5 Flash</option>
+        </select>
+      </div>
+
+      <div id="openai-settings" class="api-settings" style="display: none;">
+        <p>Enter your OpenAI API key:</p>
+        <div class="input-group">
+          
+          <input type="password" id="openaiApiKey" placeholder="Enter your OpenAI API key">
+          <button id="showHideOpenAI" type="button">Show</button>
+        </div>
+        <label for="openaiModel" class="model-label">Select Model:</label>
+        <select id="openaiModel">
+          <option value="gpt-4.1-mini">GPT-4.1 Mini</option>
+          <option value="gpt-4o-mini">GPT-4o Mini</option>
+          <option value="gpt-4-turbo">GPT-4 Turbo</option>
+        </select>
+      </div>
+
+      <div id="claude-settings" class="api-settings" style="display: none;">
+        <p>Enter your Claude API key:</p>
+        <div class="input-group">
+        
+          <input type="password" id="claudeApiKey" placeholder="Enter your Claude API key">
+          <button id="showHideClaude" type="button">Show</button>
+        </div>
+        <label for="claudeModel" class="model-label">Select Model:</label>
+        <select id="claudeModel">
+          <option value="claude-3-opus-20240229">Claude 3 Opus</option>
+          <option value="claude-3-sonnet-20240229">Claude 3 Sonnet</option>
+          <option value="claude-3-haiku-20240307">Claude 3 Haiku</option>
+        </select>
+      </div>
+      
+      <button id="saveBtn" class="primary-btn">Save API Keys</button>
+      <div id="status" class="status"></div>
+    </div> 
+    <div class="footer">
+    </div>
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>
