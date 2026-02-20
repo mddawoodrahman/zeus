@@ -4,25 +4,33 @@ document.addEventListener('DOMContentLoaded', function() {
   // --- Element References ---
   const aiProviderSelect = document.getElementById('aiProvider');
   const darkModeToggle = document.getElementById('darkModeToggle');
+  const DEFAULT_MODELS = {
+    gemini: 'gemini-2.5-pro',
+    openai: 'gpt-4.1-mini',
+    claude: 'claude-3-sonnet-20240229',
+    openrouter: 'openai/gpt-4o'
+  };
   
   const settingsMap = {
     gemini: {
       settingsDiv: document.getElementById('gemini-settings'),
       apiKeyInput: document.getElementById('geminiApiKey'),
-      showHideBtn: document.getElementById('showHideGemini'),
-      modelSelect: document.getElementById('geminiModel')
+      showHideBtn: document.getElementById('showHideGemini')
     },
     openai: {
       settingsDiv: document.getElementById('openai-settings'),
       apiKeyInput: document.getElementById('openaiApiKey'),
-      showHideBtn: document.getElementById('showHideOpenAI'),
-      modelSelect: document.getElementById('openaiModel')
+      showHideBtn: document.getElementById('showHideOpenAI')
     },
     claude: {
       settingsDiv: document.getElementById('claude-settings'),
       apiKeyInput: document.getElementById('claudeApiKey'),
-      showHideBtn: document.getElementById('showHideClaude'),
-      modelSelect: document.getElementById('claudeModel')
+      showHideBtn: document.getElementById('showHideClaude')
+    },
+    openrouter: {
+      settingsDiv: document.getElementById('openrouter-settings'),
+      apiKeyInput: document.getElementById('openrouterApiKey'),
+      showHideBtn: document.getElementById('showHideOpenRouter')
     }
   };
 
@@ -99,7 +107,9 @@ document.addEventListener('DOMContentLoaded', function() {
       'zeus_selected_provider',
       'zeus_gemini_api_key', 'zeus_gemini_model',
       'zeus_openai_api_key', 'zeus_openai_model',
-      'zeus_claude_api_key', 'zeus_claude_model'
+      'zeus_claude_api_key', 'zeus_claude_model',
+      'zeus_openrouter_api_key', 'zeus_openrouter_model',
+      'zeus_provider_configs'
     ];
     chrome.storage.sync.get(keysToGet, (data) => {
       if (chrome.runtime.lastError) {
@@ -110,13 +120,14 @@ document.addEventListener('DOMContentLoaded', function() {
       aiProviderSelect.value = data.zeus_selected_provider || 'gemini';
 
       if (settingsMap.gemini.apiKeyInput) settingsMap.gemini.apiKeyInput.value = data.zeus_gemini_api_key || '';
-      if (settingsMap.gemini.modelSelect) settingsMap.gemini.modelSelect.value = data.zeus_gemini_model || settingsMap.gemini.modelSelect.value;
 
       if (settingsMap.openai.apiKeyInput) settingsMap.openai.apiKeyInput.value = data.zeus_openai_api_key || '';
-      if (settingsMap.openai.modelSelect) settingsMap.openai.modelSelect.value = data.zeus_openai_model || settingsMap.openai.modelSelect.value;
 
       if (settingsMap.claude.apiKeyInput) settingsMap.claude.apiKeyInput.value = data.zeus_claude_api_key || '';
-      if (settingsMap.claude.modelSelect) settingsMap.claude.modelSelect.value = data.zeus_claude_model || settingsMap.claude.modelSelect.value;
+
+      if (settingsMap.openrouter.apiKeyInput) {
+        settingsMap.openrouter.apiKeyInput.value = data.zeus_openrouter_api_key || data?.zeus_provider_configs?.openrouter?.apiKey || '';
+      }
 
       aiProviderSelect.dispatchEvent(new Event('change'));
     });
@@ -126,14 +137,23 @@ document.addEventListener('DOMContentLoaded', function() {
     saveBtn.disabled = true;
     saveBtn.textContent = 'Saving...';
 
+    const openRouterModel = DEFAULT_MODELS.openrouter;
     const payload = {
       zeus_selected_provider: aiProviderSelect.value,
       zeus_gemini_api_key: settingsMap.gemini.apiKeyInput?.value.trim() || '',
-      zeus_gemini_model: settingsMap.gemini.modelSelect?.value || '',
+      zeus_gemini_model: DEFAULT_MODELS.gemini,
       zeus_openai_api_key: settingsMap.openai.apiKeyInput?.value.trim() || '',
-      zeus_openai_model: settingsMap.openai.modelSelect?.value || '',
+      zeus_openai_model: DEFAULT_MODELS.openai,
       zeus_claude_api_key: settingsMap.claude.apiKeyInput?.value.trim() || '',
-      zeus_claude_model: settingsMap.claude.modelSelect?.value || ''
+      zeus_claude_model: DEFAULT_MODELS.claude,
+      zeus_openrouter_api_key: settingsMap.openrouter.apiKeyInput?.value.trim() || '',
+      zeus_openrouter_model: openRouterModel,
+      zeus_provider_configs: {
+        openrouter: {
+          apiKey: settingsMap.openrouter.apiKeyInput?.value.trim() || '',
+          model: openRouterModel
+        }
+      }
     };
 
     chrome.storage.sync.set(payload, () => {

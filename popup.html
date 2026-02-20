@@ -38,6 +38,7 @@
           <option value="gemini">Gemini</option>
           <option value="openai">OpenAI</option>
           <option value="claude">Claude</option>
+          <option value="openrouter">OpenRouter</option>
         </select>
       </div>
 
@@ -47,12 +48,6 @@
           <input type="password" id="geminiApiKey" placeholder="Enter your Gemini API key">
           <button id="showHideGemini" type="button">Show</button>
         </div>
-        <label for="geminiModel" class="model-label">Select Model:</label>
-        <select id="geminiModel">
-          <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
-          <option value="gemini-1.5-pro">Gemini 1.5 Pro</option>
-          <option value="gemini-1.5-flash">Gemini 1.5 Flash</option>
-        </select>
       </div>
 
       <div id="openai-settings" class="api-settings" style="display: none;">
@@ -62,12 +57,6 @@
           <input type="password" id="openaiApiKey" placeholder="Enter your OpenAI API key">
           <button id="showHideOpenAI" type="button">Show</button>
         </div>
-        <label for="openaiModel" class="model-label">Select Model:</label>
-        <select id="openaiModel">
-          <option value="gpt-4.1-mini">GPT-4.1 Mini</option>
-          <option value="gpt-4o-mini">GPT-4o Mini</option>
-          <option value="gpt-4-turbo">GPT-4 Turbo</option>
-        </select>
       </div>
 
       <div id="claude-settings" class="api-settings" style="display: none;">
@@ -77,12 +66,14 @@
           <input type="password" id="claudeApiKey" placeholder="Enter your Claude API key">
           <button id="showHideClaude" type="button">Show</button>
         </div>
-        <label for="claudeModel" class="model-label">Select Model:</label>
-        <select id="claudeModel">
-          <option value="claude-3-opus-20240229">Claude 3 Opus</option>
-          <option value="claude-3-sonnet-20240229">Claude 3 Sonnet</option>
-          <option value="claude-3-haiku-20240307">Claude 3 Haiku</option>
-        </select>
+      </div>
+
+      <div id="openrouter-settings" class="api-settings" style="display: none;">
+        <p>Enter your OpenRouter API key:</p>
+        <div class="input-group">
+          <input type="password" id="openrouterApiKey" placeholder="Enter your OpenRouter API key">
+          <button id="showHideOpenRouter" type="button">Show</button>
+        </div>
       </div>
       
       <button id="saveBtn" class="primary-btn">Save API Keys</button>

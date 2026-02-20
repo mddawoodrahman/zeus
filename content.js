@@ -245,7 +245,12 @@ function sendMessageWithTimeout(message, timeoutMs = MESSAGE_TIMEOUT_MS) {
         finished = true;
         clearTimeout(timer);
         if (chrome.runtime.lastError) {
-          reject(new Error(chrome.runtime.lastError.message));
+          const runtimeMsg = chrome.runtime.lastError.message || 'Unknown extension runtime error';
+          if (isExtensionContextInvalidatedMessage(runtimeMsg)) {
+            reject(new Error('Extension context invalidated. Reload this page to reconnect Zeus.'));
+          } else {
+            reject(new Error(runtimeMsg));
+          }
         } else {
           resolve(response);
         }
@@ -258,6 +263,13 @@ function sendMessageWithTimeout(message, timeoutMs = MESSAGE_TIMEOUT_MS) {
       }
     }
   });
+}
+
+function isExtensionContextInvalidatedMessage(message) {
+  const low = String(message || '').toLowerCase();
+  return low.includes('extension context invalidated') ||
+         low.includes('receiving end does not exist') ||
+         low.includes('context invalidated');
 }
 
 /* --------------------------
@@ -320,6 +332,11 @@ async function handleEnhanceClickForInput(inputElement, button) {
       const msg = err?.message || String(err);
       if (msg.includes('Extension request timed out') || msg.includes('Extension context invalidated')) {
         alert(`Zeus: ${msg}`);
+        if (msg.includes('Extension context invalidated')) {
+          setTimeout(() => {
+            window.location.reload();
+          }, 200);
+        }
       } else {
         alert(`Error: ${msg}`);
       }
