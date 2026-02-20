@@ -1,78 +1,100 @@
 # Zeus - Prompt Enhancer
 
-Zeus is a browser extension that enhances prompts for Large Language Model (LLM) websites using Gemini, OpenAI, or Claude APIs. It injects an "Enhance Prompt" button into chat input areas, allowing users to optimize their prompts for clarity, detail, and effectiveness with a single click.
+Zeus is a Manifest V3 Chrome extension that rewrites prompts using multiple LLM providers and injects an **Enhance Prompt** button directly into supported chat inputs.
 
-## Features
+## Current Features
 
-- **Prompt Enhancement**: Automatically rewrites your prompt to be clearer and more effective for AI models.
-- **Multi-Provider Support**: Works with Gemini, OpenAI, and Claude APIs. Choose your provider and model in the extension popup.
-- **Easy API Key Management**: Securely store and manage API keys for each provider via the popup interface.
-- **Model Selection**: Select from multiple models for each provider (e.g., Gemini 2.5 Pro, GPT-4.1 Mini, Claude 3 Opus).
-- **Context Menu Integration**: Right-click in any editable field to enhance your prompt using the context menu.
-- **Floating & Inline Button**: Smartly injects an "Enhance Prompt" button into chat/text areas on supported sites.
-- **Automatic Site Detection**: Supports popular LLM chat sites including ChatGPT, Claude, Gemini, DeepSeek, Grok, and more.
-- **SPA & Dynamic Page Support**: Robust input detection and mutation observers ensure the button appears even on single-page apps and dynamic sites.
-- **Error Handling**: Intelligent error messages for invalid API keys, permission issues, and model availability.
+- Prompt rewriting with provider APIs: **Gemini**, **OpenAI**, **Claude**, and **OpenRouter**.
+- Inline enhance button injection on supported chat sites.
+- Context-menu action: **Enhance Prompt with Zeus** on editable fields.
+- Provider selector + API key management in popup.
+- Automatic dark mode support in popup.
+- SPA-aware input detection with MutationObserver.
+- Unified server-driven error classification in background service worker.
+- OpenRouter support with recommended headers (`HTTP-Referer`, `X-Title`) and bounded retry/backoff on `429`.
 
-## Supported Sites
+## Supported Sites (content script injection)
 
-- chatgpt.com
-- chat.openai.com
-- claude.ai
-- chat.deepseek.com
-- grok.com
+- `chatgpt.com`
+- `chat.openai.com`
+- `claude.ai`
+- `chat.deepseek.com`
+- `grok.com`
+
+## Providers
+
+- `gemini`
+- `openai`
+- `claude`
+- `openrouter`
+
+### Model Behavior
+
+The popup currently does **not** expose model selectors.
+Zeus stores and uses internal default model values per provider when saving settings.
 
 ## Installation
 
-1. **Clone or Download** this repository.
-2. Go to `chrome://extensions` (or your browser's extensions page).
+1. Clone/download this repository.
+2. Open `chrome://extensions`.
 3. Enable **Developer mode**.
-4. Click **Load unpacked** and select the `Zeus(Prompt Enhancer)` folder.
-5. The Zeus extension icon will appear in your browser.
+4. Click **Load unpacked** and select this folder (`d:\zeus-main`).
+5. Pin/open Zeus from the extensions toolbar.
 
 ## Usage
 
-1. **Configure API Keys**:
-   - Click the Zeus extension icon.
-   - Select your preferred AI provider (Gemini, OpenAI, Claude).
-   - Enter your API key and choose a model.
-   - Click "Save API Keys".
+1. Open Zeus popup.
+2. Choose a provider.
+3. Enter API key for that provider.
+4. Click **Save API Keys**.
+5. Go to a supported site and click the Zeus lightning button near the input.
 
-2. **Enhance Prompts**:
-   - Visit a supported LLM chat site.
-   - Type your prompt in the chat input area.
-   - Click the Zeus "Enhance Prompt" button (lightning icon) next to the input.
-   - Your prompt will be rewritten and replaced with an optimized version.
+### Context Menu
 
-3. **Context Menu**:
-   - Right-click in any editable field and select "Enhance Prompt with Zeus" to optimize your prompt.
+- Right-click inside an editable input.
+- Choose **Enhance Prompt with Zeus**.
 
 ## Permissions
 
-- `activeTab`, `scripting`, `storage`, `declarativeContent`, `tabs`, `contextMenus`
-- Host permissions for supported LLM sites.
+### Extension permissions
 
-## How It Works
+- `activeTab`
+- `scripting`
+- `storage`
+- `contextMenus`
 
-- **Content Script** (`content.js`): Injects the enhance button, detects input areas, and handles user interaction.
-- **Background Service Worker** (`background.js`): Handles API requests to Gemini, OpenAI, and Claude, manages context menu actions, and synchronizes settings.
-- **Popup UI** (`popup.html`, `popup.js`): Lets users select provider, enter API keys, and choose models.
-- **Styles** (`styles.css`): Modern, clean UI for popup and injected buttons.
+### Host permissions
 
-## Security
+- `https://chatgpt.com/*`
+- `https://chat.openai.com/*`
+- `https://claude.ai/*`
+- `https://chat.deepseek.com/*`
+- `https://grok.com/*`
+- `https://openrouter.ai/*`
 
-- API keys are stored using Chrome's `storage.sync` and are never sent to third parties except the selected AI provider.
-- Error messages are parsed and displayed to help users troubleshoot issues.
+### Optional host permissions
 
-## Icons
+- `https://*/*`
 
-- Custom icons for extension and button, including a lightning flash SVG.
+## Architecture
+
+- `content.js`: Input detection, button injection, messaging, context-menu action handling.
+- `background.js`: Provider routing, API calls, retries/backoff, unified error normalization/classification.
+- `popup.html` + `popup.js`: Provider selection, API key save/load, dark mode UI.
+- `styles.css`: Popup and injected button styling.
+- `manifest.json`: MV3 configuration, permissions, content script registration.
+
+## Security Notes
+
+- API keys are stored in `chrome.storage.sync`.
+- Keys are only sent to selected provider endpoints.
+- User-facing server errors are sanitized to reduce leakage of sensitive details.
 
 ## Troubleshooting
 
-- If the button does not appear, reload the page or re-open the extension popup.
-- For API errors, check your key and model selection.
-- For extension context errors, try reloading the site or the extension.
+- **Enhance button not showing**: reload the tab, then reopen popup.
+- **Extension context invalidated**: reload the page after extension updates/reloads.
+- **Provider/model errors**: verify API key, provider selection, and account access/quota.
 
 ## License
 
