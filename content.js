@@ -279,12 +279,11 @@ function isExtensionContextInvalidatedMessage(message) {
 async function handleEnhanceClickForInput(inputElement, button) {
   await fetchSettingsIfNeeded();
 
-  const provider = settings.zeus_selected_provider || 'gemini';
-  const apiKey = settings[`zeus_${provider}_api_key`];
-  const model = settings[`zeus_${provider}_model`];
+  const provider = settings.provider || settings.zeus_selected_provider || 'gemini';
+  const apiKey = settings?.apiKeys?.[provider] || settings[`zeus_${provider}_api_key`];
 
-  if (!apiKey || !model) {
-    alert(`Please configure both API key and model for the selected provider (${provider}) in the Zeus popup settings.`);
+  if (provider !== 'ollama' && provider !== 'auto' && !apiKey) {
+    alert(`Please configure an API key for the selected provider (${provider}) in the Zeus popup settings.`);
     return;
   }
 
@@ -309,10 +308,7 @@ async function handleEnhanceClickForInput(inputElement, button) {
 
       const response = await sendMessageWithTimeout({
         action: 'enhancePrompt',
-        prompt: originalPrompt,
-        provider,
-        model,
-        apiKey
+        prompt: originalPrompt
       }, MESSAGE_TIMEOUT_MS);
 
       if (!response || !response.success) {
@@ -354,7 +350,7 @@ async function handleEnhanceClickForInput(inputElement, button) {
    -------------------------- */
 
 async function fetchSettingsIfNeeded() {
-  if (settings && settings.zeus_selected_provider) return;
+  if (settings && (settings.provider || settings.zeus_selected_provider)) return;
   try {
     const resp = await sendMessageWithTimeout({ action: 'getSettings' }, 5000);
     if (resp?.settings) settings = resp.settings;

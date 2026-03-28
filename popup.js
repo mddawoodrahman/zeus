@@ -1,16 +1,28 @@
-// popup.js - Handles the extension popup interface for multiple AI providers and models
+// popup.js - Handles popup settings for cloud and local providers
 
 document.addEventListener('DOMContentLoaded', function() {
-  // --- Element References ---
   const aiProviderSelect = document.getElementById('aiProvider');
   const darkModeToggle = document.getElementById('darkModeToggle');
-  const DEFAULT_MODELS = {
-    gemini: 'gemini-2.5-pro',
-    openai: 'gpt-4.1-mini',
-    claude: 'claude-3-sonnet-20240229',
-    openrouter: 'openai/gpt-4o'
+  const saveBtn = document.getElementById('saveBtn');
+  const statusEl = document.getElementById('status');
+
+  const DEFAULT_SETTINGS = {
+    provider: 'gemini',
+    apiKeys: {
+      gemini: '',
+      openai: '',
+      claude: '',
+      openrouter: ''
+    },
+    models: {
+      gemini: 'gemini-2.5-pro',
+      openai: 'gpt-4.1-mini',
+      claude: 'claude-3-sonnet-20240229',
+      openrouter: 'openai/gpt-4o'
+    },
+    ollama: {}
   };
-  
+
   const settingsMap = {
     gemini: {
       settingsDiv: document.getElementById('gemini-settings'),
@@ -31,13 +43,15 @@ document.addEventListener('DOMContentLoaded', function() {
       settingsDiv: document.getElementById('openrouter-settings'),
       apiKeyInput: document.getElementById('openrouterApiKey'),
       showHideBtn: document.getElementById('showHideOpenRouter')
+    },
+    ollama: {
+      settingsDiv: document.getElementById('ollama-settings')
+    },
+    auto: {
+      settingsDiv: document.getElementById('auto-settings')
     }
   };
 
-  const saveBtn = document.getElementById('saveBtn');
-  const statusEl = document.getElementById('status');
-
-  // --- Dark Mode Management ---
   function initializeDarkMode() {
     chrome.storage.sync.get(['zeus_dark_mode_preference'], (data) => {
       let isDarkMode = data?.zeus_dark_mode_preference;
@@ -63,11 +77,8 @@ document.addEventListener('DOMContentLoaded', function() {
     const next = !isDark;
     applyDarkMode(next);
     chrome.storage.sync.set({ zeus_dark_mode_preference: next });
-    // Optional: notify content scripts if you later theme injected elements
-    // chrome.runtime.sendMessage({ action: 'darkModeToggled', value: next });
   }
 
-  // Listen for system dark mode changes when no explicit user pref
   try {
     const mq = window.matchMedia('(prefers-color-scheme: dark)');
     mq.addEventListener('change', (e) => {
@@ -78,32 +89,90 @@ document.addEventListener('DOMContentLoaded', function() {
       });
     });
   } catch (_) {
-    // Older browsers fallback (not needed for MV3 Chrome, but safe)
+    // ignore
   }
 
-  // --- Event Listeners ---
+  function toggleProviderPanels(selectedProvider) {
+    for (const provider in settingsMap) {
+      const sec = settingsMap[provider].settingsDiv;
+      if (!sec) continue;
+      sec.style.display = provider === selectedProvider ? 'block' : 'none';
+    }
+  }
+
   darkModeToggle?.addEventListener('click', toggleDarkMode);
 
   aiProviderSelect.addEventListener('change', () => {
-    const selectedProvider = aiProviderSelect.value;
-    for (const provider in settingsMap) {
-      const sec = settingsMap[provider].settingsDiv;
-      if (sec) sec.style.display = provider === selectedProvider ? 'block' : 'none';
-    }
+    toggleProviderPanels(aiProviderSelect.value);
   });
 
   saveBtn.addEventListener('click', saveSettings);
 
-  for (const provider in settingsMap) {
+  for (const provider of ['gemini', 'openai', 'claude', 'openrouter']) {
     const { apiKeyInput, showHideBtn } = settingsMap[provider];
     if (apiKeyInput && showHideBtn) {
       showHideBtn.addEventListener('click', () => togglePasswordVisibility(apiKeyInput, showHideBtn));
     }
   }
 
-  // --- Functions ---
+  function normalizeStoredSettings(data) {
+    const provider = data.provider || data.zeus_selected_provider || DEFAULT_SETTINGS.provider;
+
+    const apiKeys = {
+      ...DEFAULT_SETTINGS.apiKeys,
+      ...(data.apiKeys || {}),
+      gemini: data.apiKeys?.gemini ?? data.zeus_gemini_api_key ?? DEFAULT_SETTINGS.apiKeys.gemini,
+      openai: data.apiKeys?.openai ?? data.zeus_openai_api_key ?? DEFAULT_SETTINGS.apiKeys.openai,
+      claude: data.apiKeys?.claude ?? data.zeus_claude_api_key ?? DEFAULT_SETTINGS.apiKeys.claude,
+      openrouter: data.apiKeys?.openrouter ?? data.zeus_openrouter_api_key ?? data?.zeus_provider_configs?.openrouter?.apiKey ?? DEFAULT_SETTINGS.apiKeys.openrouter
+    };
+
+    const models = {
+      ...DEFAULT_SETTINGS.models,
+      ...(data.models || {}),
+      gemini: data.models?.gemini ?? data.zeus_gemini_model ?? DEFAULT_SETTINGS.models.gemini,
+      openai: data.models?.openai ?? data.zeus_openai_model ?? DEFAULT_SETTINGS.models.openai,
+      claude: data.models?.claude ?? data.zeus_claude_model ?? DEFAULT_SETTINGS.models.claude,
+      openrouter: data.models?.openrouter ?? data.zeus_openrouter_model ?? data?.zeus_provider_configs?.openrouter?.model ?? DEFAULT_SETTINGS.models.openrouter
+    };
+
+    const ollama = {
+      model: data.ollama?.model || data.zeus_ollama_model || ''
+    };
+
+    return { provider, apiKeys, models, ollama };
+  }
+
+  function buildStoragePayload(config) {
+    return {
+      provider: config.provider,
+      apiKeys: config.apiKeys,
+      models: config.models,
+      ollama: config.ollama,
+
+      // Legacy compatibility
+      zeus_selected_provider: config.provider,
+      zeus_gemini_api_key: config.apiKeys.gemini,
+      zeus_gemini_model: config.models.gemini,
+      zeus_openai_api_key: config.apiKeys.openai,
+      zeus_openai_model: config.models.openai,
+      zeus_claude_api_key: config.apiKeys.claude,
+      zeus_claude_model: config.models.claude,
+      zeus_openrouter_api_key: config.apiKeys.openrouter,
+      zeus_openrouter_model: config.models.openrouter,
+      zeus_ollama_model: String(config?.ollama?.model || '').trim(),
+      zeus_provider_configs: {
+        openrouter: {
+          apiKey: config.apiKeys.openrouter,
+          model: config.models.openrouter
+        }
+      }
+    };
+  }
+
   function loadSettings() {
     const keysToGet = [
+      'provider', 'apiKeys', 'models', 'ollama',
       'zeus_selected_provider',
       'zeus_gemini_api_key', 'zeus_gemini_model',
       'zeus_openai_api_key', 'zeus_openai_model',
@@ -111,25 +180,22 @@ document.addEventListener('DOMContentLoaded', function() {
       'zeus_openrouter_api_key', 'zeus_openrouter_model',
       'zeus_provider_configs'
     ];
+
     chrome.storage.sync.get(keysToGet, (data) => {
       if (chrome.runtime.lastError) {
         showStatus('Could not load settings', 'error');
         return;
       }
 
-      aiProviderSelect.value = data.zeus_selected_provider || 'gemini';
+      const normalized = normalizeStoredSettings(data || {});
 
-      if (settingsMap.gemini.apiKeyInput) settingsMap.gemini.apiKeyInput.value = data.zeus_gemini_api_key || '';
+      aiProviderSelect.value = normalized.provider;
+      settingsMap.gemini.apiKeyInput.value = normalized.apiKeys.gemini;
+      settingsMap.openai.apiKeyInput.value = normalized.apiKeys.openai;
+      settingsMap.claude.apiKeyInput.value = normalized.apiKeys.claude;
+      settingsMap.openrouter.apiKeyInput.value = normalized.apiKeys.openrouter;
 
-      if (settingsMap.openai.apiKeyInput) settingsMap.openai.apiKeyInput.value = data.zeus_openai_api_key || '';
-
-      if (settingsMap.claude.apiKeyInput) settingsMap.claude.apiKeyInput.value = data.zeus_claude_api_key || '';
-
-      if (settingsMap.openrouter.apiKeyInput) {
-        settingsMap.openrouter.apiKeyInput.value = data.zeus_openrouter_api_key || data?.zeus_provider_configs?.openrouter?.apiKey || '';
-      }
-
-      aiProviderSelect.dispatchEvent(new Event('change'));
+      toggleProviderPanels(normalized.provider);
     });
   }
 
@@ -137,34 +203,32 @@ document.addEventListener('DOMContentLoaded', function() {
     saveBtn.disabled = true;
     saveBtn.textContent = 'Saving...';
 
-    const openRouterModel = DEFAULT_MODELS.openrouter;
-    const payload = {
-      zeus_selected_provider: aiProviderSelect.value,
-      zeus_gemini_api_key: settingsMap.gemini.apiKeyInput?.value.trim() || '',
-      zeus_gemini_model: DEFAULT_MODELS.gemini,
-      zeus_openai_api_key: settingsMap.openai.apiKeyInput?.value.trim() || '',
-      zeus_openai_model: DEFAULT_MODELS.openai,
-      zeus_claude_api_key: settingsMap.claude.apiKeyInput?.value.trim() || '',
-      zeus_claude_model: DEFAULT_MODELS.claude,
-      zeus_openrouter_api_key: settingsMap.openrouter.apiKeyInput?.value.trim() || '',
-      zeus_openrouter_model: openRouterModel,
-      zeus_provider_configs: {
-        openrouter: {
-          apiKey: settingsMap.openrouter.apiKeyInput?.value.trim() || '',
-          model: openRouterModel
-        }
-      }
+    const provider = aiProviderSelect.value;
+    const settings = {
+      provider,
+      apiKeys: {
+        gemini: settingsMap.gemini.apiKeyInput?.value.trim() || '',
+        openai: settingsMap.openai.apiKeyInput?.value.trim() || '',
+        claude: settingsMap.claude.apiKeyInput?.value.trim() || '',
+        openrouter: settingsMap.openrouter.apiKeyInput?.value.trim() || ''
+      },
+      models: { ...DEFAULT_SETTINGS.models },
+      ollama: {}
     };
+
+    const payload = buildStoragePayload(settings);
 
     chrome.storage.sync.set(payload, () => {
       saveBtn.disabled = false;
-      saveBtn.textContent = 'Save API Keys';
+      saveBtn.textContent = 'Save Settings';
+
       if (chrome.runtime.lastError) {
         showStatus(`Error: ${chrome.runtime.lastError.message}`, 'error');
-      } else {
-        showStatus('Settings saved successfully!', 'success');
-        chrome.runtime.sendMessage({ action: 'settingsUpdated', settings: payload });
+        return;
       }
+
+      showStatus('Settings saved successfully!', 'success');
+      chrome.runtime.sendMessage({ action: 'settingsUpdated', settings: payload });
     });
   }
 
@@ -186,7 +250,6 @@ document.addEventListener('DOMContentLoaded', function() {
     }, 4000);
   }
 
-  // --- Initialization ---
   initializeDarkMode();
   loadSettings();
 });

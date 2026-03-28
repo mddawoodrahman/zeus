@@ -39,6 +39,8 @@
           <option value="openai">OpenAI</option>
           <option value="claude">Claude</option>
           <option value="openrouter">OpenRouter</option>
+          <option value="ollama">Ollama (Local)</option>
+          <option value="auto">Auto (Ollama -> OpenAI)</option>
         </select>
       </div>
 
@@ -75,8 +77,18 @@
           <button id="showHideOpenRouter" type="button">Show</button>
         </div>
       </div>
+
+      <div id="ollama-settings" class="api-settings" style="display: none;">
+        <p>Use your local Ollama server at http://localhost:11434.</p>
+        <p>Model is auto-detected from local running Ollama models.</p>
+      </div>
+
+      <div id="auto-settings" class="api-settings" style="display: none;">
+        <p>Auto mode tries Ollama first and falls back to OpenAI if Ollama is unavailable.</p>
+        <p>For best results, set an OpenAI API key.</p>
+      </div>
       
-      <button id="saveBtn" class="primary-btn">Save API Keys</button>
+      <button id="saveBtn" class="primary-btn">Save Settings</button>
       <div id="status" class="status"></div>
     </div> 
     <div class="footer">

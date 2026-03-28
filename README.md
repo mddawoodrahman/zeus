@@ -1,17 +1,20 @@
 # Zeus - Prompt Enhancer
 
-Zeus is a Manifest V3 Chrome extension that rewrites prompts using multiple LLM providers and injects an **Enhance Prompt** button directly into supported chat inputs.
+Zeus is a Manifest V3 Chrome extension that rewrites prompts using cloud and local LLM providers, and injects an **Enhance Prompt** button directly into supported chat inputs.
 
 ## Current Features
 
-- Prompt rewriting with provider APIs: **Gemini**, **OpenAI**, **Claude**, and **OpenRouter**.
+- Prompt rewriting with provider APIs: **Gemini**, **OpenAI**, **Claude**, **OpenRouter**, and **Ollama (Local)**.
+- **Auto mode**: tries Ollama first, then falls back to OpenAI.
 - Inline enhance button injection on supported chat sites.
 - Context-menu action: **Enhance Prompt with Zeus** on editable fields.
 - Provider selector + API key management in popup.
 - Automatic dark mode support in popup.
 - SPA-aware input detection with MutationObserver.
-- Unified server-driven error classification in background service worker.
+- Shared prompt-engineering pipeline across all providers.
+- Unified server-driven error normalization in background service worker.
 - OpenRouter support with recommended headers (`HTTP-Referer`, `X-Title`) and bounded retry/backoff on `429`.
+- Ollama health checks + local model auto-detection.
 
 ## Supported Sites (content script injection)
 
@@ -27,11 +30,15 @@ Zeus is a Manifest V3 Chrome extension that rewrites prompts using multiple LLM 
 - `openai`
 - `claude`
 - `openrouter`
+- `ollama`
+- `auto`
 
 ### Model Behavior
 
-The popup currently does **not** expose model selectors.
-Zeus stores and uses internal default model values per provider when saving settings.
+- Cloud providers use internal default model values managed by the extension.
+- Ollama model is **auto-detected** from local Ollama:
+	1. first running model (`/api/ps`)
+	2. then first installed model (`/api/tags`)
 
 ## Installation
 
@@ -45,9 +52,32 @@ Zeus stores and uses internal default model values per provider when saving sett
 
 1. Open Zeus popup.
 2. Choose a provider.
-3. Enter API key for that provider.
-4. Click **Save API Keys**.
+3. Enter API key for cloud providers (not needed for Ollama).
+4. Click **Save Settings**.
 5. Go to a supported site and click the Zeus lightning button near the input.
+
+### Auto Mode
+
+- Select `auto` in the popup.
+- Zeus tries Ollama first.
+- If Ollama fails, Zeus falls back to OpenAI (requires OpenAI API key).
+
+### Ollama Setup (Required)
+
+To allow Chrome extension requests, Ollama must allow your extension origin.
+
+PowerShell example:
+
+```powershell
+$env:OLLAMA_ORIGINS="chrome-extension://<YOUR_EXTENSION_ID>,*"
+ollama serve
+```
+
+Then run or pull at least one model locally, for example:
+
+```powershell
+ollama run qwen3:8b
+```
 
 ### Context Menu
 
@@ -71,6 +101,7 @@ Zeus stores and uses internal default model values per provider when saving sett
 - `https://chat.deepseek.com/*`
 - `https://grok.com/*`
 - `https://openrouter.ai/*`
+- `http://localhost:11434/*`
 
 ### Optional host permissions
 
@@ -79,7 +110,7 @@ Zeus stores and uses internal default model values per provider when saving sett
 ## Architecture
 
 - `content.js`: Input detection, button injection, messaging, context-menu action handling.
-- `background.js`: Provider routing, API calls, retries/backoff, unified error normalization/classification.
+- `background.js`: Provider routing, API calls, OpenRouter retries/backoff, Ollama health/model detection, unified error normalization.
 - `popup.html` + `popup.js`: Provider selection, API key save/load, dark mode UI.
 - `styles.css`: Popup and injected button styling.
 - `manifest.json`: MV3 configuration, permissions, content script registration.
@@ -94,7 +125,10 @@ Zeus stores and uses internal default model values per provider when saving sett
 
 - **Enhance button not showing**: reload the tab, then reopen popup.
 - **Extension context invalidated**: reload the page after extension updates/reloads.
-- **Provider/model errors**: verify API key, provider selection, and account access/quota.
+- **Ollama not running**: start Ollama with `ollama serve`.
+- **Ollama blocked extension origin**: set `OLLAMA_ORIGINS` to include `chrome-extension://<YOUR_EXTENSION_ID>` and restart Ollama.
+- **No local Ollama model detected**: run a local model at least once, e.g. `ollama run qwen3:8b`.
+- **Provider/model errors**: verify provider selection and required API keys.
 
 ## License
 
