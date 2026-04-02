@@ -28,72 +28,90 @@
         </svg>
       </button>
     </div>
-    
-    <div class="section">
-      <h2>API Key Configuration</h2>
-      
-      <div class="api-provider-selection">
-        <label for="aiProvider">Select AI Provider:</label>
-        <select id="aiProvider">
-          <option value="gemini">Gemini</option>
-          <option value="openai">OpenAI</option>
-          <option value="claude">Claude</option>
-          <option value="openrouter">OpenRouter</option>
-          <option value="ollama">Ollama (Local)</option>
-          <option value="auto">Auto (Ollama -> OpenAI)</option>
-        </select>
-      </div>
 
-      <div id="gemini-settings" class="api-settings">
-        <p>Enter your Gemini API key:</p>
-        <div class="input-group">
-          <input type="password" id="geminiApiKey" placeholder="Enter your Gemini API key">
-          <button id="showHideGemini" type="button">Show</button>
+    <main class="main-content">
+      <div class="section">
+        <h2>Provider Settings</h2>
+
+        <div class="api-provider-selection">
+          <label for="aiProvider">Select AI Provider:</label>
+          <select id="aiProvider">
+            <option value="gemini">Gemini</option>
+            <option value="openai">OpenAI</option>
+            <option value="claude">Claude</option>
+            <option value="openrouter">OpenRouter</option>
+            <option value="ollama">Ollama (Local)</option>
+            <option value="auto">Auto (Smart Routing)</option>
+          </select>
+          <p id="provider-help-text" class="helper-text"></p>
         </div>
-      </div>
 
-      <div id="openai-settings" class="api-settings" style="display: none;">
-        <p>Enter your OpenAI API key:</p>
-        <div class="input-group">
-          
-          <input type="password" id="openaiApiKey" placeholder="Enter your OpenAI API key">
-          <button id="showHideOpenAI" type="button">Show</button>
+        <div id="model-selection" class="api-provider-selection">
+          <label for="providerModel" class="model-label">Select Model:</label>
+          <select id="providerModel"></select>
+          <div id="model-meta" class="model-meta" style="display: none;">
+            <div class="model-title-row">
+              <span id="model-display-name" class="model-display-name"></span>
+              <span id="model-badge" class="model-badge"></span>
+            </div>
+            <p id="model-help-text" class="helper-text"></p>
+            <div id="model-tags" class="model-tags"></div>
+          </div>
         </div>
-      </div>
 
-      <div id="claude-settings" class="api-settings" style="display: none;">
-        <p>Enter your Claude API key:</p>
-        <div class="input-group">
-        
-          <input type="password" id="claudeApiKey" placeholder="Enter your Claude API key">
-          <button id="showHideClaude" type="button">Show</button>
+        <div id="gemini-settings" class="api-settings">
+          <p>Enter your Gemini API key:</p>
+          <div class="input-group">
+            <input type="password" id="geminiApiKey" placeholder="Enter your Gemini API key">
+            <button id="showHideGemini" type="button">Show</button>
+          </div>
         </div>
-      </div>
 
-      <div id="openrouter-settings" class="api-settings" style="display: none;">
-        <p>Enter your OpenRouter API key:</p>
-        <div class="input-group">
-          <input type="password" id="openrouterApiKey" placeholder="Enter your OpenRouter API key">
-          <button id="showHideOpenRouter" type="button">Show</button>
+        <div id="openai-settings" class="api-settings" style="display: none;">
+          <p>Enter your OpenAI API key:</p>
+          <div class="input-group">
+            <input type="password" id="openaiApiKey" placeholder="Enter your OpenAI API key">
+            <button id="showHideOpenAI" type="button">Show</button>
+          </div>
         </div>
-      </div>
 
-      <div id="ollama-settings" class="api-settings" style="display: none;">
-        <p>Use your local Ollama server at http://localhost:11434.</p>
-        <p>Model is auto-detected from local running Ollama models.</p>
-      </div>
+        <div id="claude-settings" class="api-settings" style="display: none;">
+          <p>Enter your Claude API key:</p>
+          <div class="input-group">
+            <input type="password" id="claudeApiKey" placeholder="Enter your Claude API key">
+            <button id="showHideClaude" type="button">Show</button>
+          </div>
+        </div>
 
-      <div id="auto-settings" class="api-settings" style="display: none;">
-        <p>Auto mode tries Ollama first and falls back to OpenAI if Ollama is unavailable.</p>
-        <p>For best results, set an OpenAI API key.</p>
+        <div id="openrouter-settings" class="api-settings" style="display: none;">
+          <p>Enter your OpenRouter API key:</p>
+          <div class="input-group">
+            <input type="password" id="openrouterApiKey" placeholder="Enter your OpenRouter API key">
+            <button id="showHideOpenRouter" type="button">Show</button>
+          </div>
+        </div>
+
+        <div id="ollama-settings" class="api-settings" style="display: none;">
+          <p>Use your local Ollama server at http://localhost:11434.</p>
+          <p>Model is auto-detected from local running Ollama models.</p>
+          <p id="ollama-suggestions" class="helper-text"></p>
+        </div>
+
+        <div id="auto-settings" class="api-settings" style="display: none;">
+          <p>Auto mode uses prompt-aware smart routing.</p>
+          <p>Coding -> GPT-5.3 Codex | Long-form -> Claude Opus 4.6 | Cheap -> Gemini 3 Flash | Default -> GPT-5.4</p>
+        </div>
+
+        <button id="saveBtn" class="primary-btn">Save Settings</button>
+        <div id="status" class="status"></div>
       </div>
-      
-      <button id="saveBtn" class="primary-btn">Save Settings</button>
-      <div id="status" class="status"></div>
-    </div> 
+    </main>
+
     <div class="footer">
     </div>
   </div>
+  <script src="model-registry.js"></script>
+  <script src="settings/settings.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>

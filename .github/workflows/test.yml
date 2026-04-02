@@ -1,0 +1,47 @@
+name: Extension CI
+
+on:
+  push:
+    branches:
+      - '**'
+    tags:
+      - 'v*'
+  pull_request:
+
+jobs:
+  validate-and-package:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run full tests
+        run: npm run test
+
+      - name: Run syntax validation
+        run: npm run test:syntax
+
+      - name: Build extension package directory
+        run: npm run build
+
+      - name: Zip extension bundle
+        if: startsWith(github.ref, 'refs/tags/')
+        run: npm run zip
+
+      - name: Upload extension artifact
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: actions/upload-artifact@v4
+        with:
+          name: extension-${{ github.ref_name }}
+          path: dist/extension.zip
+          if-no-files-found: error

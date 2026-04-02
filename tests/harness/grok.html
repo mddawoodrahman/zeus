@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Zeus Adapter Harness - Grok</title>
+  <link rel="stylesheet" href="./harness.css" />
+</head>
+<body>
+  <main>
+    <section class="card">
+      <h1>Grok Adapter Harness</h1>
+      <p>Validates selector matching and bottom-most input pick logic for the Grok adapter.</p>
+      <div class="toolbar">
+        <button id="run-checks">Run Checks</button>
+      </div>
+    </section>
+
+    <section class="grid">
+      <section class="card">
+        <h2>Mock DOM</h2>
+        <textarea id="grok-top" class="harness-input" placeholder="Top candidate"></textarea>
+        <div style="height: 180px;"></div>
+        <textarea id="grok-bottom" class="harness-input" placeholder="Bottom candidate"></textarea>
+      </section>
+      <section class="card">
+        <h2>Results</h2>
+        <ul id="results"></ul>
+      </section>
+    </section>
+  </main>
+
+  <script src="../../core/domUtils.js"></script>
+  <script src="../../adapters/grok.js"></script>
+  <script>
+    window.__ZEUS_HARNESS__ = {
+      adapterId: 'grok',
+      testHostname: 'grok.com',
+      minEligible: 2,
+      expectedPickedCount: 1,
+      expectPickedId: 'grok-bottom'
+    };
+  </script>
+  <script src="./harness.js"></script>
+</body>
+</html>

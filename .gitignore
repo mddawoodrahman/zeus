@@ -1,0 +1,39 @@
+# Dependencies
+node_modules/
+
+# Build and packaging outputs
+dist/
+*.zip
+
+# Test and coverage outputs
+coverage/
+.vitest/
+.nyc_output/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Environment and local secrets
+.env
+.env.*
+!.env.example
+*.local
+
+# Caches and temp files
+.cache/
+.eslintcache
+*.tmp
+*.temp
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor metadata
+.idea/
+.vscode/*
+!.vscode/extensions.json

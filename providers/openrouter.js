@@ -1,0 +1,172 @@
+(function initOpenRouterProvider(globalScope) {
+  const retry = globalScope.ZeusRetry;
+  const prompts = globalScope.ZeusPrompts;
+  const errors = globalScope.ZeusErrors;
+  const providerUtils = globalScope.ZeusProviderUtils;
+  const providers = providerUtils.ensureProviderBag();
+
+  const OPENROUTER_API_URL = 'https://openrouter.ai/api/v1/chat/completions';
+  const OPENROUTER_MODELS_URL = 'https://openrouter.ai/api/v1/models';
+  const OPENROUTER_APP_REFERER = 'https://zeus-extension.local';
+  const OPENROUTER_APP_TITLE = 'Zeus Prompt Enhancer';
+  const OPENROUTER_MAX_RETRIES = 3;
+  const OPENROUTER_CATALOG_TTL_MS = 10 * 60 * 1000;
+
+  let catalogCache = {
+    expiresAt: 0,
+    models: []
+  };
+
+  function extractSignal(errData) {
+    const code = String(errData?.error?.code ?? errData?.code ?? '').toLowerCase();
+    const type = String(errData?.error?.type ?? errData?.type ?? '').toLowerCase();
+    const message = String(errData?.error?.message ?? errData?.message ?? '').toLowerCase();
+    return `${code} ${type} ${message}`.trim();
+  }
+
+  function shouldFallback(status, errData) {
+    const signal = extractSignal(errData);
+    if (status === 404 || status === 429) return true;
+
+    return (
+      (signal.includes('model') && (
+        signal.includes('not found') ||
+        signal.includes('does not exist') ||
+        signal.includes('unsupported')
+      )) ||
+      signal.includes('insufficient_quota') ||
+      signal.includes('quota')
+    );
+  }
+
+  function isRetryable(status, errData) {
+    const signal = extractSignal(errData);
+    if ([408, 429, 500, 502, 503, 504].includes(status)) {
+      return true;
+    }
+
+    return (
+      signal.includes('temporarily unavailable') ||
+      signal.includes('timeout') ||
+      signal.includes('overloaded')
+    );
+  }
+
+  function extractModelIds(payload) {
+    const rows = Array.isArray(payload?.data) ? payload.data : [];
+    return rows
+      .map((item) => String(item?.id || '').trim())
+      .filter(Boolean)
+      .slice(0, 50);
+  }
+
+  async function fetchCatalog(apiKey) {
+    const now = Date.now();
+    if (catalogCache.expiresAt > now && catalogCache.models.length > 0) {
+      return catalogCache.models;
+    }
+
+    try {
+      const response = await retry.fetchWithTimeout(OPENROUTER_MODELS_URL, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'HTTP-Referer': OPENROUTER_APP_REFERER,
+          'X-Title': OPENROUTER_APP_TITLE
+        }
+      }, 8000);
+
+      if (!response.ok) {
+        return [];
+      }
+
+      const data = await providerUtils.readJsonSafe(response);
+      const models = extractModelIds(data);
+      catalogCache = {
+        expiresAt: now + OPENROUTER_CATALOG_TTL_MS,
+        models
+      };
+
+      return models;
+    } catch (_) {
+      return [];
+    }
+  }
+
+  async function buildModelCandidates(preferredModel, apiKey) {
+    const dynamicModels = await fetchCatalog(apiKey);
+    return providerUtils.buildModelCandidates('openrouter', preferredModel, dynamicModels);
+  }
+
+  async function enhance(prompt, config) {
+    const apiKey = String(config?.apiKeys?.openrouter || '').trim();
+    const model = String(config?.models?.openrouter || '').trim();
+    if (!apiKey) throw new Error('Missing OpenRouter API key.');
+    if (!model) throw new Error('Missing OpenRouter model.');
+
+    const modelCandidates = await buildModelCandidates(model, apiKey);
+    let lastError = null;
+
+    for (let modelIndex = 0; modelIndex < modelCandidates.length; modelIndex += 1) {
+      const currentModel = modelCandidates[modelIndex];
+
+      for (let attempt = 0; attempt < OPENROUTER_MAX_RETRIES; attempt += 1) {
+        const body = {
+          model: currentModel,
+          messages: [
+            { role: 'system', content: prompts.getRewriteSystemInstruction() },
+            { role: 'user', content: prompts.buildEnhancePrompt(prompt) }
+          ],
+          temperature: 0.4,
+          max_tokens: 2048
+        };
+
+        const response = await retry.fetchWithTimeout(OPENROUTER_API_URL, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${apiKey}`,
+            'HTTP-Referer': OPENROUTER_APP_REFERER,
+            'X-Title': OPENROUTER_APP_TITLE
+          },
+          body: JSON.stringify(body)
+        });
+
+        if (response.ok) {
+          const data = await providerUtils.readJsonSafe(response);
+          const enhancedText = data?.choices?.[0]?.message?.content;
+          if (!enhancedText) throw new Error('Provider responded without enhanced text.');
+          return String(enhancedText).trim();
+        }
+
+        const errData = await providerUtils.readJsonSafe(response);
+        lastError = new errors.ProviderHttpError('openrouter', response.status, errData, currentModel);
+
+        if (modelIndex < modelCandidates.length - 1 && shouldFallback(response.status, errData)) {
+          providerUtils.trackFallbackEvent({
+            provider: 'openrouter',
+            fromModel: currentModel,
+            toModel: modelCandidates[modelIndex + 1],
+            reasonCode: response.status,
+            reason: extractSignal(errData),
+            stage: 'model-candidate'
+          });
+          break;
+        }
+
+        const canRetry = attempt < OPENROUTER_MAX_RETRIES - 1 && isRetryable(response.status, errData);
+        if (canRetry) {
+          await retry.waitWithBackoff(attempt);
+          continue;
+        }
+
+        throw lastError;
+      }
+    }
+
+    if (lastError) throw lastError;
+    throw new Error('OpenRouter request failed.');
+  }
+
+  providers.openrouter = enhance;
+})(typeof globalThis !== 'undefined' ? globalThis : this);

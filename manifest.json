@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Zeus",
-  "version": "1.3",
+  "version": "1.5",
   "description": "Enhances prompts on LLM websites using supported LLM APIs.",
   "permissions": [
     "activeTab",
@@ -18,9 +18,6 @@
     "https://openrouter.ai/*",
     "http://localhost:11434/*"
   ],
-  "optional_host_permissions": [
-    "https://*/*"
-  ],
   "background": {
     "service_worker": "background.js"
   },
@@ -33,7 +30,17 @@
         "https://chat.deepseek.com/*",
         "https://grok.com/*"
       ],
-      "js": ["content.js"],
+      "js": [
+        "core/domUtils.js",
+        "core/injector.js",
+        "core/observer.js",
+        "adapters/chatgpt.js",
+        "adapters/claude.js",
+        "adapters/grok.js",
+        "adapters/deepseek.js",
+        "adapters/generic.js",
+        "content.js"
+      ],
       "run_at": "document_end"
     }
   ],

@@ -1,0 +1,38 @@
+{
+  "name": "zeus-main",
+  "version": "1.0.0",
+  "description": "Zeus is a Manifest V3 Chrome extension that rewrites prompts directly inside supported chat UIs. It keeps user intent intact while improving prompt structure, clarity, and execution quality, then routes enhancement requests to cloud or local LLM providers.",
+  "main": "background.js",
+  "directories": {
+    "test": "tests"
+  },
+  "scripts": {
+    "clean": "rm -rf dist",
+    "test": "npm run test:syntax && vitest run && npm run test:smoke",
+    "test:unit": "vitest run tests/unit",
+    "test:integration": "vitest run tests/integration",
+    "test:providers": "vitest run tests/providers",
+    "test:dom": "vitest run tests/dom",
+    "test:smoke": "node tests/smoke/settings-and-messaging.smoke.mjs",
+    "test:syntax": "node scripts/check-syntax.js",
+    "test:coverage": "vitest run --coverage",
+    "test:watch": "vitest",
+    "build": "node scripts/build-extension.js",
+    "zip": "node scripts/zip-extension.js",
+    "package": "npm run build && npm run zip"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "engines": {
+    "node": ">=18"
+  },
+  "devDependencies": {
+    "@vitest/coverage-v8": "^2.1.8",
+    "archiver": "^7.0.1",
+    "glob": "^9.3.5",
+    "jsdom": "^24.1.3",
+    "vitest": "^2.1.8"
+  }
+}

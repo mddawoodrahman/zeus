@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Zeus Adapter Harness - Generic</title>
+  <link rel="stylesheet" href="./harness.css" />
+</head>
+<body>
+  <main>
+    <section class="card">
+      <h1>Generic Adapter Harness</h1>
+      <p>Validates fallback selector behavior used when no host-specific adapter matches.</p>
+      <div class="toolbar">
+        <button id="run-checks">Run Checks</button>
+      </div>
+    </section>
+
+    <section class="grid">
+      <section class="card">
+        <h2>Mock DOM</h2>
+        <input type="text" class="harness-input" placeholder="Generic text input" />
+        <input type="search" class="harness-input" placeholder="Generic search input" />
+      </section>
+      <section class="card">
+        <h2>Results</h2>
+        <ul id="results"></ul>
+      </section>
+    </section>
+  </main>
+
+  <script src="../../core/domUtils.js"></script>
+  <script src="../../adapters/generic.js"></script>
+  <script>
+    window.__ZEUS_HARNESS__ = {
+      adapterId: 'generic',
+      testHostname: 'unknown.example',
+      minEligible: 1
+    };
+  </script>
+  <script src="./harness.js"></script>
+</body>
+</html>

@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Zeus Adapter Harness - DeepSeek</title>
+  <link rel="stylesheet" href="./harness.css" />
+</head>
+<body>
+  <main>
+    <section class="card">
+      <h1>DeepSeek Adapter Harness</h1>
+      <p>Validates selector matching and candidate input discovery for the DeepSeek adapter.</p>
+      <div class="toolbar">
+        <button id="run-checks">Run Checks</button>
+      </div>
+    </section>
+
+    <section class="grid">
+      <section class="card">
+        <h2>Mock DOM</h2>
+        <textarea class="harness-input" placeholder="DeepSeek prompt input"></textarea>
+        <div role="textbox" contenteditable="true" class="harness-input">Editable DeepSeek input</div>
+      </section>
+      <section class="card">
+        <h2>Results</h2>
+        <ul id="results"></ul>
+      </section>
+    </section>
+  </main>
+
+  <script src="../../core/domUtils.js"></script>
+  <script src="../../adapters/deepseek.js"></script>
+  <script>
+    window.__ZEUS_HARNESS__ = {
+      adapterId: 'deepseek',
+      testHostname: 'chat.deepseek.com',
+      minEligible: 1
+    };
+  </script>
+  <script src="./harness.js"></script>
+</body>
+</html>

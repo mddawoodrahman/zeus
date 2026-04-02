@@ -414,6 +414,69 @@ button:disabled {
   width: 100%;
 }
 
+.helper-text {
+  margin: 8px 0 0 0;
+  font-size: 11px;
+  color: var(--text-secondary);
+  line-height: 1.45;
+}
+
+.model-meta {
+  margin-top: 10px;
+  padding: 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  background: linear-gradient(180deg, var(--bg-secondary), var(--bg-card));
+  box-shadow: var(--shadow-xs);
+  animation: slideDown 0.2s ease;
+}
+
+.model-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.model-display-name {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.model-badge {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: var(--accent-glow);
+  color: var(--accent-primary);
+  border: 1px solid var(--accent-primary);
+}
+
+.model-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.model-tag {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-light);
+  border-radius: 999px;
+  padding: 3px 8px;
+}
+
+select optgroup {
+  font-style: normal;
+  color: var(--text-secondary);
+}
+
 .api-settings {
   animation: slideDown 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
