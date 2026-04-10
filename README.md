@@ -150,8 +150,11 @@ This separation keeps site heuristics isolated and avoids intrusive DOM reparent
 - `https://chatgpt.com/*`
 - `https://chat.openai.com/*`
 - `https://claude.ai/*`
+- `https://gemini.google.com/*`
 - `https://chat.deepseek.com/*`
+- `https://deepseek.com/*`
 - `https://grok.com/*`
+- `https://openrouter.ai/*`
 
 ### Provider endpoints
 

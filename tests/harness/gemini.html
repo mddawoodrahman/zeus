@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Zeus Adapter Harness - Gemini</title>
+  <link rel="stylesheet" href="./harness.css" />
+</head>
+<body>
+  <main>
+    <section class="card">
+      <h1>Gemini Adapter Harness</h1>
+      <p>Validates selector matching and candidate input discovery for the Gemini adapter.</p>
+      <div class="toolbar">
+        <button id="run-checks">Run Checks</button>
+      </div>
+    </section>
+
+    <section class="grid">
+      <section class="card">
+        <h2>Mock DOM</h2>
+        <form>
+          <div class="harness-input" role="textbox" contenteditable="true" aria-label="Enter your prompt">Type prompt here</div>
+          <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:8px;">
+            <button type="button" aria-label="Voice input">Voice</button>
+            <button type="button" aria-label="Send message">Send</button>
+          </div>
+        </form>
+      </section>
+      <section class="card">
+        <h2>Results</h2>
+        <ul id="results"></ul>
+      </section>
+    </section>
+  </main>
+
+  <script src="../../core/domUtils.js"></script>
+  <script src="../../adapters/gemini.js"></script>
+  <script>
+    window.__ZEUS_HARNESS__ = {
+      adapterId: 'gemini-site',
+      testHostname: 'gemini.google.com',
+      minEligible: 1
+    };
+  </script>
+  <script src="./harness.js"></script>
+</body>
+</html>
