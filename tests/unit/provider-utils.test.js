@@ -46,4 +46,22 @@ describe('ZeusProviderUtils', () => {
       })
     );
   });
+
+  it('infers chat token parameter by provider/model family', () => {
+    expect(globalThis.ZeusProviderUtils.inferChatTokenParam('openai', 'gpt-5.4-mini')).toBe('max_completion_tokens');
+    expect(globalThis.ZeusProviderUtils.inferChatTokenParam('openrouter', 'openai/gpt-5.4')).toBe('max_completion_tokens');
+    expect(globalThis.ZeusProviderUtils.inferChatTokenParam('openrouter', 'google/gemini-3-pro')).toBe('max_tokens');
+  });
+
+  it('detects unsupported token parameter errors and suggests alternate field', () => {
+    const errorPayload = {
+      error: {
+        message: "Unsupported parameter: 'max_tokens' is not supported with this model. Use 'max_completion_tokens' instead."
+      }
+    };
+
+    expect(globalThis.ZeusProviderUtils.isUnsupportedTokenParameterError(errorPayload, 'max_tokens')).toBe(true);
+    expect(globalThis.ZeusProviderUtils.getAlternateChatTokenParam('max_tokens')).toBe('max_completion_tokens');
+    expect(globalThis.ZeusProviderUtils.getAlternateChatTokenParam('max_completion_tokens')).toBe('max_tokens');
+  });
 });

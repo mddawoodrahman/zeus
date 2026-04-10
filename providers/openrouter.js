@@ -109,6 +109,7 @@
 
     for (let modelIndex = 0; modelIndex < modelCandidates.length; modelIndex += 1) {
       const currentModel = modelCandidates[modelIndex];
+      let tokenParam = providerUtils.inferChatTokenParam('openrouter', currentModel);
 
       for (let attempt = 0; attempt < OPENROUTER_MAX_RETRIES; attempt += 1) {
         const body = {
@@ -118,7 +119,7 @@
             { role: 'user', content: prompts.buildEnhancePrompt(prompt) }
           ],
           temperature: 0.4,
-          max_tokens: 2048
+          ...providerUtils.buildChatTokenLimit(tokenParam, 2048)
         };
 
         const response = await retry.fetchWithTimeout(OPENROUTER_API_URL, {
@@ -141,6 +142,14 @@
 
         const errData = await providerUtils.readJsonSafe(response);
         lastError = new errors.ProviderHttpError('openrouter', response.status, errData, currentModel);
+
+        if (response.status === 400 && providerUtils.isUnsupportedTokenParameterError(errData, tokenParam)) {
+          const alternateParam = providerUtils.getAlternateChatTokenParam(tokenParam);
+          if (alternateParam) {
+            tokenParam = alternateParam;
+            continue;
+          }
+        }
 
         if (modelIndex < modelCandidates.length - 1 && shouldFallback(response.status, errData)) {
           providerUtils.trackFallbackEvent({

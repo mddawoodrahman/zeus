@@ -238,6 +238,10 @@
     }
 
     function shouldBeVisible() {
+      if (activeInput && activeInput.isConnected) {
+        return true;
+      }
+
       if (buttonHovering) {
         return true;
       }

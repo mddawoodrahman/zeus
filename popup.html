@@ -48,7 +48,40 @@
 
         <div id="model-selection" class="api-provider-selection">
           <label for="providerModel" class="model-label">Select Model:</label>
-          <select id="providerModel"></select>
+
+          <div class="model-picker" id="modelPicker">
+            <button
+              id="modelPickerTrigger"
+              class="model-picker-trigger"
+              type="button"
+              aria-haspopup="listbox"
+              aria-expanded="false"
+              aria-controls="modelPickerPanel"
+            >
+              <span class="model-picker-trigger-main">
+                <span id="selectedModelText" class="selected-model-text">Select a model</span>
+                <span id="selectedModelBadge" class="selected-model-badge" style="display:none;"></span>
+              </span>
+              <span class="model-picker-chevron" aria-hidden="true">▾</span>
+            </button>
+
+            <div id="modelPickerPanel" class="model-picker-panel" role="listbox" aria-label="Available models" hidden>
+              <div class="model-search-wrap">
+                <input
+                  id="modelSearchInput"
+                  class="model-search-input"
+                  type="text"
+                  placeholder="Search models by name, speed, cost"
+                  autocomplete="off"
+                >
+              </div>
+              <div id="modelOptionGroups" class="model-option-groups"></div>
+              <p id="modelEmptyState" class="model-empty-state" hidden>No models match your search.</p>
+            </div>
+          </div>
+
+          <select id="providerModel" class="model-native-select" aria-hidden="true" tabindex="-1"></select>
+
           <div id="model-meta" class="model-meta" style="display: none;">
             <div class="model-title-row">
               <span id="model-display-name" class="model-display-name"></span>

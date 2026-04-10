@@ -6,7 +6,7 @@
   const providers = providerUtils.ensureProviderBag();
 
   const GEMINI_API_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/models';
-  const GEMINI_MAX_RETRIES = 2;
+  const GEMINI_MAX_RETRIES = 3;
 
   function extractSignal(errData) {
     const code = String(errData?.error?.code ?? errData?.code ?? '').toLowerCase();
@@ -17,14 +17,19 @@
 
   function shouldFallback(status, errData) {
     const signal = extractSignal(errData);
-    if (status === 404 || status === 429) return true;
+    if (status === 404 || status === 429 || status === 503) return true;
 
     return (
       signal.includes('resource_exhausted') ||
       signal.includes('quota') ||
       signal.includes('rate limit') ||
       signal.includes('model_not_found') ||
-      signal.includes('not found')
+      signal.includes('not found') ||
+      signal.includes('high demand') ||
+      signal.includes('currently experiencing high demand') ||
+      signal.includes('temporarily unavailable') ||
+      signal.includes('unavailable') ||
+      signal.includes('overloaded')
     );
   }
 
@@ -35,6 +40,10 @@
     }
 
     return (
+      signal.includes('high demand') ||
+      signal.includes('currently experiencing high demand') ||
+      signal.includes('unavailable') ||
+      signal.includes('overloaded') ||
       signal.includes('temporarily unavailable') ||
       signal.includes('backend error') ||
       signal.includes('internal error')

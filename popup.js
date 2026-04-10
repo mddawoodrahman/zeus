@@ -5,6 +5,14 @@ document.addEventListener('DOMContentLoaded', () => {
   const aiProviderSelect = document.getElementById('aiProvider');
   const modelSelectionSection = document.getElementById('model-selection');
   const providerModelSelect = document.getElementById('providerModel');
+  const modelPicker = document.getElementById('modelPicker');
+  const modelPickerTrigger = document.getElementById('modelPickerTrigger');
+  const modelPickerPanel = document.getElementById('modelPickerPanel');
+  const modelSearchInput = document.getElementById('modelSearchInput');
+  const modelOptionGroups = document.getElementById('modelOptionGroups');
+  const modelEmptyState = document.getElementById('modelEmptyState');
+  const selectedModelText = document.getElementById('selectedModelText');
+  const selectedModelBadge = document.getElementById('selectedModelBadge');
   const providerHelpText = document.getElementById('provider-help-text');
   const modelHelpText = document.getElementById('model-help-text');
   const modelMeta = document.getElementById('model-meta');
@@ -60,6 +68,77 @@ document.addEventListener('DOMContentLoaded', () => {
     models: { gemini: '', openai: '', claude: '', openrouter: '' },
     ollama: { model: '' }
   };
+
+  function setModelPickerOpen(isOpen) {
+    if (!modelPicker || !modelPickerPanel || !modelPickerTrigger) return;
+
+    modelPicker.classList.toggle('open', Boolean(isOpen));
+    modelPickerPanel.hidden = !isOpen;
+    modelPickerTrigger.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+
+    if (isOpen && modelSearchInput) {
+      modelSearchInput.focus();
+      modelSearchInput.select();
+    }
+  }
+
+  function updateSelectedModelHeader(provider, modelId) {
+    if (!selectedModelText || !selectedModelBadge) return;
+
+    const model = registry?.getModel?.(provider, modelId);
+    if (model) {
+      selectedModelText.textContent = formatModelOptionLabel(model);
+      selectedModelBadge.textContent = model.badge || '';
+      selectedModelBadge.style.display = model.badge ? 'inline-flex' : 'none';
+      return;
+    }
+
+    const normalized = String(modelId || '').trim();
+    selectedModelText.textContent = normalized ? `${normalized} (custom)` : 'Select a model';
+    selectedModelBadge.style.display = 'none';
+  }
+
+  function syncSelectedModelOptionState(modelId) {
+    if (!modelOptionGroups) return;
+
+    const normalized = String(modelId || '').trim();
+    const options = modelOptionGroups.querySelectorAll('.model-option');
+
+    for (const option of options) {
+      const selected = String(option.dataset.value || '') === normalized;
+      option.classList.toggle('is-selected', selected);
+      option.setAttribute('aria-selected', selected ? 'true' : 'false');
+    }
+  }
+
+  function applyModelSearchFilter() {
+    if (!modelOptionGroups) return;
+
+    const query = String(modelSearchInput?.value || '').trim().toLowerCase();
+    const groups = modelOptionGroups.querySelectorAll('.model-option-group');
+    let visibleOptionCount = 0;
+
+    for (const group of groups) {
+      const options = group.querySelectorAll('.model-option');
+      let visibleInGroup = 0;
+
+      for (const option of options) {
+        const haystack = String(option.dataset.search || '').toLowerCase();
+        const match = !query || haystack.includes(query);
+        option.hidden = !match;
+        if (match) {
+          visibleInGroup += 1;
+          visibleOptionCount += 1;
+        }
+      }
+
+      group.hidden = visibleInGroup === 0;
+    }
+
+    if (modelEmptyState) {
+      modelEmptyState.hidden = visibleOptionCount > 0;
+    }
+  }
 
   function initializeDarkMode() {
     chrome.storage.sync.get(['zeus_dark_mode_preference'], (data) => {
@@ -125,53 +204,109 @@ document.addEventListener('DOMContentLoaded', () => {
     return badge ? `${baseLabel} - ${badge}` : baseLabel;
   }
 
+  function createModelOptionButton(provider, model) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'model-option';
+    button.setAttribute('role', 'option');
+    button.setAttribute('aria-selected', 'false');
+    button.dataset.value = model.id;
+    button.dataset.search = [
+      model.id,
+      model.label,
+      model.badge,
+      model.speed,
+      model.cost,
+      ...(Array.isArray(model.bestFor) ? model.bestFor : [])
+    ].join(' ').toLowerCase();
+
+    const label = document.createElement('span');
+    label.className = 'model-option-label';
+    label.textContent = model.label || model.id;
+
+    const meta = document.createElement('span');
+    meta.className = 'model-option-meta';
+    meta.textContent = [model.badge, model.speed, model.cost]
+      .filter(Boolean)
+      .join(' • ');
+
+    button.appendChild(label);
+    button.appendChild(meta);
+
+    button.addEventListener('click', () => {
+      providerModelSelect.value = model.id;
+      currentSettings.models[provider] = model.id;
+      syncSelectedModelOptionState(model.id);
+      updateSelectedModelHeader(provider, model.id);
+      renderModelMeta(provider, model.id);
+      setModelPickerOpen(false);
+    });
+
+    return button;
+  }
+
   function populateModelOptions(provider, selectedModel) {
-    if (!providerModelSelect) return;
+    if (!providerModelSelect || !modelOptionGroups) return;
 
     providerModelSelect.innerHTML = '';
+    modelOptionGroups.innerHTML = '';
     const groupedModels = registry?.getGroupedModels?.(provider) || {};
     let totalOptions = 0;
+    const allModelIds = [];
+
+    function appendHiddenOption(value, text) {
+      const option = document.createElement('option');
+      option.value = value;
+      option.textContent = text;
+      providerModelSelect.appendChild(option);
+    }
 
     for (const groupKey of PROVIDER_GROUP_ORDER) {
       const items = Array.isArray(groupedModels[groupKey]) ? groupedModels[groupKey] : [];
       if (items.length === 0) continue;
 
-      const group = document.createElement('optgroup');
-      group.label = GROUP_LABELS[groupKey] || 'Models';
+      const group = document.createElement('div');
+      group.className = 'model-option-group';
+
+      const groupTitle = document.createElement('div');
+      groupTitle.className = 'model-option-group-title';
+      groupTitle.textContent = GROUP_LABELS[groupKey] || 'Models';
+      group.appendChild(groupTitle);
 
       for (const item of items) {
-        const option = document.createElement('option');
-        option.value = item.id;
-        option.textContent = formatModelOptionLabel(item);
-        group.appendChild(option);
+        appendHiddenOption(item.id, formatModelOptionLabel(item));
+        allModelIds.push(item.id);
+        group.appendChild(createModelOptionButton(provider, item));
         totalOptions += 1;
       }
 
-      providerModelSelect.appendChild(group);
+      modelOptionGroups.appendChild(group);
     }
 
     if (totalOptions === 0) {
+      updateSelectedModelHeader(provider, '');
       return;
     }
 
-    const modelIdList = registry?.getProviderModels?.(provider)?.map((item) => item.id) || [];
+    const modelIdList = allModelIds;
     const normalizedSelected = String(selectedModel || '').trim();
 
     if (normalizedSelected && modelIdList.includes(normalizedSelected)) {
       providerModelSelect.value = normalizedSelected;
-      return;
-    }
-
-    if (normalizedSelected && !modelIdList.includes(normalizedSelected)) {
-      const customOption = document.createElement('option');
-      customOption.value = normalizedSelected;
-      customOption.textContent = `${normalizedSelected} (custom)`;
-      providerModelSelect.prepend(customOption);
+    } else if (normalizedSelected && !modelIdList.includes(normalizedSelected)) {
+      appendHiddenOption(normalizedSelected, `${normalizedSelected} (custom)`);
       providerModelSelect.value = normalizedSelected;
-      return;
+    } else {
+      providerModelSelect.value = modelIdList[0] || '';
     }
 
-    providerModelSelect.value = modelIdList[0] || '';
+    if (modelSearchInput) {
+      modelSearchInput.value = '';
+    }
+
+    syncSelectedModelOptionState(providerModelSelect.value);
+    updateSelectedModelHeader(provider, providerModelSelect.value);
+    applyModelSearchFilter();
   }
 
   function renderModelMeta(provider, modelId) {
@@ -213,6 +348,7 @@ document.addEventListener('DOMContentLoaded', () => {
   function syncModelSelector(provider, selectedModel) {
     setModelSelectorVisibility(provider);
     if (!supportsModelSelection(provider)) {
+      setModelPickerOpen(false);
       if (modelMeta) modelMeta.style.display = 'none';
       if (modelHelpText) modelHelpText.textContent = '';
       return;
@@ -309,8 +445,41 @@ document.addEventListener('DOMContentLoaded', () => {
   aiProviderSelect?.addEventListener('change', () => {
     const selectedProvider = aiProviderSelect.value;
     currentSettings.provider = selectedProvider;
+    setModelPickerOpen(false);
     toggleProviderPanels(selectedProvider);
     syncModelSelector(selectedProvider, currentSettings.models?.[selectedProvider]);
+  });
+
+  modelPickerTrigger?.addEventListener('click', () => {
+    setModelPickerOpen(Boolean(modelPickerPanel?.hidden));
+  });
+
+  modelPickerTrigger?.addEventListener('keydown', (event) => {
+    if (event.key === 'ArrowDown' || event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      setModelPickerOpen(true);
+    }
+  });
+
+  modelSearchInput?.addEventListener('input', () => {
+    applyModelSearchFilter();
+  });
+
+  document.addEventListener('click', (event) => {
+    if (!modelPicker || modelPickerPanel?.hidden) {
+      return;
+    }
+
+    if (!modelPicker.contains(event.target)) {
+      setModelPickerOpen(false);
+    }
+  });
+
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && !modelPickerPanel?.hidden) {
+      setModelPickerOpen(false);
+      modelPickerTrigger?.focus();
+    }
   });
 
   providerModelSelect?.addEventListener('change', () => {

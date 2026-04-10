@@ -54,6 +54,7 @@
 
     for (let modelIndex = 0; modelIndex < modelCandidates.length; modelIndex += 1) {
       const currentModel = modelCandidates[modelIndex];
+      let tokenParam = providerUtils.inferChatTokenParam('openai', currentModel);
 
       for (let attempt = 0; attempt < OPENAI_MAX_RETRIES; attempt += 1) {
         const body = {
@@ -63,7 +64,7 @@
             { role: 'user', content: prompts.buildEnhancePrompt(prompt) }
           ],
           temperature: 0.4,
-          max_tokens: 1024
+          ...providerUtils.buildChatTokenLimit(tokenParam, 1024)
         };
 
         const response = await retry.fetchWithTimeout(OPENAI_API_URL, {
@@ -84,6 +85,14 @@
 
         const errData = await providerUtils.readJsonSafe(response);
         lastError = new errors.ProviderHttpError('openai', response.status, errData, currentModel);
+
+        if (response.status === 400 && providerUtils.isUnsupportedTokenParameterError(errData, tokenParam)) {
+          const alternateParam = providerUtils.getAlternateChatTokenParam(tokenParam);
+          if (alternateParam) {
+            tokenParam = alternateParam;
+            continue;
+          }
+        }
 
         if (modelIndex < modelCandidates.length - 1 && shouldFallback(response.status, errData)) {
           providerUtils.trackFallbackEvent({
