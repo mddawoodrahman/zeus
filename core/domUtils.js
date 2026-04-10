@@ -49,7 +49,8 @@
     }
 
     if (el.isContentEditable) {
-      return el.getAttribute('contenteditable') === 'true';
+      const attributeValue = String(el.getAttribute('contenteditable') || '').toLowerCase();
+      return attributeValue !== 'false';
     }
 
     return false;
@@ -72,16 +73,37 @@
     return Array.from(new Set((Array.isArray(list) ? list : []).filter(Boolean)));
   }
 
+  function collectSearchRoots(rootNode, roots) {
+    if (!rootNode || !roots) {
+      return;
+    }
+
+    roots.push(rootNode);
+
+    const hostCandidates = rootNode.querySelectorAll ? Array.from(rootNode.querySelectorAll('*')) : [];
+    for (const host of hostCandidates) {
+      if (host?.shadowRoot) {
+        collectSearchRoots(host.shadowRoot, roots);
+      }
+    }
+  }
+
   function findCandidates(selectors, rootNode) {
     const root = rootNode || document;
     const selectorList = Array.isArray(selectors) && selectors.length > 0 ? selectors : DEFAULT_INPUT_SELECTORS;
 
     const all = [];
-    for (const selector of selectorList) {
-      try {
-        all.push(...Array.from(root.querySelectorAll(selector)));
-      } catch (_) {
-        // Skip invalid selectors from custom adapters.
+
+    const searchRoots = [];
+    collectSearchRoots(root, searchRoots);
+
+    for (const searchRoot of searchRoots) {
+      for (const selector of selectorList) {
+        try {
+          all.push(...Array.from(searchRoot.querySelectorAll(selector)));
+        } catch (_) {
+          // Skip invalid selectors from custom adapters.
+        }
       }
     }
 

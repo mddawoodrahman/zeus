@@ -22,6 +22,7 @@ describe('DOM/content core behavior', () => {
     document.body.innerHTML = '';
 
     loadScript('core/domUtils.js');
+    loadScript('core/useFloatingPosition.js');
     loadScript('core/injector.js');
     loadScript('core/observer.js');
   });

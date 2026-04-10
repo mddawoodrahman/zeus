@@ -34,6 +34,10 @@
       return;
     }
 
+    pushResult(typeof adapter.getInputElement === 'function', 'getInputElement contract');
+    pushResult(typeof adapter.getAnchorContainer === 'function', 'getAnchorContainer contract');
+    pushResult(typeof adapter.getPositionStrategy === 'function', 'getPositionStrategy contract');
+
     const expectedHost = String(config.testHostname || '').trim();
     const hostMatched = typeof adapter.matches === 'function' ? Boolean(adapter.matches(expectedHost)) : false;
     pushResult(hostMatched, 'Adapter host matcher', `hostname=${expectedHost}`);
@@ -44,6 +48,21 @@
 
     const minEligible = Number(config.minEligible || 1);
     pushResult(eligible.length >= minEligible, 'Eligible input count', `found=${eligible.length} expected>=${minEligible}`);
+
+    if (typeof adapter.getInputElement === 'function') {
+      const selected = adapter.getInputElement();
+      pushResult(Boolean(selected), 'Adapter selected input');
+
+      if (selected && typeof adapter.getAnchorContainer === 'function') {
+        const anchor = adapter.getAnchorContainer(selected);
+        pushResult(Boolean(anchor), 'Adapter anchor resolution');
+      }
+
+      if (selected && typeof adapter.getPositionStrategy === 'function') {
+        const strategy = adapter.getPositionStrategy(selected);
+        pushResult(Boolean(strategy && typeof strategy === 'object'), 'Adapter position strategy object');
+      }
+    }
 
     if (typeof adapter.pickInputs === 'function') {
       const picked = domUtils.filterEligibleInputs(adapter.pickInputs(eligible));

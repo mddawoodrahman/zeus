@@ -13,6 +13,7 @@
     "https://chatgpt.com/*",
     "https://chat.openai.com/*",
     "https://claude.ai/*",
+    "https://deepseek.com/*",
     "https://chat.deepseek.com/*",
     "https://grok.com/*",
     "https://openrouter.ai/*",
@@ -27,17 +28,21 @@
         "https://chatgpt.com/*",
         "https://chat.openai.com/*",
         "https://claude.ai/*",
+        "https://deepseek.com/*",
         "https://chat.deepseek.com/*",
-        "https://grok.com/*"
+        "https://grok.com/*",
+        "https://openrouter.ai/*"
       ],
       "js": [
         "core/domUtils.js",
+        "core/useFloatingPosition.js",
         "core/injector.js",
         "core/observer.js",
         "adapters/chatgpt.js",
         "adapters/claude.js",
         "adapters/grok.js",
         "adapters/deepseek.js",
+        "adapters/openrouter.js",
         "adapters/generic.js",
         "content.js"
       ],

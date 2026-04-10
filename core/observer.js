@@ -1,5 +1,6 @@
 (function initZeusObserver(globalScope) {
   const URL_CHECK_INTERVAL_MS = 700;
+  const OBSERVED_ATTRIBUTES = ['class', 'style', 'role', 'contenteditable', 'data-testid'];
 
   function createDebouncedCallback(callback, delayMs) {
     let timer = null;
@@ -31,6 +32,34 @@
     return false;
   }
 
+  function mutationMayAffectInputs(mutation, selectors) {
+    if (!mutation) {
+      return false;
+    }
+
+    if (mutation.type === 'childList') {
+      for (const node of mutation.addedNodes || []) {
+        if (nodeMayContainInput(node, selectors)) {
+          return true;
+        }
+      }
+
+      for (const node of mutation.removedNodes || []) {
+        if (nodeMayContainInput(node, selectors)) {
+          return true;
+        }
+      }
+
+      return false;
+    }
+
+    if (mutation.type === 'attributes') {
+      return nodeMayContainInput(mutation.target, selectors);
+    }
+
+    return false;
+  }
+
   function create(options) {
     const selectors = Array.isArray(options?.inputSelectors) ? options.inputSelectors : [];
     const onChange = typeof options?.onChange === 'function' ? options.onChange : () => {};
@@ -46,17 +75,24 @@
     if (root) {
       observer = new MutationObserver((mutations) => {
         for (const mutation of mutations) {
-          for (const node of mutation.addedNodes) {
-            if (nodeMayContainInput(node, selectors)) {
-              trigger();
-              return;
-            }
+          if (mutationMayAffectInputs(mutation, selectors)) {
+            trigger();
+            return;
           }
         }
       });
 
-      observer.observe(root, { childList: true, subtree: true });
+      observer.observe(root, {
+        childList: true,
+        subtree: true,
+        attributes: true,
+        attributeFilter: OBSERVED_ATTRIBUTES
+      });
     }
+
+    const onNavigation = () => trigger();
+    window.addEventListener('popstate', onNavigation, { passive: true });
+    window.addEventListener('hashchange', onNavigation, { passive: true });
 
     urlTimer = setInterval(() => {
       if (location.href !== lastUrl) {
@@ -77,6 +113,9 @@
           clearInterval(urlTimer);
           urlTimer = null;
         }
+
+        window.removeEventListener('popstate', onNavigation);
+        window.removeEventListener('hashchange', onNavigation);
       }
     });
   }

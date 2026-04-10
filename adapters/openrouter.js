@@ -1,8 +1,8 @@
-(function registerDeepSeekAdapter(globalScope) {
+(function registerOpenRouterAdapter(globalScope) {
   const adapters = globalScope.ZeusContentAdapters || (globalScope.ZeusContentAdapters = []);
 
   const INPUT_SELECTORS = [
-    'textarea[data-testid="chat-input"]',
+    'textarea[data-testid="prompt-input"]',
     'textarea',
     'div[role="textbox"][contenteditable="true"]',
     '[contenteditable="true"]'
@@ -37,11 +37,7 @@
     }
 
     const inputs = findInputs();
-    if (inputs.length === 0) {
-      return null;
-    }
-
-    return inputs.sort((a, b) => b.getBoundingClientRect().bottom - a.getBoundingClientRect().bottom)[0];
+    return inputs[0] || null;
   }
 
   function getAnchorContainer(inputEl) {
@@ -51,27 +47,30 @@
 
     return (
       inputEl.closest('form') ||
-      inputEl.closest('[class*="chat-input"]') ||
+      inputEl.closest('[data-testid*="composer"]') ||
       inputEl.closest('[class*="composer"]') ||
       inputEl.parentElement
     );
   }
 
   function getPositionStrategy(inputEl) {
-    const rect = inputEl?.getBoundingClientRect?.() || { width: 0, height: 0 };
+    const anchor = getAnchorContainer(inputEl);
+    const sendButton = anchor?.querySelector('button[type="submit"], button[aria-label*="Send"], button[aria-label*="send"]');
+    const sendWidth = sendButton ? Math.round(sendButton.getBoundingClientRect().width || 0) : 0;
+
     return {
-      mode: 'fixed',
-      offsetX: Math.max(10, Math.round(rect.width * 0.03)),
-      offsetY: Math.max(10, Math.round(rect.height * 0.16)),
-      viewportPadding: 10,
-      zIndex: 2147483000
+      mode: 'anchored',
+      right: Math.max(10, sendWidth + 12),
+      bottom: 10,
+      avoidSelector: 'button[type="submit"], button[aria-label*="Send"], button[aria-label*="send"]',
+      zIndex: 24
     };
   }
 
   adapters.push({
-    id: 'deepseek',
+    id: 'openrouter',
     matches(hostname) {
-      return hostname.includes('chat.deepseek.com') || hostname.includes('deepseek.com');
+      return hostname.includes('openrouter.ai');
     },
     inputSelectors: INPUT_SELECTORS,
     getInputElement,
@@ -79,3 +78,4 @@
     getPositionStrategy
   });
 })(typeof globalThis !== 'undefined' ? globalThis : this);
+

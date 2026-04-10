@@ -13,6 +13,7 @@ const ZEUS_GLOBAL_KEYS = [
   'ZeusRouter',
   'ZeusTelemetry',
   'ZeusDomUtils',
+  'ZeusFloatingPosition',
   'ZeusInjector',
   'ZeusObserver',
   'ZeusContentAdapters',

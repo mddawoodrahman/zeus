@@ -24,6 +24,10 @@
   let injector = null;
   let refreshTimer = null;
 
+  function dedupeElements(list) {
+    return Array.from(new Set((Array.isArray(list) ? list : []).filter(Boolean)));
+  }
+
   function resolveAdapter() {
     const hostname = window.location.hostname;
     return adapters.find((adapter) => {
@@ -48,6 +52,17 @@
       candidates = domUtils.filterEligibleInputs(adapter.pickInputs(candidates));
     }
 
+    if (typeof adapter?.getInputElement === 'function') {
+      try {
+        const preferred = adapter.getInputElement();
+        if (preferred && domUtils.isEligibleInput(preferred)) {
+          candidates = dedupeElements([preferred, ...candidates]);
+        }
+      } catch (_) {
+        // Keep fallback candidates when adapter primary selection fails.
+      }
+    }
+
     return candidates;
   }
 
@@ -57,13 +72,10 @@
         svgMarkup: LIGHTNING_SVG,
         onEnhanceClick: handleEnhanceClickForInput
       });
-
-      window.addEventListener('resize', () => injector.refresh(), { passive: true });
-      window.addEventListener('scroll', () => injector.refresh(), { passive: true, capture: true });
     }
 
     const inputs = collectInputs();
-    injector.inject(inputs);
+    injector.inject(inputs, activeAdapter || resolveAdapter());
     injector.refresh();
   }
 
