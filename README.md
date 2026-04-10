@@ -36,7 +36,7 @@ Zeus is designed around maintainable modules and clean runtime boundaries:
 
 ## Key Capabilities
 
-- Enhances prompts from in-page input fields via an overlay action button.
+- Enhances prompts from in-page input fields via a single reusable action button that stays anchored to the prompt composer.
 - Supports provider selection: Gemini, OpenAI, Claude, OpenRouter, and local Ollama.
 - Supports Auto mode with prompt-intent routing and provider fallback behavior.
 - Tracks fallback telemetry for model/provider churn monitoring.
@@ -78,9 +78,10 @@ Zeus is designed around maintainable modules and clean runtime boundaries:
 
 - `content.js`: orchestration, refresh lifecycle, and runtime message handling.
 - `core/domUtils.js`: candidate discovery and input read/write helpers.
-- `core/injector.js`: absolute-positioned sibling/overlay button injection.
-- `core/observer.js`: targeted MutationObserver and URL-change refresh trigger.
-- `adapters/*.js`: host matching plus site-specific selectors and heuristics.
+- `core/injector.js`: single reusable button lifecycle, focus/hover visibility, and adapter-driven mounting.
+- `core/useFloatingPosition.js`: anchored/fixed positioning sync logic for resize, scroll, and focus changes.
+- `core/observer.js`: debounced MutationObserver and SPA URL-change refresh trigger.
+- `adapters/*.js`: host matching plus site-specific selectors and positioning strategy hooks.
 
 This separation keeps site heuristics isolated and avoids intrusive DOM reparenting.
 
@@ -103,8 +104,10 @@ This separation keeps site heuristics isolated and avoids intrusive DOM reparent
 |  |- chatgpt.js
 |  |- claude.js
 |  |- deepseek.js
+|  |- gemini.js
 |  |- generic.js
 |  |- grok.js
+|  |- openrouter.js
 |- core/
 |  |- domUtils.js
 |  |- errors.js
@@ -114,6 +117,7 @@ This separation keeps site heuristics isolated and avoids intrusive DOM reparent
 |  |- retry.js
 |  |- router.js
 |  |- telemetry.js
+|  |- useFloatingPosition.js
 |- messaging/
 |  |- messageHandler.js
 |- providers/
@@ -151,6 +155,7 @@ This separation keeps site heuristics isolated and avoids intrusive DOM reparent
 - `https://chat.openai.com/*`
 - `https://claude.ai/*`
 - `https://gemini.google.com/*`
+- `https://bard.google.com/*`
 - `https://chat.deepseek.com/*`
 - `https://deepseek.com/*`
 - `https://grok.com/*`
