@@ -22,6 +22,7 @@ Zeus is a Manifest V3 Chrome extension that improves user prompts directly in su
 - [Security and Permissions](#security-and-permissions)
 - [Troubleshooting](#troubleshooting)
 - [Contributing](#contributing)
+- [Contributor Guide](CONTRIBUTING.md)
 - [License](#license)
 
 ## Overview
@@ -440,6 +441,8 @@ Use runtime actions `getTelemetrySummary` and `clearTelemetry` for inspection/re
 - If origin is blocked, start Ollama with `OLLAMA_ORIGINS=<extension-origin>` or `OLLAMA_ORIGINS=*` and restart.
 
 ## Contributing
+
+For the full contribution workflow, development expectations, and PR process, see `CONTRIBUTING.md`.
 
 Guidelines for safe extensions to this codebase:
 
