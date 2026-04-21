@@ -15,6 +15,7 @@ Zeus is a Manifest V3 Chrome extension that improves user prompts directly in su
 - [Configuration and Data Model](#configuration-and-data-model)
 - [Testing](#testing)
 - [CI/CD and Packaging](#cicd-and-packaging)
+- [Scripts Folder](#scripts-folder)
 - [Development and Production Structures](#development-and-production-structures)
 - [Git Ignore Policy](#git-ignore-policy)
 - [Runtime Message API](#runtime-message-api)
@@ -321,6 +322,45 @@ The build process is deterministic and safety-focused:
 - Missing runtime files are skipped safely with explicit logs.
 - Dev/test/config artifacts are never copied to production output.
 - Common secret patterns (`.env`, `.local`) are blocked from output.
+
+## Scripts Folder
+
+The `scripts/` folder exists to keep build, validation, and packaging logic separate from runtime extension code.
+
+Why this is present:
+
+- Keeps release tooling deterministic and version-controlled.
+- Ensures local development and CI produce the same output.
+- Prevents accidental packaging of tests, coverage, or secrets.
+- Provides one-command workflows through `package.json` scripts.
+
+How it works:
+
+1. `scripts/check-syntax.js`
+- Scans all `.js` and `.mjs` files (excluding `node_modules/`, `dist/`, `coverage/`, `.git/`).
+- Runs `node --check` on each file to catch syntax errors early.
+- Fails fast with per-file error output when parsing fails.
+
+2. `scripts/build-extension.js`
+- Rebuilds `dist/extension` from scratch.
+- Copies only runtime-required files/folders via explicit allowlists.
+- Excludes dev-only paths (`tests`, `scripts`, `.github`, `coverage`, `dist`, `node_modules`).
+- Filters risky/non-runtime files (`.env*`, `*.local`, test/spec files, sourcemaps).
+- Reads `manifest.json` to include referenced static assets like icons.
+
+3. `scripts/zip-extension.js`
+- Validates `dist/extension` exists.
+- Creates `dist/extension.zip` using `archiver` (Node-based, no OS zip dependency).
+- Produces the store-ready artifact used by release workflows.
+
+Execution order in normal release flow:
+
+- `npm run test` (includes syntax + test suites)
+- `npm run build` (creates clean runtime output)
+- `npm run zip` (creates distributable archive)
+- `npm run package` runs build + zip together
+
+This design keeps extension runtime files clean while making packaging predictable and audit-friendly.
 
 ## Development and Production Structures
 
