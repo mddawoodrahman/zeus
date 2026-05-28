@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Zeus",
-  "version": "1.7",
-  "description": "Enhances prompts on LLM websites using supported LLM APIs.",
+  "name": "ZEUS — Prompt Enhancement System",
+  "version": "2.0",
+  "description": "Military-grade prompt optimization injector. Compatible with OpenAI, Gemini, Claude, OpenRouter, and local Ollama modules.",
   "permissions": [
     "activeTab",
     "scripting",
@@ -57,14 +57,20 @@
   "action": {
     "default_popup": "popup.html",
     "default_icon": {
-      "16": "icons/icon16.png",
-      "48": "icons/icon48.png",
-      "128": "icons/icon128.png"
+      "16": "icons/zeus-16.png",
+      "32": "icons/zeus-32.png",
+      "48": "icons/zeus-48.png",
+      "128": "icons/zeus-128.png"
     }
   },
   "icons": {
-    "16": "icons/icon16.png",
-    "48": "icons/icon48.png",
-    "128": "icons/icon128.png"
+    "16": "icons/zeus-16.png",
+    "32": "icons/zeus-32.png",
+    "48": "icons/zeus-48.png",
+    "128": "icons/zeus-128.png"
+  },
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
   }
 }

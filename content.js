@@ -153,25 +153,32 @@
     const apiKey = readApiKeyForProvider(provider);
 
     if (provider !== 'ollama' && provider !== 'auto' && !apiKey) {
-      alert(`Please configure an API key for the selected provider (${provider}) in the Zeus popup settings.`);
+      if (injector && typeof injector.showToast === 'function') {
+        injector.showToast('MISSING ACCESS TOKEN', 'error', 4000);
+      } else {
+        alert('Please configure an API key for the selected provider in the Zeus settings.');
+      }
       return;
     }
 
     const originalPrompt = domUtils.getInputText(inputElement);
     if (!String(originalPrompt || '').trim()) {
-      alert('Please enter a prompt to enhance.');
+      if (injector && typeof injector.showToast === 'function') {
+        injector.showToast('PROMPT EMPTY', 'error', 3000);
+      } else {
+        alert('Please enter a prompt to optimize.');
+      }
       return;
     }
 
-    const previous = {
-      innerHTML: buttonElement.innerHTML,
-      disabled: buttonElement.disabled,
-      pointerEvents: buttonElement.style.pointerEvents
-    };
-
-    buttonElement.innerHTML = '⌛';
+    buttonElement.classList.add('processing');
+    buttonElement.classList.remove('error');
     buttonElement.disabled = true;
     buttonElement.style.pointerEvents = 'none';
+
+    if (injector && typeof injector.showToast === 'function') {
+      injector.showToast('ESTABLISHING NEURAL LINK...', 'info', 0);
+    }
 
     try {
       await sendMessageWithTimeout({ action: 'ping' }, 3000).catch(() => null);
@@ -186,12 +193,26 @@
       }
 
       domUtils.setInputText(inputElement, response.enhancedPrompt);
+      
+      buttonElement.classList.remove('processing');
+      if (injector && typeof injector.showToast === 'function') {
+        injector.showToast('INJECTION COMPLETE', 'success', 3000);
+      }
     } catch (error) {
-      alert(`Zeus: ${String(error?.message || error)}`);
+      buttonElement.classList.remove('processing');
+      buttonElement.classList.add('error');
+      setTimeout(() => {
+        buttonElement.classList.remove('error');
+      }, 3000);
+
+      if (injector && typeof injector.showToast === 'function') {
+        injector.showToast('LINK FAILURE', 'error', 4000);
+      } else {
+        alert(`Zeus: ${String(error?.message || error)}`);
+      }
     } finally {
-      buttonElement.innerHTML = previous.innerHTML;
-      buttonElement.disabled = previous.disabled;
-      buttonElement.style.pointerEvents = previous.pointerEvents;
+      buttonElement.disabled = false;
+      buttonElement.style.pointerEvents = 'auto';
     }
   }
 

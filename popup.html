@@ -3,157 +3,167 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Zeus - Prompt Enhancer</title>
+  <title>ZEUS — Prompt Enhancement System</title>
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;700&family=Rajdhani:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Inter:wght@400;500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="styles.css">
 </head>
-<body>
-  <div class="container">
-    <div class="header">
-      <img src="icons/icon48.png" alt="Zeus Logo" class="logo">
-      <h1>Zeus</h1>
-      <button id="darkModeToggle" class="dark-mode-toggle" title="Toggle Dark Mode" aria-label="Toggle Dark Mode">
-        <svg class="sun-icon" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-          <circle cx="12" cy="12" r="5" fill="none" stroke="currentColor" stroke-width="2"/>
-          <line x1="12" y1="1" x2="12" y2="3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-          <line x1="12" y1="21" x2="12" y2="23" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-          <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-          <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-          <line x1="1" y1="12" x2="3" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-          <line x1="21" y1="12" x2="23" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-          <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-          <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-        </svg>
-        <svg class="moon-icon" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
-      </button>
-    </div>
+<body class="zeus-ui">
+  <div class="zeus-popup">
+    <div class="zeus-crt-overlay"></div>
+    
+    <!-- Header -->
+    <header class="popup-header">
+      <div class="logo">
+        <span class="logo-text">ZEUS</span>
+        <span class="logo-version">v2.0</span>
+      </div>
+      <div class="status-badge">
+        <span class="status-dot"></span>
+        <span class="status-text typing-cursor">SYSTEM ONLINE</span>
+      </div>
+    </header>
 
     <main class="main-content">
-      <div class="section">
-        <h2>Provider Settings</h2>
+      <!-- Provider Selection -->
+      <section class="zeus-terminal-card" data-variant="cyan">
+        <div class="card-accent"></div>
+        <label class="zeus-label" for="aiProvider">/// TARGET PROVIDER</label>
+        <select class="zeus-input zeus-select" id="aiProvider">
+          <option value="gemini">Gemini</option>
+          <option value="openai">OpenAI</option>
+          <option value="claude">Claude</option>
+          <option value="openrouter">OpenRouter</option>
+          <option value="ollama">Ollama (Local)</option>
+          <option value="auto">Auto (Smart Routing)</option>
+        </select>
+        <p id="provider-help-text" class="helper-text"></p>
+      </section>
 
-        <div class="api-provider-selection">
-          <label for="aiProvider">Select AI Provider:</label>
-          <select id="aiProvider">
-            <option value="gemini">Gemini</option>
-            <option value="openai">OpenAI</option>
-            <option value="claude">Claude</option>
-            <option value="openrouter">OpenRouter</option>
-            <option value="ollama">Ollama (Local)</option>
-            <option value="auto">Auto (Smart Routing)</option>
-          </select>
-          <p id="provider-help-text" class="helper-text"></p>
-        </div>
+      <!-- Model Selection (conditional) -->
+      <section class="zeus-terminal-card" data-variant="yellow" id="model-selection">
+        <div class="card-accent"></div>
+        <label class="zeus-label">/// LOADOUT MODEL</label>
+        
+        <div class="model-picker" id="modelPicker">
+          <button
+            id="modelPickerTrigger"
+            class="model-picker-trigger"
+            type="button"
+            aria-haspopup="listbox"
+            aria-expanded="false"
+            aria-controls="modelPickerPanel"
+          >
+            <span class="model-picker-trigger-main">
+              <span id="selectedModelText" class="selected-model-text">Select a model</span>
+              <span id="selectedModelBadge" class="selected-model-badge" style="display:none;"></span>
+            </span>
+            <span class="model-picker-chevron" aria-hidden="true">▾</span>
+          </button>
 
-        <div id="model-selection" class="api-provider-selection">
-          <label for="providerModel" class="model-label">Select Model:</label>
-
-          <div class="model-picker" id="modelPicker">
-            <button
-              id="modelPickerTrigger"
-              class="model-picker-trigger"
-              type="button"
-              aria-haspopup="listbox"
-              aria-expanded="false"
-              aria-controls="modelPickerPanel"
-            >
-              <span class="model-picker-trigger-main">
-                <span id="selectedModelText" class="selected-model-text">Select a model</span>
-                <span id="selectedModelBadge" class="selected-model-badge" style="display:none;"></span>
-              </span>
-              <span class="model-picker-chevron" aria-hidden="true">▾</span>
-            </button>
-
-            <div id="modelPickerPanel" class="model-picker-panel" role="listbox" aria-label="Available models" hidden>
-              <div class="model-search-wrap">
-                <input
-                  id="modelSearchInput"
-                  class="model-search-input"
-                  type="text"
-                  placeholder="Search models by name, speed, cost"
-                  autocomplete="off"
-                >
-              </div>
-              <div id="modelOptionGroups" class="model-option-groups"></div>
-              <p id="modelEmptyState" class="model-empty-state" hidden>No models match your search.</p>
+          <div id="modelPickerPanel" class="model-picker-panel" role="listbox" aria-label="Available models" hidden>
+            <div class="model-search-wrap">
+              <input
+                id="modelSearchInput"
+                class="model-search-input"
+                type="text"
+                placeholder="Search models..."
+                autocomplete="off"
+              >
             </div>
-          </div>
-
-          <select id="providerModel" class="model-native-select" aria-hidden="true" tabindex="-1"></select>
-
-          <div id="model-meta" class="model-meta" style="display: none;">
-            <div class="model-title-row">
-              <span id="model-display-name" class="model-display-name"></span>
-              <span id="model-badge" class="model-badge"></span>
-            </div>
-            <p id="model-help-text" class="helper-text"></p>
-            <div id="model-tags" class="model-tags"></div>
+            <div id="modelOptionGroups" class="model-option-groups"></div>
+            <p id="modelEmptyState" class="model-empty-state" hidden>No models match your search.</p>
           </div>
         </div>
 
+        <select id="providerModel" class="model-native-select" aria-hidden="true" tabindex="-1"></select>
+
+        <div id="model-meta" class="model-meta" style="display: none;">
+          <div class="model-title-row">
+            <span id="model-display-name" class="model-display-name"></span>
+            <span id="model-badge" class="model-badge"></span>
+          </div>
+          <p id="model-help-text" class="helper-text"></p>
+          <div id="model-tags" class="model-tags"></div>
+        </div>
+      </section>
+
+      <!-- API Key Inputs (grouped under ACCESS TOKEN card) -->
+      <section class="zeus-terminal-card" data-variant="red" id="key-section">
+        <div class="card-accent"></div>
+        <label class="zeus-label">/// ACCESS TOKEN</label>
+        
         <div id="gemini-settings" class="api-settings">
-          <p>Enter your Gemini API key:</p>
+          <p>ENTER GEMINI KEY:</p>
           <div class="input-group">
-            <input type="password" id="geminiApiKey" placeholder="Enter your Gemini API key">
+            <input type="password" class="zeus-input" id="geminiApiKey" placeholder="ENTER_KEY_...">
             <button id="showHideGemini" type="button">Show</button>
           </div>
         </div>
 
         <div id="openai-settings" class="api-settings" style="display: none;">
-          <p>Enter your OpenAI API key:</p>
+          <p>ENTER OPENAI KEY:</p>
           <div class="input-group">
-            <input type="password" id="openaiApiKey" placeholder="Enter your OpenAI API key">
+            <input type="password" class="zeus-input" id="openaiApiKey" placeholder="ENTER_KEY_...">
             <button id="showHideOpenAI" type="button">Show</button>
           </div>
         </div>
 
         <div id="claude-settings" class="api-settings" style="display: none;">
-          <p>Enter your Claude API key:</p>
+          <p>ENTER CLAUDE KEY:</p>
           <div class="input-group">
-            <input type="password" id="claudeApiKey" placeholder="Enter your Claude API key">
+            <input type="password" class="zeus-input" id="claudeApiKey" placeholder="ENTER_KEY_...">
             <button id="showHideClaude" type="button">Show</button>
           </div>
         </div>
 
         <div id="openrouter-settings" class="api-settings" style="display: none;">
-          <p>Enter your OpenRouter API key:</p>
+          <p>ENTER OPENROUTER KEY:</p>
           <div class="input-group">
-            <input type="password" id="openrouterApiKey" placeholder="Enter your OpenRouter API key">
+            <input type="password" class="zeus-input" id="openrouterApiKey" placeholder="ENTER_KEY_...">
             <button id="showHideOpenRouter" type="button">Show</button>
           </div>
         </div>
-
-        <div id="ollama-settings" class="api-settings" style="display: none;">
-          <p>Use your local Ollama server at http://localhost:11434.</p>
-          <p>Model is auto-detected from local running Ollama models.</p>
-          <p id="ollama-suggestions" class="helper-text"></p>
-        </div>
-
-        <div id="auto-settings" class="api-settings" style="display: none;">
-          <p>Auto mode uses prompt-aware smart routing.</p>
-          <p>Coding -> GPT-5.3 Codex | Long-form -> Claude Opus 4.6 | Cheap -> Gemini 3 Flash | Default -> GPT-5.4</p>
-        </div>
-
-        <button id="saveBtn" class="primary-btn">Save Settings</button>
+        
         <div id="status" class="status"></div>
-      </div>
+      </section>
+
+      <!-- Ollama Config -->
+      <section class="zeus-terminal-card" data-variant="green" id="ollama-settings" style="display:none;">
+        <div class="card-accent"></div>
+        <label class="zeus-label">/// LOCAL HOST</label>
+        <input type="text" class="zeus-input" id="ollamaHost" value="http://localhost:11434">
+        <label class="zeus-label" style="margin-top:8px">/// MODEL ID</label>
+        <input type="text" class="zeus-input" id="ollamaModel" placeholder="llama2">
+        <p id="ollama-suggestions" class="helper-text"></p>
+      </section>
+
+      <!-- Auto Config -->
+      <section class="zeus-terminal-card" data-variant="green" id="auto-settings" style="display:none;">
+        <div class="card-accent"></div>
+        <label class="zeus-label">/// AUTOPILOT HUD</label>
+        <p>Auto mode uses prompt-aware smart routing.</p>
+        <p style="margin-top: 6px; font-family: 'JetBrains Mono', monospace; font-size: 10px;">
+          Coding &rarr; GPT-5 Codex<br>
+          Long-form &rarr; Claude Sonnet<br>
+          Cheap &rarr; Gemini Flash
+        </p>
+      </section>
     </main>
 
-    <footer class="footer" role="contentinfo">
-      <div class="footer-divider" aria-hidden="true"></div>
-      <p class="support-line">
-        Need support?
-        <a
-          class="support-link"
-          href="https://zeus-app.azurewebsites.net/"
-          target="_blank"
-          rel="noopener noreferrer"
-          aria-label="Visit the official Zeus website for support (opens in a new tab)"
-        >Visit Zeus Website ↗</a>
-      </p>
+    <!-- Actions -->
+    <footer class="popup-footer">
+      <button class="zeus-btn zeus-btn-yellow" id="saveBtn">EXECUTE CONFIG</button>
+      <button class="zeus-btn zeus-btn-ghost" id="resetBtn">PURGE DATA</button>
     </footer>
+
+    <!-- Telemetry / Status Bar -->
+    <div class="popup-statusbar">
+      <span>LATENCY: <span id="latency">--</span>ms</span>
+      <span>|</span>
+      <span>FALLBACKS: <span id="fallbackCount">0</span></span>
+    </div>
   </div>
+  
   <script src="model-registry.js"></script>
   <script src="settings/settings.js"></script>
   <script src="popup.js"></script>

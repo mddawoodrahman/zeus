@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ZEUS — Config Control Center</title>
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;700&family=Rajdhani:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Inter:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body class="zeus-ui">
+  <div class="options-container">
+    <div class="zeus-crt-overlay"></div>
+
+    <!-- Sidebar navigation -->
+    <aside class="options-sidebar">
+      <div class="logo-container">
+        <span class="logo-text">ZEUS</span>
+        <span class="logo-version" style="color: var(--net-cyan)">V2.0_NET</span>
+      </div>
+      
+      <nav class="options-nav">
+        <button class="options-nav-item active" data-target="config-section">/// ACCESS LOADOUT</button>
+        <button class="options-nav-item" data-target="telemetry-section">/// SYSTEM LOGS</button>
+      </nav>
+
+      <!-- System Log Tail inside Sidebar -->
+      <div class="system-log-panel">
+        <div class="system-log-title">/// TELEMETRY FEED</div>
+        <div id="optionsConsole" class="system-log-console">ESTABLISHING CONNECTION...
+READY.</div>
+      </div>
+    </aside>
+
+    <!-- Main Content Area -->
+    <main class="options-main">
+      <header style="margin-bottom: 20px;">
+        <h1 class="logo-text" style="font-size: 2.2rem; color: var(--cyber-yellow);">ZEUS NET HUD</h1>
+        <p style="color: var(--text-secondary); font-family: 'JetBrains Mono', monospace; font-size: 11px;">
+          SECURE PROMPT INJECTOR CONTROL TERMINAL // STATUS: ACTIVE
+        </p>
+      </header>
+
+      <div id="config-section" class="options-section">
+        <!-- Target Provider Section -->
+        <div class="zeus-terminal-card" data-variant="cyan">
+          <div class="card-accent"></div>
+          <h2 style="font-family: 'Orbitron', sans-serif; font-size: 13px;">/// CORE ROUTER SETUP</h2>
+          <div style="margin-top: 15px;">
+            <label class="zeus-label" for="aiProvider">SELECT TARGET PROVIDER</label>
+            <select class="zeus-input zeus-select" id="aiProvider" style="width: 100%;">
+              <option value="gemini">Gemini</option>
+              <option value="openai">OpenAI</option>
+              <option value="claude">Claude</option>
+              <option value="openrouter">OpenRouter</option>
+              <option value="ollama">Ollama (Local)</option>
+              <option value="auto">Auto (Smart Routing)</option>
+            </select>
+            <p id="provider-help-text" class="helper-text" style="margin-top: 8px;"></p>
+          </div>
+        </div>
+
+        <!-- Model Selection Section -->
+        <div class="zeus-terminal-card" data-variant="yellow" id="model-selection">
+          <div class="card-accent"></div>
+          <h2 style="font-family: 'Orbitron', sans-serif; font-size: 13px;">/// RUNTIME LOADOUT</h2>
+          <div style="margin-top: 15px;">
+            <label class="zeus-label">SELECT RUNTIME MODEL</label>
+            
+            <div class="model-picker" id="modelPicker">
+              <button
+                id="modelPickerTrigger"
+                class="model-picker-trigger"
+                type="button"
+                aria-haspopup="listbox"
+                aria-expanded="false"
+                aria-controls="modelPickerPanel"
+              >
+                <span class="model-picker-trigger-main">
+                  <span id="selectedModelText" class="selected-model-text">Select a model</span>
+                  <span id="selectedModelBadge" class="selected-model-badge" style="display:none;"></span>
+                </span>
+                <span class="model-picker-chevron" aria-hidden="true">▾</span>
+              </button>
+
+              <div id="modelPickerPanel" class="model-picker-panel" role="listbox" aria-label="Available models" hidden>
+                <div class="model-search-wrap">
+                  <input
+                    id="modelSearchInput"
+                    class="model-search-input"
+                    type="text"
+                    placeholder="Search models..."
+                    autocomplete="off"
+                  >
+                </div>
+                <div id="modelOptionGroups" class="model-option-groups"></div>
+                <p id="modelEmptyState" class="model-empty-state" hidden>No models match your search.</p>
+              </div>
+            </div>
+
+            <select id="providerModel" class="model-native-select" aria-hidden="true" tabindex="-1"></select>
+
+            <div id="model-meta" class="model-meta" style="display: none;">
+              <div class="model-title-row">
+                <span id="model-display-name" class="model-display-name"></span>
+                <span id="model-badge" class="model-badge"></span>
+              </div>
+              <p id="model-help-text" class="helper-text"></p>
+              <div id="model-tags" class="model-tags"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Token Entry Cards -->
+        <div class="zeus-terminal-card" data-variant="red" id="key-section">
+          <div class="card-accent"></div>
+          <h2 style="font-family: 'Orbitron', sans-serif; font-size: 13px;">/// TOKEN STORAGE</h2>
+          <div style="margin-top: 15px; display: flex; flex-direction: column; gap: 15px;">
+            <div id="gemini-settings" class="api-settings">
+              <label class="zeus-label">GEMINI API KEY <span class="provider-health-indicator" id="health-gemini"></span></label>
+              <div class="input-group">
+                <input type="password" class="zeus-input" id="geminiApiKey" placeholder="ENTER_KEY_...">
+                <button id="showHideGemini" type="button" class="zeus-btn zeus-btn-cyan" style="padding: 4px 12px; font-size: 10px;">Show</button>
+              </div>
+            </div>
+
+            <div id="openai-settings" class="api-settings" style="display: none;">
+              <label class="zeus-label">OPENAI API KEY <span class="provider-health-indicator" id="health-openai"></span></label>
+              <div class="input-group">
+                <input type="password" class="zeus-input" id="openaiApiKey" placeholder="ENTER_KEY_...">
+                <button id="showHideOpenAI" type="button" class="zeus-btn zeus-btn-cyan" style="padding: 4px 12px; font-size: 10px;">Show</button>
+              </div>
+            </div>
+
+            <div id="claude-settings" class="api-settings" style="display: none;">
+              <label class="zeus-label">CLAUDE API KEY <span class="provider-health-indicator" id="health-claude"></span></label>
+              <div class="input-group">
+                <input type="password" class="zeus-input" id="claudeApiKey" placeholder="ENTER_KEY_...">
+                <button id="showHideClaude" type="button" class="zeus-btn zeus-btn-cyan" style="padding: 4px 12px; font-size: 10px;">Show</button>
+              </div>
+            </div>
+
+            <div id="openrouter-settings" class="api-settings" style="display: none;">
+              <label class="zeus-label">OPENROUTER API KEY <span class="provider-health-indicator" id="health-openrouter"></span></label>
+              <div class="input-group">
+                <input type="password" class="zeus-input" id="openrouterApiKey" placeholder="ENTER_KEY_...">
+                <button id="showHideOpenRouter" type="button" class="zeus-btn zeus-btn-cyan" style="padding: 4px 12px; font-size: 10px;">Show</button>
+              </div>
+            </div>
+
+            <div id="status" class="status"></div>
+          </div>
+        </div>
+
+        <!-- Ollama Config -->
+        <div class="zeus-terminal-card" data-variant="green" id="ollama-settings" style="display:none;">
+          <div class="card-accent"></div>
+          <h2 style="font-family: 'Orbitron', sans-serif; font-size: 13px;">/// LOCAL OLLAMA LOADOUT</h2>
+          <div style="margin-top: 15px;">
+            <label class="zeus-label">LOCAL HOST URL</label>
+            <input type="text" class="zeus-input" id="ollamaHost" value="http://localhost:11434">
+            <label class="zeus-label" style="margin-top:12px">MODEL ID</label>
+            <input type="text" class="zeus-input" id="ollamaModel" placeholder="llama2">
+            <p id="ollama-suggestions" class="helper-text" style="margin-top: 8px;"></p>
+          </div>
+        </div>
+
+        <!-- Auto Routing Info -->
+        <div class="zeus-terminal-card" data-variant="green" id="auto-settings" style="display:none;">
+          <div class="card-accent"></div>
+          <h2 style="font-family: 'Orbitron', sans-serif; font-size: 13px;">/// AUTOPILOT SMART ROUTER</h2>
+          <div style="margin-top: 15px; font-family: 'JetBrains Mono', monospace; font-size: 11px; line-height: 1.6;">
+            <p style="color: var(--acid-green);">[ACTIVE] PROMPT CONTENT ANALYSIS ROUTING</p>
+            <p>&gt; Coding keywords detected &rarr; OpenAI GPT Codex</p>
+            <p>&gt; Analytical / Long-form writing &rarr; Anthropic Claude Sonnet</p>
+            <p>&gt; Rapid / low-cost requests &rarr; Google Gemini Flash</p>
+          </div>
+        </div>
+
+        <!-- Action Footer -->
+        <div style="display: flex; gap: 15px;">
+          <button class="zeus-btn zeus-btn-yellow" id="saveBtn" style="flex: 1;">EXECUTE CONFIG</button>
+          <button class="zeus-btn zeus-btn-red" id="resetBtn" style="flex: 1;">PURGE LOCAL MEMORY</button>
+        </div>
+      </div>
+
+      <!-- Telemetry History View -->
+      <div id="telemetry-section" class="options-section" style="display: none;">
+        <div class="zeus-terminal-card" data-variant="cyan">
+          <div class="card-accent"></div>
+          <h2 style="font-family: 'Orbitron', sans-serif; font-size: 13px;">/// TELEMETRY REPORT SUMMARY</h2>
+          <div style="margin-top: 15px; display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+            <div>
+              <p class="zeus-label">LATENCY MONITOR</p>
+              <p style="font-family: 'JetBrains Mono', monospace; font-size: 24px; color: var(--net-cyan); margin: 5px 0;">
+                <span id="telemetryLatency">--</span> ms
+              </p>
+              <span style="color: var(--text-muted); font-size: 10px;">LAST NETWORK TRANSACTION LATENCY</span>
+            </div>
+            <div>
+              <p class="zeus-label">AUTO FALLBACK COUNT</p>
+              <p style="font-family: 'JetBrains Mono', monospace; font-size: 24px; color: var(--arasaka-red); margin: 5px 0;">
+                <span id="telemetryFallbacks">0</span>
+              </p>
+              <span style="color: var(--text-muted); font-size: 10px;">TOTAL DETECTED FAILURES & REROUTES</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="zeus-terminal-card" data-variant="red">
+          <div class="card-accent"></div>
+          <h2 style="font-family: 'Orbitron', sans-serif; font-size: 13px;">/// RECENT SYSTEM EVENTS</h2>
+          <div style="margin-top: 15px;">
+            <ul id="telemetryEventList" style="list-style: none; padding: 0; margin: 0; font-family: 'JetBrains Mono', monospace; font-size: 10px; display: flex; flex-direction: column; gap: 8px; max-height: 300px; overflow-y: auto;">
+              <!-- Telemetry events populated dynamically -->
+            </ul>
+            <div style="margin-top: 15px; display: flex; justify-content: flex-end;">
+              <button id="clearTelemetryBtn" class="zeus-btn zeus-btn-ghost" style="font-size: 11px;">PURGE TELEMETRY LOGS</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script src="model-registry.js"></script>
+  <script src="settings/settings.js"></script>
+  <script src="options.js"></script>
+</body>
+</html>

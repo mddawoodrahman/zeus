@@ -105,6 +105,13 @@
     });
   }
 
+  function getFallbackCount(callback) {
+    readEvents((events) => {
+      const fallbackEvents = events.filter((e) => e.type === 'fallback');
+      callback(fallbackEvents.length);
+    });
+  }
+
   function clear() {
     writeEvents([]);
   }
@@ -114,6 +121,7 @@
     MAX_EVENTS,
     track,
     trackFallback,
+    getFallbackCount,
     getSummary,
     clear
   });

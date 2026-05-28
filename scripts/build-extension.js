@@ -12,7 +12,9 @@ const runtimeFiles = [
   'popup.html',
   'popup.js',
   'styles.css',
-  'model-registry.js'
+  'model-registry.js',
+  'options.html',
+  'options.js'
 ];
 
 const runtimeDirs = [

@@ -20,9 +20,33 @@ document.addEventListener('DOMContentLoaded', () => {
   const modelBadge = document.getElementById('model-badge');
   const modelTags = document.getElementById('model-tags');
   const ollamaSuggestions = document.getElementById('ollama-suggestions');
-  const darkModeToggle = document.getElementById('darkModeToggle');
   const saveBtn = document.getElementById('saveBtn');
+  const resetBtn = document.getElementById('resetBtn');
   const statusEl = document.getElementById('status');
+  const optionsConsole = document.getElementById('optionsConsole');
+  const clearTelemetryBtn = document.getElementById('clearTelemetryBtn');
+
+  // Sidebar navigation toggling
+  const navItems = document.querySelectorAll('.options-nav-item');
+  const sections = document.querySelectorAll('.options-section');
+
+  navItems.forEach(item => {
+    item.addEventListener('click', () => {
+      navItems.forEach(nav => nav.classList.remove('active'));
+      sections.forEach(sec => sec.style.display = 'none');
+
+      item.classList.add('active');
+      const targetId = item.dataset.target;
+      const targetSection = document.getElementById(targetId);
+      if (targetSection) {
+        targetSection.style.display = 'flex';
+      }
+
+      if (targetId === 'telemetry-section') {
+        loadTelemetryData();
+      }
+    });
+  });
 
   const GROUP_LABELS = registry?.getGroupLabels?.() || {
     recommended: 'Recommended (Latest)',
@@ -140,38 +164,22 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  function initializeDarkMode() {
-    chrome.storage.sync.get(['zeus_dark_mode_preference'], (data) => {
-      let isDarkMode = data?.zeus_dark_mode_preference;
-      if (isDarkMode === undefined) {
-        isDarkMode = window.matchMedia('(prefers-color-scheme: dark)').matches;
-      }
-      applyDarkMode(Boolean(isDarkMode));
-    });
-  }
-
-  function applyDarkMode(isDark) {
-    if (isDark) {
-      document.documentElement.setAttribute('data-theme', 'dark');
-      darkModeToggle?.classList.add('active');
-    } else {
-      document.documentElement.removeAttribute('data-theme');
-      darkModeToggle?.classList.remove('active');
-    }
-  }
-
-  function toggleDarkMode() {
-    const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
-    const next = !isDark;
-    applyDarkMode(next);
-    chrome.storage.sync.set({ zeus_dark_mode_preference: next });
-  }
-
   function toggleProviderPanels(selectedProvider) {
     for (const provider in settingsMap) {
       const section = settingsMap[provider].settingsDiv;
       if (!section) continue;
-      section.style.display = provider === selectedProvider ? 'block' : 'none';
+      section.style.display = (provider === selectedProvider || provider === 'gemini' || provider === 'openai' || provider === 'claude' || provider === 'openrouter') ? 'block' : 'none';
+    }
+
+    // Toggle specific local ollama/auto config cards visibility
+    const localOllamaCard = document.getElementById('ollama-settings');
+    if (localOllamaCard) {
+      localOllamaCard.style.display = selectedProvider === 'ollama' ? 'block' : 'none';
+    }
+
+    const autoRoutingCard = document.getElementById('auto-settings');
+    if (autoRoutingCard) {
+      autoRoutingCard.style.display = selectedProvider === 'auto' ? 'block' : 'none';
     }
 
     if (providerHelpText) {
@@ -376,24 +384,14 @@ document.addEventListener('DOMContentLoaded', () => {
     }, 4000);
   }
 
-  function updateTelemetryStatusBar() {
-    const latencyEl = document.getElementById('latency');
-    const fallbackCountEl = document.getElementById('fallbackCount');
-
-    if (latencyEl) {
-      chrome.storage.local.get(['zeus_last_latency'], (data) => {
-        const latency = data?.zeus_last_latency;
-        latencyEl.textContent = (latency !== undefined && latency !== null) ? latency : '--';
-      });
-    }
-
-    if (fallbackCountEl) {
-      chrome.runtime.sendMessage({ action: 'getTelemetrySummary' }, (response) => {
-        const summary = response?.summary;
-        const fallbackEvents = summary?.totalEvents || 0;
-        fallbackCountEl.textContent = fallbackEvents;
-      });
-    }
+  function updateHealthIndicators() {
+    ['gemini', 'openai', 'claude', 'openrouter'].forEach(provider => {
+      const keyVal = settingsMap[provider].apiKeyInput?.value.trim() || '';
+      const healthEl = document.getElementById(`health-${provider}`);
+      if (healthEl) {
+        healthEl.className = 'provider-health-indicator ' + (keyVal ? 'online' : 'offline');
+      }
+    });
   }
 
   function applySettingsToUI() {
@@ -412,7 +410,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     toggleProviderPanels(provider);
     syncModelSelector(provider, currentSettings.models?.[provider]);
-    updateTelemetryStatusBar();
+    updateHealthIndicators();
   }
 
   async function loadSettings() {
@@ -461,15 +459,71 @@ document.addEventListener('DOMContentLoaded', () => {
       showStatus('INJECTION COMPLETE', 'success');
       chrome.runtime.sendMessage({ action: 'settingsUpdated', settings: payload });
       applySettingsToUI();
+      writeToConsole('CONFIG SUCCESFULLY UPDATED. SETTINGS COMMITTED TO LOCAL SYNC.');
     } catch (error) {
       showStatus('LINK FAILURE', 'error');
+      writeToConsole('ERROR: FAILED TO COMMIT CONFIG.');
     } finally {
       saveBtn.disabled = false;
       saveBtn.textContent = 'EXECUTE CONFIG';
     }
   }
 
-  darkModeToggle?.addEventListener('click', toggleDarkMode);
+  function writeToConsole(message) {
+    if (!optionsConsole) return;
+    const timestamp = new Date().toISOString().substring(11, 19);
+    optionsConsole.textContent = `[${timestamp}] ${message}\n` + optionsConsole.textContent;
+  }
+
+  function loadTelemetryData() {
+    chrome.storage.local.get(['zeus_last_latency'], (data) => {
+      const latVal = data?.zeus_last_latency;
+      const latEl = document.getElementById('telemetryLatency');
+      if (latEl) {
+        latEl.textContent = (latVal !== undefined && latVal !== null) ? latVal : '--';
+      }
+    });
+
+    chrome.runtime.sendMessage({ action: 'getTelemetrySummary' }, (response) => {
+      const summary = response?.summary || { totalEvents: 0, recent: [] };
+      const fallbackCount = summary.totalEvents || 0;
+      
+      const fallbacksEl = document.getElementById('telemetryFallbacks');
+      if (fallbacksEl) {
+        fallbacksEl.textContent = fallbackCount;
+      }
+
+      const listEl = document.getElementById('telemetryEventList');
+      if (listEl) {
+        listEl.innerHTML = '';
+        const recentEvents = summary.recent || [];
+
+        if (recentEvents.length === 0) {
+          const emptyLi = document.createElement('li');
+          emptyLi.style.color = 'var(--text-muted)';
+          emptyLi.textContent = 'NO EVENTS LOGGED IN TELEMETRY DATABASE.';
+          listEl.appendChild(emptyLi);
+        } else {
+          recentEvents.forEach(evt => {
+            const li = document.createElement('li');
+            const isError = evt.payload?.reason || evt.payload?.stage === 'provider-candidate-error';
+            li.style.color = isError ? 'var(--arasaka-red)' : 'var(--net-cyan)';
+            
+            const timeStr = evt.at ? evt.at.substring(11, 19) : '--:--:--';
+            const cat = evt.type ? evt.type.toUpperCase() : 'EVENT';
+            const details = [
+              evt.payload?.provider ? `PROVIDER: ${evt.payload.provider}` : '',
+              evt.payload?.fromModel ? `MODEL: ${evt.payload.fromModel}` : '',
+              evt.payload?.reason ? `REASON: ${evt.payload.reason}` : ''
+            ].filter(Boolean).join(' | ');
+
+            li.textContent = `[${timeStr}] [${cat}] ${details}`;
+            listEl.appendChild(li);
+          });
+        }
+      }
+    });
+  }
 
   aiProviderSelect?.addEventListener('change', () => {
     const selectedProvider = aiProviderSelect.value;
@@ -477,6 +531,7 @@ document.addEventListener('DOMContentLoaded', () => {
     setModelPickerOpen(false);
     toggleProviderPanels(selectedProvider);
     syncModelSelector(selectedProvider, currentSettings.models?.[selectedProvider]);
+    writeToConsole(`ROUTING PATH CHANGED TO: ${selectedProvider.toUpperCase()}`);
   });
 
   modelPickerTrigger?.addEventListener('click', () => {
@@ -520,6 +575,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     currentSettings.models[selectedProvider] = selectedModel;
     renderModelMeta(selectedProvider, selectedModel);
+    writeToConsole(`MODEL SELECTION RECONFIGURED: ${selectedModel}`);
   });
 
   for (const provider of ['gemini', 'openai', 'claude', 'openrouter']) {
@@ -531,7 +587,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
   saveBtn?.addEventListener('click', saveSettings);
 
-  const resetBtn = document.getElementById('resetBtn');
   resetBtn?.addEventListener('click', async () => {
     if (confirm('Are you sure you want to PURGE all access tokens and restore default configuration?')) {
       try {
@@ -540,6 +595,7 @@ document.addEventListener('DOMContentLoaded', () => {
         currentSettings = defaults;
         applySettingsToUI();
         showStatus('DATA PURGED', 'success');
+        writeToConsole('SYSTEM RESET INITIATED. CONFIG CLEANED.');
         chrome.runtime.sendMessage({ action: 'settingsUpdated', settings: defaults });
       } catch (error) {
         showStatus('PURGE FAILED', 'error');
@@ -547,19 +603,17 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  try {
-    const mq = window.matchMedia('(prefers-color-scheme: dark)');
-    mq.addEventListener('change', (event) => {
-      chrome.storage.sync.get(['zeus_dark_mode_preference'], (data) => {
-        if (data?.zeus_dark_mode_preference === undefined) {
-          applyDarkMode(event.matches);
+  clearTelemetryBtn?.addEventListener('click', () => {
+    if (confirm('Are you sure you want to purge all telemetry logs?')) {
+      chrome.runtime.sendMessage({ action: 'clearTelemetry' }, (res) => {
+        if (res?.success) {
+          writeToConsole('TELEMETRY EVENT HISTORY PURGED.');
+          loadTelemetryData();
         }
       });
-    });
-  } catch (_) {
-    // Ignore browser support edge cases.
-  }
+    }
+  });
 
-  initializeDarkMode();
   loadSettings();
+  writeToConsole('NEURAL CONTROL LINK ESTABLISHED.');
 });

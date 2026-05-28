@@ -5,6 +5,10 @@
   const telemetry = globalScope.ZeusTelemetry || null;
 
   function trackAutoFallback(payload) {
+    const logPrefix = globalScope?.LOG_PREFIX || { warn: '%c[ZEUS_NET]' };
+    const logStyle = globalScope?.LOG_STYLE || { warn: 'color: #FCEE0A; font-family: JetBrains Mono; font-weight: bold;' };
+    console.warn(`${logPrefix.warn} FALLBACK TRIGGERED`, logStyle.warn, payload);
+
     if (telemetry && typeof telemetry.trackFallback === 'function') {
       telemetry.trackFallback({
         category: 'auto-route-fallback',
@@ -191,14 +195,48 @@
       throw new Error('Empty prompt provided.');
     }
 
-    const config = await settingsModule.loadSettings();
-    const provider = String(config?.provider || settingsModule.createDefaultSettings().provider).trim();
+    const logPrefix = globalScope?.LOG_PREFIX || {
+      info: '%c[ZEUS_NET]',
+      warn: '%c[ZEUS_NET]',
+      error: '%c[ZEUS_NET]'
+    };
+    const logStyle = globalScope?.LOG_STYLE || {
+      info: 'color: #00F0FF; font-family: JetBrains Mono; font-weight: bold;',
+      warn: 'color: #FCEE0A; font-family: JetBrains Mono; font-weight: bold;',
+      error: 'color: #FF003C; font-family: JetBrains Mono; font-weight: bold;'
+    };
 
-    if (provider === 'auto') {
-      return enhanceWithAuto(prompt, config);
+    const startTime = Date.now();
+    try {
+      const config = await settingsModule.loadSettings();
+      const provider = String(config?.provider || settingsModule.createDefaultSettings().provider).trim();
+
+      console.log(`${logPrefix.info} ROUTING PROMPT`, logStyle.info, { provider });
+
+      let result;
+      if (provider === 'auto') {
+        result = await enhanceWithAuto(prompt, config);
+      } else {
+        result = await callProvider(provider, prompt, config);
+      }
+
+      const duration = Date.now() - startTime;
+      const storageLocal = globalScope?.chrome?.storage?.local;
+      if (storageLocal && typeof storageLocal.set === 'function') {
+        storageLocal.set({ zeus_last_latency: duration });
+      }
+
+      return result;
+    } catch (error) {
+      const duration = Date.now() - startTime;
+      const storageLocal = globalScope?.chrome?.storage?.local;
+      if (storageLocal && typeof storageLocal.set === 'function') {
+        storageLocal.set({ zeus_last_latency: duration });
+      }
+
+      console.error(`${logPrefix.error} NEURAL LINK FAILED`, logStyle.error, error);
+      throw error;
     }
-
-    return callProvider(provider, prompt, config);
   }
 
   globalScope.ZeusRouter = Object.freeze({

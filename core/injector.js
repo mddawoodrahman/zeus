@@ -1,5 +1,5 @@
 (function initZeusInjector(globalScope) {
-  const BUTTON_CLASS = 'zeus-enhance-button';
+  const BUTTON_CLASS = 'zeus-enhance-btn';
   const STYLE_ID = 'zeus-enhance-button-style';
 
   function ensureButtonStyles() {
@@ -10,26 +10,70 @@
     const style = document.createElement('style');
     style.id = STYLE_ID;
     style.textContent = `
+      @keyframes neon-breathe {
+        0%, 100% { opacity: 1; filter: brightness(1); }
+        50% { opacity: 0.85; filter: brightness(1.15); }
+      }
+
+      .${BUTTON_CLASS}, .zeus-toast {
+        --void: #080508;
+        --void-elevated: #0f0f12;
+        --void-panel: #151519;
+        --void-glass: rgba(8, 5, 8, 0.92);
+        --cyber-yellow: #FCEE0A;
+        --cyber-yellow-dim: #B8A508;
+        --cyber-yellow-glow: rgba(252, 238, 10, 0.6);
+        --cyber-yellow-faint: rgba(252, 238, 10, 0.08);
+        --arasaka-red: #FF003C;
+        --arasaka-red-dim: #C5003C;
+        --arasaka-red-glow: rgba(255, 0, 60, 0.5);
+        --arasaka-red-faint: rgba(255, 0, 60, 0.06);
+        --net-cyan: #00F0FF;
+        --net-cyan-dim: #55EAD4;
+        --net-cyan-glow: rgba(0, 240, 255, 0.5);
+        --net-cyan-faint: rgba(0, 240, 255, 0.06);
+        --acid-green: #39FF14;
+        --acid-green-dim: #2ECC71;
+        --acid-green-glow: rgba(57, 255, 20, 0.4);
+        --text-primary: #F0F0F0;
+        --text-secondary: #8A8A8F;
+        --text-muted: #4A4A4F;
+        --text-warning: #FCEE0A;
+      }
+
       .${BUTTON_CLASS} {
+        all: initial;
         position: absolute;
+        z-index: 2147483646;
+        font-family: 'Rajdhani', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        font-weight: 700;
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.15em;
+        padding: 6px 12px;
+        background: var(--void-panel, #151519) !important;
+        color: var(--cyber-yellow, #FCEE0A) !important;
+        border: 1px solid var(--cyber-yellow, #FCEE0A) !important;
+        cursor: pointer;
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        width: clamp(30px, 2.2vw, 34px);
-        height: clamp(30px, 2.2vw, 34px);
-        border-radius: 999px;
-        border: 1px solid rgba(0, 0, 0, 0.12);
-        background: rgba(255, 255, 255, 0.94);
-        box-shadow: 0 8px 20px rgba(15, 23, 42, 0.18);
-        color: #111827;
-        backdrop-filter: blur(8px);
-        -webkit-backdrop-filter: blur(8px);
-        cursor: pointer;
-        padding: 0;
+        gap: 6px;
+        box-shadow: 0 0 8px var(--cyber-yellow-faint, rgba(252, 238, 10, 0.08));
+        transition: all 0.2s ease, opacity 170ms ease, transform 190ms cubic-bezier(0.2, 0.7, 0.2, 1);
+        clip-path: polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px);
+        text-shadow: 0 0 2px rgba(0, 0, 0, 0.5);
         opacity: 0;
         transform: translateY(4px) scale(0.94);
-        transition: opacity 170ms ease, transform 190ms cubic-bezier(0.2, 0.7, 0.2, 1), box-shadow 200ms ease;
         pointer-events: none;
+        box-sizing: border-box;
+      }
+
+      @media (prefers-color-scheme: light) {
+        .${BUTTON_CLASS} {
+          box-shadow: 0 0 12px rgba(252, 238, 10, 0.4), 0 2px 8px rgba(0,0,0,0.3);
+          border-width: 2px !important;
+        }
       }
 
       .${BUTTON_CLASS}[data-visible="1"] {
@@ -38,18 +82,77 @@
         pointer-events: auto;
       }
 
+      .${BUTTON_CLASS}::before {
+        content: '⚡';
+        color: var(--cyber-yellow, #FCEE0A);
+        font-size: 12px;
+        filter: drop-shadow(0 0 4px var(--cyber-yellow-glow, rgba(252, 238, 10, 0.6)));
+      }
+
       .${BUTTON_CLASS}:hover {
-        box-shadow: 0 10px 24px rgba(15, 23, 42, 0.24);
+        background: var(--cyber-yellow, #FCEE0A) !important;
+        color: var(--void, #080508) !important;
+        box-shadow: 0 0 16px var(--cyber-yellow-glow, rgba(252, 238, 10, 0.6));
+        transform: translateY(-1px);
       }
 
-      .${BUTTON_CLASS}[data-busy="1"] {
-        cursor: progress;
+      .${BUTTON_CLASS}:active {
+        transform: translateY(0);
       }
 
-      .${BUTTON_CLASS} svg {
-        width: 16px;
-        height: 16px;
+      .${BUTTON_CLASS}.processing {
+        border-color: var(--net-cyan, #00F0FF) !important;
+        color: var(--net-cyan, #00F0FF) !important;
         pointer-events: none;
+      }
+
+      .${BUTTON_CLASS}.processing::before {
+        content: '◈';
+        animation: neon-breathe 1s ease-in-out infinite;
+        color: var(--net-cyan, #00F0FF);
+      }
+
+      .${BUTTON_CLASS}.error {
+        border-color: var(--arasaka-red, #FF003C) !important;
+        color: var(--arasaka-red, #FF003C) !important;
+      }
+
+      .${BUTTON_CLASS}.error::before {
+        content: '✕';
+        color: var(--arasaka-red, #FF003C);
+      }
+
+      /* Tooltip / Status Toast */
+      .zeus-toast {
+        position: absolute;
+        z-index: 2147483646;
+        background: var(--void-glass, rgba(8, 5, 8, 0.92)) !important;
+        border: 1px solid var(--net-cyan, #00F0FF) !important;
+        color: var(--text-primary, #F0F0F0) !important;
+        font-family: 'JetBrains Mono', 'Fira Code', monospace;
+        font-size: 11px;
+        padding: 8px 12px;
+        max-width: 240px;
+        backdrop-filter: blur(4px);
+        box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+        pointer-events: none;
+        border-radius: 0 !important;
+        box-sizing: border-box;
+      }
+
+      .zeus-toast::before {
+        content: '> ';
+        color: var(--acid-green, #39FF14);
+      }
+
+      .zeus-toast.error {
+        border-color: var(--arasaka-red, #FF003C) !important;
+        color: var(--arasaka-red, #FF003C) !important;
+      }
+
+      .zeus-toast.success {
+        border-color: var(--acid-green, #39FF14) !important;
+        color: var(--acid-green, #39FF14) !important;
       }
     `;
 
@@ -64,7 +167,7 @@
     return document.activeElement === input || (input.contains && input.contains(document.activeElement));
   }
 
-  function createButton(svgMarkup, onClick) {
+  function createButton(onClick) {
     ensureButtonStyles();
 
     const button = document.createElement('button');
@@ -72,9 +175,9 @@
     button.className = BUTTON_CLASS;
     button.dataset.visible = '0';
     button.setAttribute('aria-hidden', 'true');
-    button.setAttribute('aria-label', 'Enhance prompt with Zeus');
-    button.setAttribute('title', 'Enhance Prompt');
-    button.innerHTML = svgMarkup;
+    button.setAttribute('aria-label', 'Optimize prompt with Zeus');
+    button.setAttribute('title', 'Optimize Prompt');
+    button.textContent = 'OPTIMIZE PROMPT';
 
     button.addEventListener('mousedown', (event) => {
       event.preventDefault();
@@ -90,7 +193,6 @@
   }
 
   function create(options) {
-    const svgMarkup = String(options?.svgMarkup || '');
     const onEnhanceClick = typeof options?.onEnhanceClick === 'function' ? options.onEnhanceClick : () => {};
 
     const inputListeners = new Map();
@@ -105,13 +207,45 @@
     let hideTimer = null;
     let resolveAnchorContainer = (input) => input?.parentElement || null;
     let resolvePositionStrategy = () => ({ mode: 'anchored', right: 12, bottom: 10 });
+    let toastElement = null;
+
+    function showToast(message, type = 'info', durationMs = 3000) {
+      if (toastElement) {
+        toastElement.remove();
+        toastElement = null;
+      }
+
+      toastElement = document.createElement('div');
+      toastElement.className = `zeus-toast ${type}`;
+      toastElement.textContent = message;
+
+      const parent = button?.parentElement;
+      if (parent) {
+        parent.appendChild(toastElement);
+        if (button) {
+          const btnRect = button.getBoundingClientRect();
+          const parentRect = parent.getBoundingClientRect();
+          toastElement.style.right = `${parentRect.right - btnRect.right}px`;
+          toastElement.style.bottom = `${parentRect.bottom - btnRect.top + 6}px`;
+        }
+      }
+
+      if (durationMs > 0) {
+        setTimeout(() => {
+          if (toastElement && toastElement.isConnected) {
+            toastElement.remove();
+            toastElement = null;
+          }
+        }, durationMs);
+      }
+    }
 
     function ensureButton() {
       if (button) {
         return;
       }
 
-      button = createButton(svgMarkup, () => {
+      button = createButton(() => {
         if (activeInput) {
           onEnhanceClick(activeInput, button);
         }
@@ -425,7 +559,8 @@
     return Object.freeze({
       inject,
       refresh,
-      updateButtonState
+      updateButtonState,
+      showToast
     });
   }
 

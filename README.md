@@ -38,12 +38,15 @@ Zeus is designed around maintainable modules and clean runtime boundaries:
 
 ## Key Capabilities
 
-- Enhances prompts from in-page input fields via a single reusable action button that stays anchored to the prompt composer.
-- Supports provider selection: Gemini, OpenAI, Claude, OpenRouter, and local Ollama.
-- Supports Auto mode with prompt-intent routing and provider fallback behavior.
-- Tracks fallback telemetry for model/provider churn monitoring.
-- Preserves backward compatibility for legacy stored settings keys.
-- Includes automated tests across unit, integration, provider-mocking, DOM, and smoke layers.
+- **Military-Grade Cyberpunk HUD Popup**: Designed with a Rogue AI Injector aesthetic featuring HSL neon colors (Cyber Yellow, Netrunner Cyan, Arasaka Red, Acid Green), square status dots, and CRT scanline overlay.
+- **Aggressive Angular Reticle Button**: Renamed to `.zeus-enhance-btn` with cut corners and dedicated states (`.processing` showing spinning `◈` and `.error` showing `✕`).
+- **Real-Time Status Toast Overlays**: Injects status overlays (`ESTABLISHING NEURAL LINK...`, `INJECTION COMPLETE`, `LINK FAILURE`) directly near target inputs.
+- **Config Dashboard Control Center (`options.html`)**: Full-page settings featuring sidebar navigation, live telemetry tail log feed, and provider health indicators.
+- **Telemetry & Latency Monitoring**: Displays transaction latency and failure fallback metrics on the HUD and dashboard.
+- **Supported Providers**: Gemini, OpenAI, Claude, OpenRouter, and local Ollama.
+- **Auto Mode**: Uses prompt-intent routing and automatic provider fallback behavior.
+- **Backward Compatibility**: Preserves legacy sync settings keys.
+- **Automated Tests**: Unit, integration, provider-mocking, DOM, and smoke suites.
 
 ## Technology Stack
 

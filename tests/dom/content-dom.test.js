@@ -89,7 +89,7 @@ describe('DOM/content core behavior', () => {
     injector.inject([textarea]);
     injector.refresh();
 
-    const button = wrapper.querySelector('.zeus-enhance-button');
+    const button = wrapper.querySelector('.zeus-enhance-btn');
     expect(button).toBeTruthy();
     expect(textarea.parentElement).toBe(wrapper);
 
