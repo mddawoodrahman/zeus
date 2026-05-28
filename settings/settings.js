@@ -32,6 +32,7 @@
     'apiKeys',
     'models',
     'ollama',
+    'sidePanelEnabled',
     'zeus_selected_provider',
     'zeus_gemini_api_key',
     'zeus_gemini_model',
@@ -59,6 +60,7 @@
     return {
       schemaVersion: SCHEMA_VERSION,
       provider: 'gemini',
+      sidePanelEnabled: true,
       apiKeys: {
         gemini: '',
         openai: '',
@@ -130,9 +132,12 @@
       model: sanitizeString(stored?.ollama?.model ?? stored?.zeus_ollama_model)
     };
 
+    const sidePanelEnabled = stored?.sidePanelEnabled !== undefined ? Boolean(stored.sidePanelEnabled) : defaults.sidePanelEnabled;
+
     return {
       schemaVersion: SCHEMA_VERSION,
       provider,
+      sidePanelEnabled,
       apiKeys,
       models,
       ollama
@@ -149,6 +154,7 @@
     return {
       schemaVersion: SCHEMA_VERSION,
       provider: settings.provider,
+      sidePanelEnabled: settings.sidePanelEnabled,
       apiKeys: { ...settings.apiKeys },
       models: { ...settings.models },
       ollama: { ...settings.ollama },

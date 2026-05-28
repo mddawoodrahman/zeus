@@ -228,6 +228,27 @@
 
   function setupRuntimeMessageListener() {
     chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+      if (message?.action === 'sidePanel:getCurrentInput' || message?.type === 'sidePanel:getCurrentInput') {
+        const val = domUtils.getActiveInputValue();
+        if (val !== undefined && val !== null && val !== '') {
+          const currentAdapter = activeAdapter || resolveAdapter();
+          sendResponse({
+            value: val,
+            url: location.href,
+            site: currentAdapter ? currentAdapter.host : window.location.hostname
+          });
+        } else {
+          sendResponse({ value: '' });
+        }
+        return true;
+      }
+
+      if (message?.action === 'sidePanel:setInputValue' || message?.type === 'sidePanel:setInputValue') {
+        domUtils.setInputValue(message.value);
+        sendResponse({ success: true });
+        return true;
+      }
+
       if (message?.action === 'settingsUpdated') {
         settings = message.settings || settings;
         sendResponse({ status: 'ok' });

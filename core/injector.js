@@ -45,12 +45,9 @@
         all: initial;
         position: absolute;
         z-index: 2147483646;
-        font-family: 'Rajdhani', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-        font-weight: 700;
-        font-size: 11px;
-        text-transform: uppercase;
-        letter-spacing: 0.15em;
-        padding: 6px 12px;
+        width: 28px;
+        height: 28px;
+        padding: 0;
         background: var(--void-panel, #151519) !important;
         color: var(--cyber-yellow, #FCEE0A) !important;
         border: 1px solid var(--cyber-yellow, #FCEE0A) !important;
@@ -58,11 +55,9 @@
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        gap: 6px;
         box-shadow: 0 0 8px var(--cyber-yellow-faint, rgba(252, 238, 10, 0.08));
         transition: all 0.2s ease, opacity 170ms ease, transform 190ms cubic-bezier(0.2, 0.7, 0.2, 1);
         clip-path: polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px);
-        text-shadow: 0 0 2px rgba(0, 0, 0, 0.5);
         opacity: 0;
         transform: translateY(4px) scale(0.94);
         pointer-events: none;
@@ -85,7 +80,9 @@
       .${BUTTON_CLASS}::before {
         content: '⚡';
         color: var(--cyber-yellow, #FCEE0A);
-        font-size: 12px;
+        font-size: 13px;
+        line-height: 1;
+        display: inline-block;
         filter: drop-shadow(0 0 4px var(--cyber-yellow-glow, rgba(252, 238, 10, 0.6)));
       }
 
@@ -177,7 +174,7 @@
     button.setAttribute('aria-hidden', 'true');
     button.setAttribute('aria-label', 'Optimize prompt with Zeus');
     button.setAttribute('title', 'Optimize Prompt');
-    button.textContent = 'OPTIMIZE PROMPT';
+    button.textContent = '';
 
     button.addEventListener('mousedown', (event) => {
       event.preventDefault();

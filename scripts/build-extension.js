@@ -14,7 +14,10 @@ const runtimeFiles = [
   'styles.css',
   'model-registry.js',
   'options.html',
-  'options.js'
+  'options.js',
+  'sidepanel.html',
+  'sidepanel.js',
+  'sidepanel.css'
 ];
 
 const runtimeDirs = [

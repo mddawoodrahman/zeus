@@ -3,11 +3,13 @@
   "name": "ZEUS — Prompt Enhancement System",
   "version": "2.0",
   "description": "Military-grade prompt optimization injector. Compatible with OpenAI, Gemini, Claude, OpenRouter, and local Ollama modules.",
+  "minimum_chrome_version": "114",
   "permissions": [
     "activeTab",
     "scripting",
     "storage",
-    "contextMenus"
+    "contextMenus",
+    "sidePanel"
   ],
   "host_permissions": [
     "https://chatgpt.com/*",
@@ -72,5 +74,8 @@
   "options_ui": {
     "page": "options.html",
     "open_in_tab": true
+  },
+  "side_panel": {
+    "default_path": "sidepanel.html"
   }
 }

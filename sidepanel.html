@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ZEUS — Workbench</title>
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;700&family=Rajdhani:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Inter:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="sidepanel.css">
+</head>
+<body class="zeus-ui">
+  <div class="sidepanel-container">
+    <div class="zeus-crt-overlay"></div>
+
+    <!-- Header -->
+    <header class="sidepanel-header">
+      <div class="logo">
+        <span class="logo-text">ZEUS</span>
+        <span class="logo-version">v2.0_WORKBENCH</span>
+      </div>
+    </header>
+
+    <!-- Navigation / Tab Bar -->
+    <nav class="sidepanel-tabs">
+      <button class="tab-btn active" data-tab="editor">/// ENHANCE</button>
+      <button class="tab-btn" data-tab="history">/// HISTORY</button>
+      <button class="tab-btn" data-tab="templates">/// TEMPLATES</button>
+    </nav>
+
+    <!-- Tab Content Area -->
+    <main class="sidepanel-content">
+      
+      <!-- Editor / Enhance Tab -->
+      <section id="tab-editor" class="tab-section active">
+        <div class="zeus-terminal-card" data-variant="cyan">
+          <div class="card-accent"></div>
+          <label class="zeus-label" for="original-input">/// INPUT PAYLOAD</label>
+          <textarea id="original-input" class="zeus-input" placeholder="Capture or type a prompt..."></textarea>
+          <div class="button-row">
+            <button id="btn-capture" class="zeus-btn zeus-btn-cyan">CAPTURE FROM PAGE</button>
+            <button id="btn-enhance" class="zeus-btn zeus-btn-yellow">OPTIMIZE PROMPT</button>
+          </div>
+        </div>
+
+        <div class="zeus-terminal-card" data-variant="yellow" id="diff-card" style="display: none;">
+          <div class="card-accent"></div>
+          <label class="zeus-label">/// COMPARATIVE ANALYSIS (DIFF)</label>
+          <div id="diff-view" class="diff-container"></div>
+        </div>
+
+        <div class="zeus-terminal-card" data-variant="green">
+          <div class="card-accent"></div>
+          <label class="zeus-label" for="enhanced-output">/// OPTIMIZED OUTPUT</label>
+          <textarea id="enhanced-output" class="zeus-input" readonly placeholder="Optimized result will appear here..."></textarea>
+          <div class="button-row">
+            <button id="btn-insert" class="zeus-btn zeus-btn-yellow">INSERT INTO CHAT</button>
+            <button id="btn-copy" class="zeus-btn zeus-btn-cyan">COPY TO CLIPBOARD</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- History Tab -->
+      <section id="tab-history" class="tab-section">
+        <div class="zeus-terminal-card" data-variant="red">
+          <div class="card-accent"></div>
+          <label class="zeus-label">/// INJECTION ARCHIVE</label>
+          <div id="history-list" class="history-list-container"></div>
+        </div>
+      </section>
+
+      <!-- Templates Tab -->
+      <section id="tab-templates" class="tab-section">
+        <!-- Template List view -->
+        <div id="templates-list-view" class="template-view-sub">
+          <div class="zeus-terminal-card" data-variant="cyan">
+            <div class="card-accent"></div>
+            <label class="zeus-label">/// ACTIVE PATTERNS</label>
+            <div id="template-list" class="template-list-container"></div>
+            <button id="btn-new-template" class="zeus-btn zeus-btn-yellow" style="width: 100%; margin-top: 15px;">CREATE NEW TEMPLATE</button>
+          </div>
+        </div>
+
+        <!-- Template Editor view (hidden by default) -->
+        <div id="templates-editor-view" class="template-view-sub" style="display: none;">
+          <div class="zeus-terminal-card" data-variant="yellow">
+            <div class="card-accent"></div>
+            <label class="zeus-label">/// PATTERN EDITOR</label>
+            
+            <div class="form-group">
+              <label class="zeus-label" for="template-name">PATTERN ID</label>
+              <input type="text" id="template-name" class="zeus-input" placeholder="e.g., Code Refactor">
+            </div>
+
+            <div class="form-group" style="margin-top: 12px;">
+              <label class="zeus-label" for="template-text">TEMPLATE PAYLOAD (use {{var}} for variables)</label>
+              <textarea id="template-text" class="zeus-input" placeholder="e.g., Please refactor the following {{language}} code: {{code}}" style="height: 120px;"></textarea>
+            </div>
+
+            <div class="button-row" style="margin-top: 15px;">
+              <button id="btn-save-template" class="zeus-btn zeus-btn-yellow">SAVE PATTERN</button>
+              <button id="btn-delete-template" class="zeus-btn zeus-btn-red">DELETE</button>
+              <button id="btn-cancel-template" class="zeus-btn zeus-btn-ghost">CANCEL</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+    </main>
+
+    <!-- Overlay Variables Fill Modal (hidden by default) -->
+    <div id="modal-fill-variables" class="zeus-modal" style="display: none;">
+      <div class="zeus-modal-content zeus-terminal-card" data-variant="cyan">
+        <div class="card-accent"></div>
+        <label class="zeus-label">/// COMPILE VARIABLES</label>
+        <div id="modal-variables-inputs" class="modal-inputs-container"></div>
+        <div class="button-row" style="margin-top: 15px;">
+          <button id="btn-modal-fill" class="zeus-btn zeus-btn-yellow">INJECT LOADOUT</button>
+          <button id="btn-modal-close" class="zeus-btn zeus-btn-ghost">ABORT</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Status toast element -->
+    <div id="sidepanel-toast-holder" style="position: absolute; bottom: 10px; right: 10px; z-index: 10000; pointer-events: none;"></div>
+  </div>
+
+  <script src="sidepanel.js" type="module"></script>
+</body>
+</html>

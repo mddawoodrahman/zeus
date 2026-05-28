@@ -109,7 +109,83 @@
 
   function setupRuntimeMessaging() {
     chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-      switch (message?.action) {
+      const action = message?.action || message?.type;
+      switch (action) {
+        case 'sidePanel:getCurrentInput':
+          chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+            if (chrome.runtime.lastError || !tabs?.[0]?.id) {
+              sendResponse({ value: '' });
+              return;
+            }
+            chrome.tabs.sendMessage(tabs[0].id, { action: 'sidePanel:getCurrentInput' }, (response) => {
+              if (chrome.runtime.lastError) {
+                sendResponse({ value: '' });
+              } else {
+                sendResponse(response);
+              }
+            });
+          });
+          return true;
+
+        case 'sidePanel:setInputValue':
+          chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+            if (chrome.runtime.lastError || !tabs?.[0]?.id) {
+              sendResponse({ success: false });
+              return;
+            }
+            chrome.tabs.sendMessage(tabs[0].id, { action: 'sidePanel:setInputValue', value: message.value }, (response) => {
+              if (chrome.runtime.lastError) {
+                sendResponse({ success: false });
+              } else {
+                sendResponse(response);
+              }
+            });
+          });
+          return true;
+
+        case 'sidePanel:getHistory':
+          chrome.storage.local.get(['zeus_prompt_history'], (data) => {
+            const history = Array.isArray(data?.zeus_prompt_history) ? data.zeus_prompt_history : [];
+            sendResponse({ history });
+          });
+          return true;
+
+        case 'sidePanel:saveHistory':
+          chrome.storage.local.get(['zeus_prompt_history'], (data) => {
+            let history = Array.isArray(data?.zeus_prompt_history) ? data.zeus_prompt_history : [];
+            if (message.entry) {
+              history.push(message.entry);
+              if (history.length > 100) {
+                history.shift();
+              }
+              chrome.storage.local.set({ zeus_prompt_history: history }, () => {
+                sendResponse({ success: true });
+              });
+            } else {
+              sendResponse({ success: false });
+            }
+          });
+          return true;
+
+        case 'sidePanel:getTemplates':
+          chrome.storage.sync.get(['zeus_templates'], (data) => {
+            const templates = Array.isArray(data?.zeus_templates) ? data.zeus_templates : [];
+            sendResponse({ templates });
+          });
+          return true;
+
+        case 'sidePanel:saveTemplates':
+          const templates = message.templates;
+          const isValid = Array.isArray(templates) && templates.every(t => t && typeof t === 'object' && typeof t.name === 'string' && typeof t.template === 'string' && Array.isArray(t.variables));
+          if (isValid) {
+            chrome.storage.sync.set({ zeus_templates: templates }, () => {
+              sendResponse({ success: true });
+            });
+          } else {
+            sendResponse({ success: false, error: 'Invalid template format' });
+          }
+          return true;
+
         case 'enhancePrompt':
           handleEnhancePrompt(message, sendResponse);
           return true;

@@ -31,6 +31,10 @@
       return;
     }
 
+    if (anchor.dataset.zeusAnchorPositioned === '1') {
+      return;
+    }
+
     const computed = window.getComputedStyle(anchor);
     if (computed.position === 'static') {
       anchor.style.position = 'relative';
@@ -56,10 +60,9 @@
     let isDestroyed = false;
 
     function getButtonSize() {
-      const rect = button.getBoundingClientRect();
       return {
-        width: Math.max(28, toNumber(rect.width, 32)),
-        height: Math.max(28, toNumber(rect.height, 32))
+        width: 28,
+        height: 28
       };
     }
 
@@ -92,7 +95,7 @@
 
         if (overlapsHorizontally && overlapsVertically) {
           right = Math.max(right, Math.round(anchorRect.right - avoidRect.left + 10));
-          bottom = Math.max(bottom, Math.round(avoidRect.height + 10));
+          bottom = Math.max(bottom, Math.round(anchorRect.bottom - avoidRect.top + 10));
         }
       }
 

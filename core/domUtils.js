@@ -146,6 +146,32 @@
     }
   }
 
+  function getActiveElementRecursive() {
+    let active = document.activeElement;
+    while (active && active.shadowRoot && active.shadowRoot.activeElement) {
+      active = active.shadowRoot.activeElement;
+    }
+    return active;
+  }
+
+  function getActiveInputValue() {
+    const active = getActiveElementRecursive();
+    if (isEligibleInput(active)) {
+      return getInputText(active);
+    }
+    return '';
+  }
+
+  function setInputValue(text) {
+    const active = getActiveElementRecursive();
+    if (isEligibleInput(active)) {
+      setInputText(active, text);
+      active.dispatchEvent(new InputEvent('input', { bubbles: true }));
+      return true;
+    }
+    return false;
+  }
+
   function filterEligibleInputs(list) {
     const eligible = dedupeElements(list).filter(isEligibleInput);
     debug('eligible inputs', eligible);
@@ -161,6 +187,8 @@
     findCandidates,
     filterEligibleInputs,
     getInputText,
-    setInputText
+    setInputText,
+    getActiveInputValue,
+    setInputValue
   });
 })(typeof globalThis !== 'undefined' ? globalThis : this);

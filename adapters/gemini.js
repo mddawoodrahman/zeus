@@ -71,7 +71,7 @@
     }
 
     const controls = Array.from(anchor.querySelectorAll('button, [role="button"]'))
-      .filter((element) => isVisible(element) && !element.classList?.contains('zeus-enhance-button'));
+      .filter((element) => isVisible(element) && !element.classList?.contains('zeus-enhance-btn') && !element.classList?.contains('zeus-enhance-button'));
 
     const rightSideControls = controls.filter((element) => {
       const rect = element.getBoundingClientRect();
