@@ -39,7 +39,9 @@ Zeus is designed around maintainable modules and clean runtime boundaries:
 ## Key Capabilities
 
 - **Military-Grade Cyberpunk HUD Popup**: Designed with a Rogue AI Injector aesthetic featuring HSL neon colors (Cyber Yellow, Netrunner Cyan, Arasaka Red, Acid Green), square status dots, and CRT scanline overlay.
-- **Aggressive Angular Reticle Button**: Renamed to `.zeus-enhance-btn` with cut corners and dedicated states (`.processing` showing spinning `◈` and `.error` showing `✕`).
+- **Aggressive Angular Reticle Button**: Renamed to `.zeus-enhance-btn` with cut corners and dedicated states (`.processing` showing spinning `◈` and `.error` showing `✕`). Shortened to an icon-only layout with optimized position anchors and layout-thrashing prevention.
+- **Chrome Side Panel API Workbench**: Serves as the primary prompt workspace, history logger, and template variables injector, fully styled with the Night City cyberpunk aesthetic and containing an inline word-diff viewer.
+- **Copilot-style Inline Suggestions**: Streams low-latency completions word-by-word as ghost text overlays directly in eligible inputs, triggering on user typing idle (400ms aggressive, 800ms conservative).
 - **Real-Time Status Toast Overlays**: Injects status overlays (`ESTABLISHING NEURAL LINK...`, `INJECTION COMPLETE`, `LINK FAILURE`) directly near target inputs.
 - **Config Dashboard Control Center (`options.html`)**: Full-page settings featuring sidebar navigation, live telemetry tail log feed, and provider health indicators.
 - **Telemetry & Latency Monitoring**: Displays transaction latency and failure fallback metrics on the HUD and dashboard.
@@ -86,6 +88,8 @@ Zeus is designed around maintainable modules and clean runtime boundaries:
 - `core/injector.js`: single reusable button lifecycle, focus/hover visibility, and adapter-driven mounting.
 - `core/useFloatingPosition.js`: anchored/fixed positioning sync logic for resize, scroll, and focus changes.
 - `core/observer.js`: debounced MutationObserver and SPA URL-change refresh trigger.
+- `core/ghostText.js`: mirror rendering and positioning of completion ghost text overlays for textareas and editables.
+- `core/copilot.js`: client-side inline suggestion state machine, keystroke debouncer, port messaging, and keyboard bindings.
 - `adapters/*.js`: host matching plus site-specific selectors and positioning strategy hooks.
 
 This separation keeps site heuristics isolated and avoids intrusive DOM reparenting.
@@ -114,8 +118,10 @@ This separation keeps site heuristics isolated and avoids intrusive DOM reparent
 |  |- grok.js
 |  |- openrouter.js
 |- core/
+|  |- copilot.js
 |  |- domUtils.js
 |  |- errors.js
+|  |- ghostText.js
 |  |- injector.js
 |  |- observer.js
 |  |- prompts.js
@@ -222,6 +228,11 @@ Settings are owned by `settings/settings.js` and stored in `chrome.storage.sync`
 {
   schemaVersion: 2,
   provider: "gemini|openai|claude|openrouter|ollama|auto",
+  sidePanelEnabled: true,
+  copilotEnabled: false,
+  copilotMode: "conservative|aggressive",
+  copilotProvider: "auto|gemini|openai|claude|openrouter|ollama",
+  copilotMaxTokens: 60,
   apiKeys: {
     gemini: "",
     openai: "",
@@ -425,6 +436,8 @@ When adding new generated folders or local-only artifacts, update `.gitignore` i
 
 ## Runtime Message API
 
+### Standard Messaging API
+
 Handled by `messaging/messageHandler.js`:
 
 - `ping`
@@ -434,6 +447,14 @@ Handled by `messaging/messageHandler.js`:
 - `forceInject`
 - `getTelemetrySummary`
 - `clearTelemetry`
+
+### Long-Lived Connection Ports
+
+- Port Name: `'copilot-stream'`
+  - Used by content script to connect to the background service worker.
+  - Action `'copilot:start'` with `text`, `cursorPos`, and `settings` initializes streaming.
+  - Streams completion chunks back using `{type: 'chunk', text: delta}` and terminates with `{type: 'done'}` or `{type: 'error'}`.
+  - Heartbeat `{type: 'ping'}` sent every 15 seconds to prevent background service worker idle timeouts.
 
 ## Telemetry
 

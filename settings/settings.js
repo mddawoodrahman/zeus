@@ -33,6 +33,10 @@
     'models',
     'ollama',
     'sidePanelEnabled',
+    'copilotEnabled',
+    'copilotMode',
+    'copilotProvider',
+    'copilotMaxTokens',
     'zeus_selected_provider',
     'zeus_gemini_api_key',
     'zeus_gemini_model',
@@ -61,6 +65,10 @@
       schemaVersion: SCHEMA_VERSION,
       provider: 'gemini',
       sidePanelEnabled: true,
+      copilotEnabled: false,
+      copilotMode: 'conservative',
+      copilotProvider: 'auto',
+      copilotMaxTokens: 60,
       apiKeys: {
         gemini: '',
         openai: '',
@@ -133,11 +141,19 @@
     };
 
     const sidePanelEnabled = stored?.sidePanelEnabled !== undefined ? Boolean(stored.sidePanelEnabled) : defaults.sidePanelEnabled;
+    const copilotEnabled = stored?.copilotEnabled !== undefined ? Boolean(stored.copilotEnabled) : defaults.copilotEnabled;
+    const copilotMode = stored?.copilotMode !== undefined ? sanitizeString(stored.copilotMode) : defaults.copilotMode;
+    const copilotProvider = stored?.copilotProvider !== undefined ? sanitizeString(stored.copilotProvider) : defaults.copilotProvider;
+    const copilotMaxTokens = stored?.copilotMaxTokens !== undefined ? Number(stored.copilotMaxTokens) : defaults.copilotMaxTokens;
 
     return {
       schemaVersion: SCHEMA_VERSION,
       provider,
       sidePanelEnabled,
+      copilotEnabled,
+      copilotMode,
+      copilotProvider,
+      copilotMaxTokens,
       apiKeys,
       models,
       ollama
@@ -155,6 +171,10 @@
       schemaVersion: SCHEMA_VERSION,
       provider: settings.provider,
       sidePanelEnabled: settings.sidePanelEnabled,
+      copilotEnabled: settings.copilotEnabled,
+      copilotMode: settings.copilotMode,
+      copilotProvider: settings.copilotProvider,
+      copilotMaxTokens: settings.copilotMaxTokens,
       apiKeys: { ...settings.apiKeys },
       models: { ...settings.models },
       ollama: { ...settings.ollama },

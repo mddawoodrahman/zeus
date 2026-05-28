@@ -120,5 +120,49 @@
     throw new Error('OpenAI request failed.');
   }
 
+  async function suggest(text, settings, port, signal) {
+    const apiKey = String(settings?.apiKeys?.openai || '').trim();
+    const model = String(settings?.models?.openai || 'gpt-5.4-mini').trim();
+    if (!apiKey) throw new Error('Missing OpenAI API key.');
+
+    const body = {
+      model,
+      messages: [
+        { role: 'system', content: "You are a concise prompt-completion assistant. Continue the user's incomplete prompt with at most 2 sentences. Do not repeat what they already typed." },
+        { role: 'user', content: `Prompt: ${text}` }
+      ],
+      temperature: 0.3,
+      max_tokens: settings.copilotMaxTokens || 60,
+      stream: true
+    };
+
+    const response = await fetch(OPENAI_API_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`
+      },
+      body: JSON.stringify(body),
+      signal
+    });
+
+    if (!response.ok) {
+      const errData = await providerUtils.readJsonSafe(response);
+      throw new Error(errData?.error?.message || `HTTP error ${response.status}`);
+    }
+
+    await providerUtils.parseSseStream(response, (chunk) => {
+      const content = chunk?.choices?.[0]?.delta?.content;
+      if (content) {
+        port.postMessage({ type: 'chunk', text: content });
+      }
+    }, signal);
+
+    if (!signal?.aborted) {
+      port.postMessage({ type: 'done' });
+    }
+  }
+
   providers.openai = enhance;
+  providers.openai.suggest = suggest;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

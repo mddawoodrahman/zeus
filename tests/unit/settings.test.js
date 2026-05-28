@@ -64,4 +64,30 @@ describe('ZeusSettings', () => {
     expect(payload.models.claude).toBe('claude-sonnet-4.6');
     expect(payload.zeus_claude_model).toBe('claude-sonnet-4.6');
   });
+
+  it('supports copilot configuration keys and defaults', () => {
+    const defaults = globalThis.ZeusSettings.createDefaultSettings();
+    expect(defaults.copilotEnabled).toBe(false);
+    expect(defaults.copilotMode).toBe('conservative');
+    expect(defaults.copilotProvider).toBe('auto');
+    expect(defaults.copilotMaxTokens).toBe(60);
+
+    const normalized = globalThis.ZeusSettings.normalizeSettings({
+      copilotEnabled: true,
+      copilotMode: 'aggressive',
+      copilotProvider: 'gemini',
+      copilotMaxTokens: 30
+    });
+
+    expect(normalized.copilotEnabled).toBe(true);
+    expect(normalized.copilotMode).toBe('aggressive');
+    expect(normalized.copilotProvider).toBe('gemini');
+    expect(normalized.copilotMaxTokens).toBe(30);
+
+    const serialized = globalThis.ZeusSettings.serializeSettings(normalized);
+    expect(serialized.copilotEnabled).toBe(true);
+    expect(serialized.copilotMode).toBe('aggressive');
+    expect(serialized.copilotProvider).toBe('gemini');
+    expect(serialized.copilotMaxTokens).toBe(30);
+  });
 });

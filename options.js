@@ -25,6 +25,18 @@ document.addEventListener('DOMContentLoaded', () => {
   const statusEl = document.getElementById('status');
   const optionsConsole = document.getElementById('optionsConsole');
   const clearTelemetryBtn = document.getElementById('clearTelemetryBtn');
+  const sidePanelEnabledCheckbox = document.getElementById('sidePanelEnabled');
+  const copilotEnabledCheckbox = document.getElementById('copilotEnabled');
+  const copilotConfigsDiv = document.getElementById('copilot-configs');
+  const copilotProviderSelect = document.getElementById('copilotProvider');
+  const copilotModeSelect = document.getElementById('copilotMode');
+  const copilotMaxTokensInput = document.getElementById('copilotMaxTokens');
+
+  copilotEnabledCheckbox?.addEventListener('change', () => {
+    if (copilotConfigsDiv) {
+      copilotConfigsDiv.style.display = copilotEnabledCheckbox.checked ? 'flex' : 'none';
+    }
+  });
 
   // Sidebar navigation toggling
   const navItems = document.querySelectorAll('.options-nav-item');
@@ -408,6 +420,25 @@ document.addEventListener('DOMContentLoaded', () => {
       ollamaModelInput.value = currentSettings.ollama?.model || '';
     }
 
+    if (sidePanelEnabledCheckbox) {
+      sidePanelEnabledCheckbox.checked = Boolean(currentSettings.sidePanelEnabled);
+    }
+    if (copilotEnabledCheckbox) {
+      copilotEnabledCheckbox.checked = Boolean(currentSettings.copilotEnabled);
+    }
+    if (copilotConfigsDiv) {
+      copilotConfigsDiv.style.display = currentSettings.copilotEnabled ? 'flex' : 'none';
+    }
+    if (copilotProviderSelect) {
+      copilotProviderSelect.value = currentSettings.copilotProvider || 'auto';
+    }
+    if (copilotModeSelect) {
+      copilotModeSelect.value = currentSettings.copilotMode || 'conservative';
+    }
+    if (copilotMaxTokensInput) {
+      copilotMaxTokensInput.value = currentSettings.copilotMaxTokens || 60;
+    }
+
     toggleProviderPanels(provider);
     syncModelSelector(provider, currentSettings.models?.[provider]);
     updateHealthIndicators();
@@ -432,6 +463,11 @@ document.addEventListener('DOMContentLoaded', () => {
       const nextSettings = settingsModule.normalizeSettings({
         ...currentSettings,
         provider,
+        sidePanelEnabled: sidePanelEnabledCheckbox ? sidePanelEnabledCheckbox.checked : currentSettings.sidePanelEnabled,
+        copilotEnabled: copilotEnabledCheckbox ? copilotEnabledCheckbox.checked : currentSettings.copilotEnabled,
+        copilotProvider: copilotProviderSelect ? copilotProviderSelect.value : currentSettings.copilotProvider,
+        copilotMode: copilotModeSelect ? copilotModeSelect.value : currentSettings.copilotMode,
+        copilotMaxTokens: copilotMaxTokensInput ? (Number(copilotMaxTokensInput.value) || 60) : currentSettings.copilotMaxTokens,
         apiKeys: {
           gemini: settingsMap.gemini.apiKeyInput?.value.trim() || '',
           openai: settingsMap.openai.apiKeyInput?.value.trim() || '',

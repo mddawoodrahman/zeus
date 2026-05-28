@@ -111,5 +111,43 @@
     throw new Error('Gemini request failed.');
   }
 
+  async function suggest(text, settings, port, signal) {
+    const apiKey = String(settings?.apiKeys?.gemini || '').trim();
+    const model = String(settings?.models?.gemini || 'gemini-3-flash').trim();
+    if (!apiKey) throw new Error('Missing Gemini API key.');
+
+    const promptText = `You are a concise prompt-completion assistant. Continue the user's incomplete prompt with at most 2 sentences. Do not repeat what they already typed. Prompt: ${text}`;
+    const body = {
+      contents: [{ parts: [{ text: promptText }] }],
+      generationConfig: { temperature: 0.3, maxOutputTokens: settings.copilotMaxTokens || 60 }
+    };
+
+    const apiUrl = `${GEMINI_API_BASE_URL}/${model}:streamGenerateContent?alt=sse&key=${apiKey}`;
+
+    const response = await fetch(apiUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal
+    });
+
+    if (!response.ok) {
+      const errData = await providerUtils.readJsonSafe(response);
+      throw new Error(errData?.error?.message || `HTTP error ${response.status}`);
+    }
+
+    await providerUtils.parseSseStream(response, (chunk) => {
+      const content = chunk?.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (content) {
+        port.postMessage({ type: 'chunk', text: content });
+      }
+    }, signal);
+
+    if (!signal?.aborted) {
+      port.postMessage({ type: 'done' });
+    }
+  }
+
   providers.gemini = enhance;
+  providers.gemini.suggest = suggest;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

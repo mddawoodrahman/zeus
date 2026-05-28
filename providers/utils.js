@@ -115,6 +115,48 @@
     });
   }
 
+  async function parseSseStream(response, onChunk, signal) {
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder('utf-8');
+    let buffer = '';
+
+    try {
+      while (true) {
+        if (signal?.aborted) {
+          break;
+        }
+
+        const { done, value } = await reader.read();
+        if (done) {
+          break;
+        }
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed) continue;
+          if (trimmed.startsWith('data:')) {
+            const dataStr = trimmed.slice(5).trim();
+            if (dataStr === '[DONE]') {
+              continue;
+            }
+            try {
+              const parsed = JSON.parse(dataStr);
+              onChunk(parsed);
+            } catch (err) {
+              // Ignore partial/malformed JSON
+            }
+          }
+        }
+      }
+    } finally {
+      reader.releaseLock();
+    }
+  }
+
   globalScope.ZeusProviderUtils = Object.freeze({
     ensureProviderBag,
     buildModelCandidates,
@@ -123,6 +165,7 @@
     inferChatTokenParam,
     getAlternateChatTokenParam,
     isUnsupportedTokenParameterError,
-    buildChatTokenLimit
+    buildChatTokenLimit,
+    parseSseStream
   });
 })(typeof globalThis !== 'undefined' ? globalThis : this);

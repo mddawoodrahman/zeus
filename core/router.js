@@ -239,10 +239,62 @@
     }
   }
 
+  async function streamSuggest(text, settings, port, abortSignal) {
+    let provider = String(settings?.copilotProvider || 'auto').trim();
+
+    if (provider === 'auto') {
+      const hasOllamaModel = Boolean(settings?.ollama?.model);
+      if (hasOllamaModel) {
+        provider = 'ollama';
+      } else {
+        const hasGeminiKey = Boolean(settings?.apiKeys?.gemini);
+        const hasOpenAiKey = Boolean(settings?.apiKeys?.openai);
+        const hasClaudeKey = Boolean(settings?.apiKeys?.claude);
+        const hasOpenRouterKey = Boolean(settings?.apiKeys?.openrouter);
+
+        if (hasGeminiKey) {
+          provider = 'gemini';
+        } else if (hasOpenAiKey) {
+          provider = 'openai';
+        } else if (hasClaudeKey) {
+          provider = 'claude';
+        } else if (hasOpenRouterKey) {
+          provider = 'openrouter';
+        } else {
+          return;
+        }
+      }
+    } else {
+      if (provider !== 'ollama' && !settings?.apiKeys?.[provider]) {
+        port.postMessage({ type: 'error', message: `Missing API key for provider ${provider}` });
+        return;
+      }
+    }
+
+    const providerFn = providers[provider];
+    if (typeof providerFn !== 'function') {
+      port.postMessage({ type: 'error', message: `Unsupported provider: ${provider}` });
+      return;
+    }
+
+    if (typeof providerFn.suggest !== 'function') {
+      port.postMessage({ type: 'error', message: `Provider ${provider} does not support copilot suggestions` });
+      return;
+    }
+
+    try {
+      await providerFn.suggest(text, settings, port, abortSignal);
+    } catch (err) {
+      if (abortSignal?.aborted) return;
+      port.postMessage({ type: 'error', message: err.message || 'Error fetching suggestion' });
+    }
+  }
+
   globalScope.ZeusRouter = Object.freeze({
     enhancePrompt,
     detectPromptIntent,
     autoRouteForIntent,
-    buildAutoRouteCandidates
+    buildAutoRouteCandidates,
+    streamSuggest
   });
 })(typeof globalThis !== 'undefined' ? globalThis : this);

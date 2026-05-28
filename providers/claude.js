@@ -112,5 +112,50 @@
     throw new Error('Claude request failed.');
   }
 
+  async function suggest(text, settings, port, signal) {
+    const apiKey = String(settings?.apiKeys?.claude || '').trim();
+    const model = String(settings?.models?.claude || 'claude-sonnet-4.6').trim();
+    if (!apiKey) throw new Error('Missing Claude API key.');
+
+    const body = {
+      model,
+      system: "You are a concise prompt-completion assistant. Continue the user's incomplete prompt with at most 2 sentences. Do not repeat what they already typed.",
+      messages: [{ role: 'user', content: `Prompt: ${text}` }],
+      max_tokens: settings.copilotMaxTokens || 60,
+      temperature: 0.3,
+      stream: true
+    };
+
+    const response = await fetch(CLAUDE_API_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01'
+      },
+      body: JSON.stringify(body),
+      signal
+    });
+
+    if (!response.ok) {
+      const errData = await providerUtils.readJsonSafe(response);
+      throw new Error(errData?.error?.message || `HTTP error ${response.status}`);
+    }
+
+    await providerUtils.parseSseStream(response, (chunk) => {
+      if (chunk.type === 'content_block_delta' && chunk.delta?.type === 'text_delta') {
+        const content = chunk.delta.text;
+        if (content) {
+          port.postMessage({ type: 'chunk', text: content });
+        }
+      }
+    }, signal);
+
+    if (!signal?.aborted) {
+      port.postMessage({ type: 'done' });
+    }
+  }
+
   providers.claude = enhance;
+  providers.claude.suggest = suggest;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

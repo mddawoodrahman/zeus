@@ -75,8 +75,13 @@
     }
 
     const inputs = collectInputs();
-    injector.inject(inputs, activeAdapter || resolveAdapter());
+    const adapter = activeAdapter || resolveAdapter();
+    injector.inject(inputs, adapter);
     injector.refresh();
+
+    if (settings?.copilotEnabled && globalScope.ZeusCopilot) {
+      globalScope.ZeusCopilot.init(adapter, settings);
+    }
   }
 
   function scheduleRefresh() {
@@ -251,6 +256,9 @@
 
       if (message?.action === 'settingsUpdated') {
         settings = message.settings || settings;
+        if (globalScope.ZeusCopilot) {
+          globalScope.ZeusCopilot.reconfigure(settings);
+        }
         sendResponse({ status: 'ok' });
         return true;
       }

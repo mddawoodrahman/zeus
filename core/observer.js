@@ -70,7 +70,12 @@
     let observer = null;
     let urlTimer = null;
 
-    const trigger = createDebouncedCallback(onChange, debounceMs);
+    const trigger = createDebouncedCallback(() => {
+      onChange();
+      if (globalScope.ZeusCopilot) {
+        globalScope.ZeusCopilot.refreshTargets();
+      }
+    }, debounceMs);
 
     if (root) {
       observer = new MutationObserver((mutations) => {

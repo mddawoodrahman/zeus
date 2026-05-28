@@ -177,5 +177,49 @@
     throw new Error('OpenRouter request failed.');
   }
 
+  async function suggest(text, settings, port, signal) {
+    const apiKey = String(settings?.apiKeys?.openrouter || '').trim();
+    const model = String(settings?.models?.openrouter || 'openai/gpt-5.4').trim();
+    if (!apiKey) throw new Error('Missing OpenRouter API key.');
+
+    const body = {
+      model,
+      messages: [
+        { role: 'system', content: "You are a concise prompt-completion assistant. Continue the user's incomplete prompt with at most 2 sentences. Do not repeat what they already typed." },
+        { role: 'user', content: `Prompt: ${text}` }
+      ],
+      temperature: 0.3,
+      max_tokens: settings.copilotMaxTokens || 60
+    };
+
+    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+        'HTTP-Referer': 'https://github.com/zeus-extension',
+        'X-Title': 'Zeus Prompt Injector'
+      },
+      body: JSON.stringify(body),
+      signal
+    });
+
+    if (!response.ok) {
+      const errData = await providerUtils.readJsonSafe(response);
+      throw new Error(errData?.error?.message || `HTTP error ${response.status}`);
+    }
+
+    const data = await providerUtils.readJsonSafe(response);
+    const content = data?.choices?.[0]?.message?.content;
+    if (content && !signal?.aborted) {
+      port.postMessage({ type: 'chunk', text: String(content).trim() });
+    }
+
+    if (!signal?.aborted) {
+      port.postMessage({ type: 'done' });
+    }
+  }
+
   providers.openrouter = enhance;
+  providers.openrouter.suggest = suggest;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

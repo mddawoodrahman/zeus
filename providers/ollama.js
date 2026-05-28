@@ -113,6 +113,42 @@
     }
   }
 
+  async function suggest(text, settings, port, signal) {
+    await checkHealth();
+    const model = await detectModel(settings);
+
+    const promptText = `You are a concise prompt-completion assistant. Continue the user's incomplete prompt with at most 2 sentences. Do not repeat what they already typed. Prompt: ${text}`;
+    const response = await retry.fetchWithTimeout(OLLAMA_API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model,
+        prompt: promptText,
+        stream: false,
+        options: {
+          temperature: 0.3,
+          num_predict: settings.copilotMaxTokens || 60
+        }
+      }),
+      signal
+    });
+
+    if (!response.ok) {
+      const errData = await providerUtils.readJsonSafe(response);
+      throw new errors.ProviderHttpError('ollama', response.status, errData, model);
+    }
+
+    const data = await providerUtils.readJsonSafe(response);
+    const content = data?.response;
+    if (content && !signal?.aborted) {
+      port.postMessage({ type: 'chunk', text: String(content).trim() });
+    }
+
+    if (!signal?.aborted) {
+      port.postMessage({ type: 'done' });
+    }
+  }
+
   globalScope.ZeusOllamaMeta = Object.freeze({
     OLLAMA_NOT_RUNNING_MESSAGE,
     OLLAMA_NO_MODEL_MESSAGE,
@@ -120,4 +156,5 @@
   });
 
   providers.ollama = enhance;
+  providers.ollama.suggest = suggest;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

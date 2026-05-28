@@ -59,6 +59,54 @@ READY.</div>
           </div>
         </div>
 
+        <!-- Advanced Feature Access Modules -->
+        <div class="zeus-terminal-card" data-variant="cyan">
+          <div class="card-accent"></div>
+          <h2 style="font-family: 'Orbitron', sans-serif; font-size: 13px;">/// ADVANCED ACCESS MODULES</h2>
+          <div style="margin-top: 15px; display: flex; flex-direction: column; gap: 12px;">
+            <div style="display: flex; align-items: center; justify-content: space-between;">
+              <div>
+                <label class="zeus-label" style="margin: 0; cursor: pointer;" for="sidePanelEnabled">CHROME SIDE PANEL WORKBENCH</label>
+                <p class="helper-text" style="margin: 2px 0 0 0;">Replaces popup as primary workspace interface</p>
+              </div>
+              <input type="checkbox" id="sidePanelEnabled" style="margin-right: 5px; cursor: pointer;">
+            </div>
+
+            <div style="display: flex; align-items: center; justify-content: space-between; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 12px;">
+              <div>
+                <label class="zeus-label" style="margin: 0; cursor: pointer;" for="copilotEnabled">COPILOT INLINE SUGGESTIONS</label>
+                <p class="helper-text" style="margin: 2px 0 0 0;">Streams completions in chat inputs on typing idle</p>
+              </div>
+              <input type="checkbox" id="copilotEnabled" style="margin-right: 5px; cursor: pointer;">
+            </div>
+            
+            <div id="copilot-configs" style="display: none; flex-direction: column; gap: 10px; margin-top: 5px; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 12px;">
+              <div>
+                <label class="zeus-label" for="copilotProvider">COPILOT PROVIDER</label>
+                <select class="zeus-input zeus-select" id="copilotProvider" style="width: 100%;">
+                  <option value="auto">Auto (Fastest Cloud / Local)</option>
+                  <option value="gemini">Gemini</option>
+                  <option value="openai">OpenAI</option>
+                  <option value="claude">Claude</option>
+                  <option value="openrouter">OpenRouter</option>
+                  <option value="ollama">Ollama (Local)</option>
+                </select>
+              </div>
+              <div>
+                <label class="zeus-label" for="copilotMode">COPILOT RESPONSE MODE</label>
+                <select class="zeus-input zeus-select" id="copilotMode" style="width: 100%;">
+                  <option value="conservative">Conservative (800ms idle)</option>
+                  <option value="aggressive">Aggressive (400ms idle)</option>
+                </select>
+              </div>
+              <div>
+                <label class="zeus-label" for="copilotMaxTokens">COPILOT TOKEN BOUND</label>
+                <input type="number" class="zeus-input" id="copilotMaxTokens" min="10" max="250" value="60">
+              </div>
+            </div>
+          </div>
+        </div>
+
         <!-- Model Selection Section -->
         <div class="zeus-terminal-card" data-variant="yellow" id="model-selection">
           <div class="card-accent"></div>

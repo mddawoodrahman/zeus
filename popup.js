@@ -23,6 +23,8 @@ document.addEventListener('DOMContentLoaded', () => {
   const darkModeToggle = document.getElementById('darkModeToggle');
   const saveBtn = document.getElementById('saveBtn');
   const statusEl = document.getElementById('status');
+  const sidePanelEnabledCheckbox = document.getElementById('sidePanelEnabled');
+  const copilotEnabledCheckbox = document.getElementById('copilotEnabled');
 
   const GROUP_LABELS = registry?.getGroupLabels?.() || {
     recommended: 'Recommended (Latest)',
@@ -410,6 +412,13 @@ document.addEventListener('DOMContentLoaded', () => {
       ollamaModelInput.value = currentSettings.ollama?.model || '';
     }
 
+    if (sidePanelEnabledCheckbox) {
+      sidePanelEnabledCheckbox.checked = Boolean(currentSettings.sidePanelEnabled);
+    }
+    if (copilotEnabledCheckbox) {
+      copilotEnabledCheckbox.checked = Boolean(currentSettings.copilotEnabled);
+    }
+
     toggleProviderPanels(provider);
     syncModelSelector(provider, currentSettings.models?.[provider]);
     updateTelemetryStatusBar();
@@ -434,6 +443,8 @@ document.addEventListener('DOMContentLoaded', () => {
       const nextSettings = settingsModule.normalizeSettings({
         ...currentSettings,
         provider,
+        sidePanelEnabled: sidePanelEnabledCheckbox ? sidePanelEnabledCheckbox.checked : currentSettings.sidePanelEnabled,
+        copilotEnabled: copilotEnabledCheckbox ? copilotEnabledCheckbox.checked : currentSettings.copilotEnabled,
         apiKeys: {
           gemini: settingsMap.gemini.apiKeyInput?.value.trim() || '',
           openai: settingsMap.openai.apiKeyInput?.value.trim() || '',

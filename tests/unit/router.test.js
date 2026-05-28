@@ -12,8 +12,15 @@ describe('ZeusRouter unit behavior', () => {
       openai: vi.fn().mockResolvedValue('openai-result'),
       claude: vi.fn().mockResolvedValue('claude-result'),
       gemini: vi.fn().mockResolvedValue('gemini-result'),
-      ollama: vi.fn().mockResolvedValue('ollama-result')
+      ollama: vi.fn().mockResolvedValue('ollama-result'),
+      openrouter: vi.fn().mockResolvedValue('openrouter-result')
     };
+
+    providers.openai.suggest = vi.fn().mockResolvedValue();
+    providers.claude.suggest = vi.fn().mockResolvedValue();
+    providers.gemini.suggest = vi.fn().mockResolvedValue();
+    providers.ollama.suggest = vi.fn().mockResolvedValue();
+    providers.openrouter.suggest = vi.fn().mockResolvedValue();
 
     settingsModule = {
       createDefaultSettings() {
@@ -79,5 +86,18 @@ describe('ZeusRouter unit behavior', () => {
       'hello world',
       expect.objectContaining({ provider: 'openai' })
     );
+  });
+
+  it('streamSuggest routes to the correct provider and calls suggest', async () => {
+    const port = { postMessage: vi.fn() };
+    const abortSignal = {};
+    const settings = {
+      copilotProvider: 'gemini',
+      apiKeys: { gemini: 'gemini-key' }
+    };
+
+    await globalThis.ZeusRouter.streamSuggest('how to', settings, port, abortSignal);
+
+    expect(providers.gemini.suggest).toHaveBeenCalledWith('how to', settings, port, abortSignal);
   });
 });

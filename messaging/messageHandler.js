@@ -6,12 +6,17 @@
 
   const CONTENT_SCRIPT_FILES = [
     'core/domUtils.js',
+    'core/useFloatingPosition.js',
     'core/injector.js',
     'core/observer.js',
+    'core/ghostText.js',
+    'core/copilot.js',
     'adapters/chatgpt.js',
     'adapters/claude.js',
+    'adapters/gemini.js',
     'adapters/grok.js',
     'adapters/deepseek.js',
+    'adapters/openrouter.js',
     'adapters/generic.js',
     'content.js'
   ];
@@ -231,6 +236,73 @@
     });
   }
 
+  function setupCopilotStreamListener() {
+    if (!chrome.runtime.onConnect) return;
+    chrome.runtime.onConnect.addListener((port) => {
+      if (port.name !== 'copilot-stream') return;
+
+      let abortController = null;
+      let keepAliveInterval = null;
+
+      function stopKeepAlive() {
+        if (keepAliveInterval) {
+          clearInterval(keepAliveInterval);
+          keepAliveInterval = null;
+        }
+      }
+
+      function startKeepAlive() {
+        stopKeepAlive();
+        keepAliveInterval = setInterval(() => {
+          try {
+            port.postMessage({ type: 'ping' });
+          } catch (_) {
+            stopKeepAlive();
+          }
+        }, 15000);
+      }
+
+      port.onMessage.addListener(async (msg) => {
+        if (msg.type === 'copilot:start') {
+          if (abortController) {
+            abortController.abort();
+          }
+          abortController = new AbortController();
+          startKeepAlive();
+
+          try {
+            const config = await settingsModule.loadSettings();
+            
+            const mergedSettings = {
+              ...config,
+              ...msg.settings
+            };
+
+            const routerInstance = globalScope.ZeusRouter;
+            if (!routerInstance || typeof routerInstance.streamSuggest !== 'function') {
+              throw new Error('ZeusRouter streamSuggest is not available');
+            }
+
+            await routerInstance.streamSuggest(msg.text, mergedSettings, port, abortController.signal);
+          } catch (err) {
+            try {
+              port.postMessage({ type: 'error', message: err.message || 'Error processing suggestion' });
+            } catch (_) {}
+          }
+        }
+      });
+
+      port.onDisconnect.addListener(() => {
+        stopKeepAlive();
+        if (abortController) {
+          abortController.abort();
+          abortController = null;
+        }
+      });
+    });
+  }
+
   setupContextMenu();
   setupRuntimeMessaging();
+  setupCopilotStreamListener();
 })(typeof globalThis !== 'undefined' ? globalThis : this);
