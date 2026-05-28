@@ -207,16 +207,41 @@ npm test
 
 ## Usage
 
-1. Open the extension popup.
+### Core Features
+1. Open the extension popup by clicking the Zeus icon in the Chrome toolbar.
 2. Select a provider (or `Auto`).
 3. Add provider API keys where needed.
 4. Select a model for model-selectable providers.
-5. Save settings.
+5. Click **EXECUTE CONFIG** to save settings.
 6. On a supported chat page, click the Zeus enhance button in the prompt area.
 
-Context menu flow:
+#### Context Menu Flow
+- Right-click an editable prompt field and select `Enhance Prompt with Zeus`.
 
-- Right-click an editable prompt field and use `Enhance Prompt with Zeus`.
+### Advanced Modules
+
+#### Chrome Side Panel Workbench
+1. Open the Zeus popup or options page.
+2. Scroll to the **ADVANCED MODULES** card and check **SIDE PANEL WORKBENCH**.
+3. Click **EXECUTE CONFIG** to save settings.
+4. Open the Chrome Side Panel UI:
+   - Click the **Side panel** icon in Chrome's top-right toolbar (looks like a split rectangle).
+   - Alternatively, click the Extensions puzzle piece icon, find **ZEUS**, click the three vertical dots next to it, and select **Open side panel**.
+5. In the side panel dropdown selection at the top, select **ZEUS — Prompt Enhancement System**.
+6. Use the workbench to load prompt history, inject template variables, edit text with full markdown support, and view line-by-line word differences.
+
+#### Copilot Inline Suggestions
+1. Open the Zeus popup or options page.
+2. Scroll to the **ADVANCED MODULES** card and check **COPILOT INLINE SUGGEST**.
+3. Click **EXECUTE CONFIG** to save settings.
+4. Open a supported chat application (e.g., ChatGPT, Claude, Gemini).
+5. Start typing in the input textarea or `contenteditable` container.
+6. On typing idle (400ms in aggressive mode, 800ms in conservative mode), Zeus streams real-time completion suggestions as a gray ghost-text overlay.
+7. Interaction hotkeys:
+   - Press **Tab** to accept the suggestion.
+   - Press **Escape** to dismiss/reject the suggestion.
+   - Any other keystroke (continuing to type) will dismiss the overlay automatically.
+
 
 ## Configuration and Data Model
 
