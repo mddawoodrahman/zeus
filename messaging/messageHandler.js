@@ -236,9 +236,19 @@
     });
   }
 
+  let activeSidepanelPort = null;
+
   function setupCopilotStreamListener() {
     if (!chrome.runtime.onConnect) return;
     chrome.runtime.onConnect.addListener((port) => {
+      if (port.name === 'zeus-sidepanel') {
+        activeSidepanelPort = port;
+        port.onDisconnect.addListener(() => {
+          activeSidepanelPort = null;
+        });
+        return;
+      }
+
       if (port.name !== 'copilot-stream') return;
 
       let abortController = null;
@@ -302,7 +312,73 @@
     });
   }
 
+  function setupCommandsListener() {
+    if (!chrome.commands || !chrome.commands.onCommand) return;
+
+    chrome.commands.onCommand.addListener((command, tab) => {
+      if (command === 'open-side-panel') {
+        if (activeSidepanelPort) {
+          // Send a visual debug notification to the active tab to confirm command execution
+          chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+            if (tabs?.[0]?.id) {
+              chrome.tabs.sendMessage(tabs[0].id, { action: 'commands:debugToast', text: 'ZEUS: CLOSING WORKBENCH' }).catch(() => {});
+            }
+          });
+
+          // Close the side panel if it's currently open
+          try {
+            activeSidepanelPort.postMessage({ type: 'close' });
+          } catch (_) {}
+
+          // Fallback close call for newer Chrome versions (Chrome 121+)
+          if (chrome.sidePanel && typeof chrome.sidePanel.close === 'function') {
+            chrome.windows.getLastFocused((window) => {
+              const targetWindowId = window?.id || tab?.windowId;
+              if (targetWindowId !== undefined) {
+                chrome.sidePanel.close({ windowId: targetWindowId }).catch(() => {});
+              }
+            });
+          }
+        } else {
+          // Send a visual debug notification to the active tab to confirm command execution
+          chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+            if (tabs?.[0]?.id) {
+              chrome.tabs.sendMessage(tabs[0].id, { action: 'commands:debugToast', text: 'ZEUS: OPENING WORKBENCH' }).catch(() => {});
+            }
+          });
+
+          if (chrome.sidePanel && typeof chrome.sidePanel.open === 'function') {
+            // Open the side panel inside the currently focused active window
+            chrome.windows.getLastFocused((window) => {
+              const targetWindowId = window?.id || tab?.windowId;
+              if (targetWindowId !== undefined) {
+                chrome.sidePanel.open({ windowId: targetWindowId }).catch((err) => {
+                  console.error('[ZEUS] Failed to open side panel via windowId:', err);
+                  // Secondary fallback using tabId
+                  if (tab && tab.id) {
+                    chrome.sidePanel.open({ tabId: tab.id }).catch(() => {});
+                  }
+                });
+              } else if (tab && tab.id) {
+                chrome.sidePanel.open({ tabId: tab.id }).catch((err) => {
+                  console.error('[ZEUS] Failed to open side panel via tabId:', err);
+                });
+              } else {
+                chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+                  if (tabs?.[0]?.id) {
+                    chrome.sidePanel.open({ tabId: tabs[0].id }).catch(() => {});
+                  }
+                });
+              }
+            });
+          }
+        }
+      }
+    });
+  }
+
   setupContextMenu();
   setupRuntimeMessaging();
   setupCopilotStreamListener();
+  setupCommandsListener();
 })(typeof globalThis !== 'undefined' ? globalThis : this);

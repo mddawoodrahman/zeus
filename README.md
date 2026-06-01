@@ -224,9 +224,11 @@ npm test
 1. Open the Zeus popup or options page.
 2. Scroll to the **ADVANCED MODULES** card and check **SIDE PANEL WORKBENCH**.
 3. Click **EXECUTE CONFIG** to save settings.
-4. Open the Chrome Side Panel UI:
+4. Open or close the Chrome Side Panel UI:
+   - **Shortcut (Recommended)**: Press **Alt + Shift + Z** (or **Cmd + Shift + Z** on Mac) directly. This acts as a state-aware **toggle** (press once to open, press again to close).
    - Click the **Side panel** icon in Chrome's top-right toolbar (looks like a split rectangle).
    - Alternatively, click the Extensions puzzle piece icon, find **ZEUS**, click the three vertical dots next to it, and select **Open side panel**.
+   - **Physical Close Button**: Click the high-tech red **✕** close button in the top-right corner of the workbench header to close the panel instantly.
 5. In the side panel dropdown selection at the top, select **ZEUS — Prompt Enhancement System**.
 6. Use the workbench to load prompt history, inject template variables, edit text with full markdown support, and view line-by-line word differences.
 

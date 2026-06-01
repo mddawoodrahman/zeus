@@ -37,6 +37,26 @@ document.addEventListener('DOMContentLoaded', () => {
   const toastHolder = document.getElementById('sidepanel-toast-holder');
 
   let currentTemplates = [];
+  // Close Panel Elements
+  const btnClosePanel = document.getElementById('btn-close-panel');
+  if (btnClosePanel) {
+    btnClosePanel.addEventListener('click', () => {
+      window.close();
+    });
+  }
+
+  // Connect long-lived port to background script to track state and accept close messages
+  if (chrome.runtime && typeof chrome.runtime.connect === 'function') {
+    const sidepanelPort = chrome.runtime.connect({ name: 'zeus-sidepanel' });
+    if (sidepanelPort) {
+      sidepanelPort.onMessage.addListener((msg) => {
+        if (msg && msg.type === 'close') {
+          window.close();
+        }
+      });
+    }
+  }
+
   let editingTemplateIndex = -1; // -1 means creating new
   let currentFillingTemplateText = '';
 

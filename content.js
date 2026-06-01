@@ -269,6 +269,38 @@
         return true;
       }
 
+      if (message?.action === 'commands:debugToast') {
+        const toast = document.createElement('div');
+        toast.className = 'zeus-toast-overlay';
+        toast.style.cssText = `
+          position: fixed;
+          top: 20px;
+          right: 20px;
+          background: rgba(0, 240, 255, 0.95);
+          color: #000;
+          font-family: 'JetBrains Mono', 'Rajdhani', sans-serif;
+          font-size: 11px;
+          font-weight: 700;
+          padding: 10px 16px;
+          border-left: 4px solid #FFD500;
+          box-shadow: 0 4px 15px rgba(0, 240, 255, 0.4), inset 0 0 8px rgba(255, 255, 255, 0.6);
+          z-index: 999999;
+          letter-spacing: 1px;
+          clip-path: polygon(0 0, 95% 0, 100% 30%, 100% 100%, 5% 100%, 0 70%);
+          pointer-events: none;
+          animation: zeus-fade-in 0.3s ease;
+        `;
+        toast.textContent = 'ZEUS LINK: COMMAND SIGNAL RECEIVED';
+        document.body.appendChild(toast);
+        setTimeout(() => {
+          toast.style.transition = 'opacity 0.5s ease';
+          toast.style.opacity = '0';
+          setTimeout(() => toast.remove(), 500);
+        }, 3000);
+        sendResponse({ success: true });
+        return true;
+      }
+
       if (message?.action === 'contextEnhancePrompt') {
         const targetInput = resolveActiveEditableInput();
         if (!targetInput) {

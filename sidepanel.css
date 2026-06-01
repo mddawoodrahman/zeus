@@ -102,6 +102,33 @@ body {
   padding: 12px 16px;
   backdrop-filter: blur(8px);
   flex-shrink: 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.close-panel-btn {
+  background: transparent;
+  border: 1px solid var(--arasaka-red);
+  color: var(--arasaka-red);
+  font-family: 'Rajdhani', sans-serif;
+  font-weight: 700;
+  font-size: 11px;
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  clip-path: polygon(4px 0, 100% 0, 100% calc(100% - 4px), calc(100% - 4px) 100%, 0 100%, 0 4px);
+}
+
+.close-panel-btn:hover {
+  background: rgba(255, 0, 60, 0.08);
+  box-shadow: 0 0 8px var(--arasaka-red-glow);
+  color: var(--cyber-yellow);
+  border-color: var(--cyber-yellow);
 }
 
 .logo-text {
