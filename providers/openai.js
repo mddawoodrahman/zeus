@@ -44,7 +44,7 @@
     );
   }
 
-  async function enhance(prompt, config) {
+  async function enhance(prompt, config, options) {
     const apiKey = String(config?.apiKeys?.openai || '').trim();
     const model = String(config?.models?.openai || '').trim();
     if (!apiKey) throw new Error('Missing OpenAI API key.');
@@ -61,8 +61,8 @@
         const body = {
           model: currentModel,
           messages: [
-            { role: 'system', content: prompts.getRewriteSystemInstruction() },
-            { role: 'user', content: prompts.buildEnhancePrompt(prompt) }
+            { role: 'system', content: prompts.getRewriteSystemInstruction(options && options.instruction) },
+            { role: 'user', content: prompts.buildEnhancePrompt(prompt, options) }
           ],
           temperature: 0.4,
           ...providerUtils.buildChatTokenLimit(tokenParam, 1024)

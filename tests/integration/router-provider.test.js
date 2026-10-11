@@ -33,7 +33,8 @@ describe('Router and provider integration', () => {
     expect(result).toBe('enhanced-by-openai');
     expect(providers.openai).toHaveBeenCalledWith(
       'Make this clearer',
-      expect.objectContaining({ provider: 'openai' })
+      expect.objectContaining({ provider: 'openai' }),
+      undefined
     );
   });
 

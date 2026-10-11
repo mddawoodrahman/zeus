@@ -232,6 +232,10 @@ function createChromeMock(options) {
     },
     contextMenus: {
       create: () => 'zeus-enhance-prompt',
+      removeAll: (callback) => {
+        queueCallback(callback);
+      },
+      update: () => {},
       onClicked: createEvent()
     },
     commands: {

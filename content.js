@@ -3,6 +3,8 @@
   const observerFactory = globalScope.ZeusObserver;
   const injectorFactory = globalScope.ZeusInjector;
   const adapters = globalScope.ZeusContentAdapters || [];
+  const shortcuts = globalScope.ZeusShortcuts || null;
+  const transformsModule = globalScope.ZeusTransforms || null;
 
   if (!domUtils || !observerFactory || !injectorFactory) {
     return;
@@ -19,10 +21,13 @@
   const LIGHTNING_SVG = '<svg width="16" height="16" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg"><polygon style="fill:#FFD500;" points="382.395,228.568 291.215,228.568 330.762,10.199 129.603,283.43 220.785,283.43 181.238,501.799"/><g><path style="fill:#3D3D3D;" d="M181.234,512c-1.355,0-2.726-0.271-4.033-0.833c-4.357-1.878-6.845-6.514-5.999-11.184l37.371-206.353h-78.969c-3.846,0-7.367-2.164-9.103-5.597c-1.735-3.433-1.391-7.55,0.889-10.648L322.548,4.153c2.814-3.822,7.891-5.196,12.25-3.32c4.357,1.878,6.845,6.514,5.999,11.184L303.427,218.37h78.969c3.846,0,7.367,2.164,9.103,5.597c1.735,3.433,1.391,7.55-0.889,10.648L189.451,507.846C187.481,510.523,184.399,512,181.234,512z M149.777,273.231h71.007c3.023,0,5.89,1.341,7.828,3.662c1.938,2.32,2.747,5.38,2.208,8.355l-31.704,175.065l163.105-221.545h-71.007c-3.023,0-5.89-1.341-7.828-3.661c-1.938-2.32-2.747-5.38-2.208-8.355l31.704-175.065L149.777,273.231z"/></g></svg>';
 
   let settings = null;
+  let transforms = [];
+  let transformsPromise = null;
   let activeAdapter = null;
   let observer = null;
   let injector = null;
   let refreshTimer = null;
+  let transformKeydownHandler = null;
 
   function dedupeElements(list) {
     return Array.from(new Set((Array.isArray(list) ? list : []).filter(Boolean)));
@@ -151,16 +156,77 @@
     }
   }
 
-  async function handleEnhanceClickForInput(inputElement, buttonElement) {
+  /**
+   * Loads the transform list once per invalidation. Concurrent callers share the
+   * in-flight request, and a failed load clears the cache so the next shortcut
+   * press can retry instead of failing forever.
+   */
+  function fetchTransformsIfNeeded() {
+    if (!transformsModule) {
+      return Promise.resolve([]);
+    }
+
+    if (transformsPromise) {
+      return transformsPromise;
+    }
+
+    transformsPromise = sendMessageWithTimeout({ action: 'getTransforms' }, 5000)
+      .then((response) => {
+        transforms = Array.isArray(response?.transforms) ? response.transforms : [];
+        return transforms;
+      })
+      .catch(() => {
+        transformsPromise = null;
+        transforms = [];
+        return [];
+      });
+
+    return transformsPromise;
+  }
+
+  function invalidateTransforms() {
+    transformsPromise = null;
+    transforms = [];
+  }
+
+  async function handleEnhanceClickForInput(inputElement, buttonElement, options) {
     await fetchSettingsIfNeeded();
+
+    const transformId = String(options?.transformId || '').trim();
+    const targetedButton = buttonElement && buttonElement.classList ? buttonElement : null;
+
+    function setButtonState(action) {
+      if (!targetedButton) return;
+      if (action === 'processing') {
+        targetedButton.classList.add('processing');
+        targetedButton.classList.remove('error');
+        targetedButton.disabled = true;
+        targetedButton.style.pointerEvents = 'none';
+        return;
+      }
+      targetedButton.classList.remove('processing');
+    }
+
+    // A shortcut press arrives before the transform list may have loaded.
+    if (transformId && !transforms.length) {
+      await fetchTransformsIfNeeded();
+    }
+
+    const transform = transformId && transformsModule
+      ? transformsModule.getTransformById(transforms, transformId)
+      : null;
+
+    if (transformId && (!transform || !transform.enabled)) {
+      showStatusToast('TRANSFORM UNAVAILABLE', 'error', 3000);
+      return;
+    }
 
     const provider = readProviderFromSettings();
     const apiKey = readApiKeyForProvider(provider);
 
     if (provider !== 'ollama' && provider !== 'auto' && !apiKey) {
-      if (injector && typeof injector.showToast === 'function') {
-        injector.showToast('MISSING ACCESS TOKEN', 'error', 4000);
-      } else {
+      showStatusToast('MISSING ACCESS TOKEN', 'error', 4000);
+      if (!(injector && typeof injector.showToast === 'function')) {
         alert('Please configure an API key for the selected provider in the Zeus settings.');
       }
       return;
@@ -168,29 +234,24 @@
 
     const originalPrompt = domUtils.getInputText(inputElement);
     if (!String(originalPrompt || '').trim()) {
-      if (injector && typeof injector.showToast === 'function') {
-        injector.showToast('PROMPT EMPTY', 'error', 3000);
-      } else {
+      showStatusToast('PROMPT EMPTY', 'error', 3000);
+      if (!(injector && typeof injector.showToast === 'function')) {
         alert('Please enter a prompt to optimize.');
       }
       return;
     }
 
-    buttonElement.classList.add('processing');
-    buttonElement.classList.remove('error');
-    buttonElement.disabled = true;
-    buttonElement.style.pointerEvents = 'none';
+    setButtonState('processing');
 
-    if (injector && typeof injector.showToast === 'function') {
-      injector.showToast('ESTABLISHING NEURAL LINK...', 'info', 0);
-    }
+    showStatusToast('ESTABLISHING NEURAL LINK...', 'info', 0);
 
     try {
       await sendMessageWithTimeout({ action: 'ping' }, 3000).catch(() => null);
 
       const response = await sendMessageWithTimeout({
         action: 'enhancePrompt',
-        prompt: originalPrompt
+        prompt: originalPrompt,
+        transformId: transform?.id || ''
       }, MESSAGE_TIMEOUT_MS);
 
       if (!response?.success) {
@@ -198,26 +259,31 @@
       }
 
       domUtils.setInputText(inputElement, response.enhancedPrompt);
-      
-      buttonElement.classList.remove('processing');
-      if (injector && typeof injector.showToast === 'function') {
-        injector.showToast('INJECTION COMPLETE', 'success', 3000);
-      }
-    } catch (error) {
-      buttonElement.classList.remove('processing');
-      buttonElement.classList.add('error');
-      setTimeout(() => {
-        buttonElement.classList.remove('error');
-      }, 3000);
 
-      if (injector && typeof injector.showToast === 'function') {
-        injector.showToast('LINK FAILURE', 'error', 4000);
-      } else {
+      setButtonState('done');
+      showStatusToast(
+        transform ? `${transform.name.toUpperCase()} APPLIED` : 'INJECTION COMPLETE',
+        'success',
+        3000
+      );
+    } catch (error) {
+      setButtonState('done');
+      if (targetedButton) {
+        targetedButton.classList.add('error');
+        setTimeout(() => {
+          targetedButton.classList.remove('error');
+        }, 3000);
+      }
+
+      showStatusToast('LINK FAILURE', 'error', 4000);
+      if (!(injector && typeof injector.showToast === 'function')) {
         alert(`Zeus: ${String(error?.message || error)}`);
       }
     } finally {
-      buttonElement.disabled = false;
-      buttonElement.style.pointerEvents = 'auto';
+      if (targetedButton) {
+        targetedButton.disabled = false;
+        targetedButton.style.pointerEvents = 'auto';
+      }
     }
   }
 
@@ -229,6 +295,138 @@
 
     const candidates = collectInputs();
     return candidates[0] || null;
+  }
+
+  function showStatusToast(message, type, durationMs) {
+    if (injector && typeof injector.showToast === 'function') {
+      injector.showToast(message, type, durationMs);
+    }
+  }
+
+  /**
+   * Applies the transform bound to a keydown event. Runs only for the input the
+   * caret is already in, so a shortcut can never silently rewrite another box.
+   */
+  async function applyTransformShortcut(transform, event) {
+    const input = resolveActiveEditableInput();
+    if (!input || (event?.target && event.target !== input && !input.contains(event.target))) {
+      showStatusToast('FOCUS A PROMPT INPUT FIRST', 'error', 3000);
+      return;
+    }
+
+    let promptText = domUtils.getInputText(input);
+
+    if (transform.template) {
+      const expanded = transformsModule.applyTemplateValues(transform.template, { prompt: promptText });
+      const unresolved = transformsModule.findUnresolvedVariables(expanded);
+
+      // A variable transform cannot prompt for values from a page-level hotkey, so
+      // it reports what is missing instead of injecting literal placeholders.
+      if (unresolved.length > 0) {
+        showStatusToast(`NEEDS INPUT: ${unresolved.join(', ').toUpperCase()}`, 'error', 4000);
+        return;
+      }
+
+      domUtils.setInputText(input, expanded);
+      promptText = expanded;
+    }
+
+    // The transform runs through the normal enhancement pipeline, which owns the
+    // API key check, empty-prompt check, and provider routing.
+    if (!String(promptText || '').trim()) {
+      showStatusToast('PROMPT EMPTY', 'error', 3000);
+      return;
+    }
+
+    const syntheticButton = document.createElement('button');
+    await handleEnhanceClickForInput(input, syntheticButton, { transformId: transform.id });
+  }
+
+  function isZeusOwnedNode(node) {
+    if (!node || !node.classList) {
+      return false;
+    }
+
+    return node.classList.contains('zeus-enhance-btn') ||
+      node.classList.contains('zeus-toast') ||
+      node.classList.contains('zeus-ghost');
+  }
+
+  function setupTransformShortcutListener() {
+    if (!shortcuts || !transformsModule) {
+      return;
+    }
+
+    // Capture phase: site editors (Quill/ProseMirror) stop propagation on some combos.
+    transformKeydownHandler = (event) => {
+      if (event.defaultPrevented || event.isComposing) {
+        return;
+      }
+
+      if (isZeusOwnedNode(event.target)) {
+        return;
+      }
+
+      const targetInput = resolveActiveEditableInput();
+      if (!targetInput) {
+        return;
+      }
+
+      const transform = shortcuts.findTransformForEvent(event, transforms);
+      if (!transform) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+
+      applyTransformShortcut(transform, event).catch(() => {
+        showStatusToast('TRANSFORM FAILED', 'error', 3000);
+      });
+    };
+
+    document.addEventListener('keydown', transformKeydownHandler, true);
+  }
+
+  /**
+   * Releases everything `initialize()` created. `forceInject` re-runs this file in
+   * the same tab, so without teardown each injection would leak a keydown listener
+   * and a URL-polling interval.
+   */
+  function teardown() {
+    if (transformKeydownHandler) {
+      document.removeEventListener('keydown', transformKeydownHandler, true);
+      transformKeydownHandler = null;
+    }
+
+    if (observer) {
+      observer.disconnect();
+      observer = null;
+    }
+
+    if (refreshTimer) {
+      clearTimeout(refreshTimer);
+      refreshTimer = null;
+    }
+  }
+
+  /**
+   * Keeps the transform list live so an edit made in the popup or side panel takes
+   * effect without reloading the page.
+   */
+  function setupTransformChangeListener() {
+    if (!transformsModule || !chrome.storage?.onChanged) {
+      return;
+    }
+
+    chrome.storage.onChanged.addListener((changes, areaName) => {
+      if (areaName !== 'sync' || !changes[transformsModule.TRANSFORMS_STORAGE_KEY]) {
+        return;
+      }
+
+      invalidateTransforms();
+      fetchTransformsIfNeeded();
+    });
   }
 
   function setupRuntimeMessageListener() {
@@ -259,6 +457,14 @@
         if (globalScope.ZeusCopilot) {
           globalScope.ZeusCopilot.reconfigure(settings);
         }
+        sendResponse({ status: 'ok' });
+        return true;
+      }
+
+      // Lets the options page push transform edits to every open tab.
+      if (message?.action === 'transformsUpdated') {
+        invalidateTransforms();
+        fetchTransformsIfNeeded();
         sendResponse({ status: 'ok' });
         return true;
       }
@@ -312,7 +518,7 @@
         const tempButton = document.createElement('button');
         tempButton.innerHTML = LIGHTNING_SVG;
 
-        handleEnhanceClickForInput(targetInput, tempButton)
+        handleEnhanceClickForInput(targetInput, tempButton, { transformId: message?.transformId })
           .then(() => sendResponse({ status: 'enhanced' }))
           .catch(() => sendResponse({ status: 'failed' }));
 
@@ -352,14 +558,18 @@
   async function initialize() {
     activeAdapter = resolveAdapter();
     await fetchSettingsIfNeeded();
+    fetchTransformsIfNeeded();
     setupRuntimeMessageListener();
+    setupTransformChangeListener();
+    setupTransformShortcutListener();
     setupVisibilityListener();
     refreshInjection();
     startObserver();
   }
 
   globalScope.ZeusContentRuntime = Object.freeze({
-    refresh: scheduleRefresh
+    refresh: scheduleRefresh,
+    destroy: teardown
   });
 
   if (document.readyState === 'loading') {

@@ -46,7 +46,7 @@
     );
   }
 
-  async function enhance(prompt, config) {
+  async function enhance(prompt, config, options) {
     const apiKey = String(config?.apiKeys?.claude || '').trim();
     const model = String(config?.models?.claude || '').trim();
     if (!apiKey) throw new Error('Missing Claude API key.');
@@ -61,8 +61,8 @@
       for (let attempt = 0; attempt < CLAUDE_MAX_RETRIES; attempt += 1) {
         const body = {
           model: currentModel,
-          system: prompts.getRewriteSystemInstruction(),
-          messages: [{ role: 'user', content: prompts.buildEnhancePrompt(prompt) }],
+          system: prompts.getRewriteSystemInstruction(options && options.instruction),
+          messages: [{ role: 'user', content: prompts.buildEnhancePrompt(prompt, options) }],
           max_tokens: 2048,
           temperature: 0.4
         };

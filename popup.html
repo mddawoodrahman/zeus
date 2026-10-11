@@ -165,6 +165,21 @@
           </div>
         </div>
       </section>
+
+      <section class="zeus-terminal-card" data-variant="yellow" id="transforms-card">
+        <div class="card-accent"></div>
+        <label class="zeus-label">/// TRANSFORMS</label>
+        <p class="helper-text" style="margin-top: 8px;">
+          Set a shortcut, then press it while the caret is in a prompt box on a supported site.
+          A real key is required — modifier keys alone cannot be used.
+        </p>
+        <div id="transforms-list" style="margin-top: 10px; display: flex; flex-direction: column; gap: 10px;"></div>
+        <div style="margin-top: 10px; display: flex; gap: 8px;">
+          <button type="button" class="zeus-btn zeus-btn-cyan" id="transformAddBtn">NEW TRANSFORM</button>
+          <button type="button" class="zeus-btn zeus-btn-yellow" id="transformSaveBtn">SAVE TRANSFORMS</button>
+        </div>
+        <div id="transforms-status" class="status"></div>
+      </section>
     </main>
 
     <!-- Actions -->
@@ -183,6 +198,8 @@
   
   <script src="model-registry.js"></script>
   <script src="settings/settings.js"></script>
+  <script src="core/shortcuts.js"></script>
+  <script src="core/transforms.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>

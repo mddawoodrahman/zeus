@@ -106,6 +106,9 @@ function createChromeMock(options = {}) {
       create(config) {
         calls.contextMenuCreate.push(config);
       },
+      removeAll(callback) {
+        queueMicrotask(() => callback && callback());
+      },
       onClicked: {
         addListener(fn) {
           listeners.onContextMenuClicked.push(fn);
@@ -252,6 +255,26 @@ async function runMessageActionSmoke() {
     }
   };
 
+  // In-memory stand-in for the shared zeus_transforms store. messageHandler
+  // captures this binding at load time, so it must exist before the script runs.
+  const transformStore = [{ id: 'builtin-polish', name: 'Polish', shortcut: 'Ctrl+Shift+1', enabled: true }];
+
+  globalThis.ZeusTransforms = {
+    TRANSFORMS_STORAGE_KEY: 'zeus_transforms',
+    async loadTransforms() {
+      return transformStore.slice();
+    },
+    getEnabledTransforms(transforms) {
+      return transforms.filter((transform) => transform.enabled);
+    },
+    getTransformById(transforms, id) {
+      return transforms.find((transform) => transform.id === id) || null;
+    },
+    async saveTransforms(transforms) {
+      return transforms;
+    }
+  };
+
   globalThis.ZeusOllamaMeta = {
     OLLAMA_NOT_RUNNING_MESSAGE: 'not-running',
     OLLAMA_NO_MODEL_MESSAGE: 'no-model',
@@ -264,7 +287,16 @@ async function runMessageActionSmoke() {
 
   assert(env.listeners.onInstalled.length === 1, 'Expected onInstalled listener registration.');
   env.listeners.onInstalled[0]();
-  assert(env.calls.contextMenuCreate.length === 1, 'Expected context menu to be created on install.');
+  // The menu is rebuilt on a removeAll callback plus an async transform load.
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert(
+    env.calls.contextMenuCreate.some((entry) => entry.id === 'zeus-enhance-prompt'),
+    'Expected the Zeus root context menu to be created on install.'
+  );
+  assert(
+    env.calls.contextMenuCreate.some((entry) => entry.id === 'zeus-enhance-default'),
+    'Expected the default enhancement context menu entry to be created on install.'
+  );
 
   const messageListener = env.listeners.onMessage[0];
   assert(typeof messageListener === 'function', 'Expected runtime onMessage listener registration.');
@@ -307,6 +339,26 @@ async function runMessageActionSmoke() {
   const clearTelemetry = await invokeMessage(messageListener, { action: 'clearTelemetry' });
   assert(clearTelemetry?.success === true, 'Expected clearTelemetry acknowledgment.');
   assert(telemetryCleared, 'Expected telemetry clear hook to be invoked.');
+
+  // Transform actions are wired to ZeusTransforms (registered above, before load).
+  const transformsResponse = await invokeMessage(messageListener, { action: 'getTransforms' });
+  assert(transformsResponse?.transforms?.length === 1, 'Expected getTransforms to return the stored transform.');
+  assert(transformsResponse.transforms[0].id === 'builtin-polish', 'Expected the stored transform id.');
+
+  const saveResponse = await invokeMessage(messageListener, {
+    action: 'saveTransforms',
+    transforms: [{ id: 'custom-a', name: 'Custom A', shortcut: 'Ctrl+Shift+7', enabled: true }]
+  });
+  assert(saveResponse?.success === true, 'Expected saveTransforms to succeed.');
+
+  const invalidSave = await invokeMessage(messageListener, { action: 'saveTransforms', transforms: 'nope' });
+  assert(invalidSave?.success === false, 'Expected saveTransforms to reject a non-array payload.');
+
+  const deleteResponse = await invokeMessage(messageListener, { action: 'deleteTransform', id: 'builtin-polish' });
+  assert(deleteResponse?.success === true, 'Expected deleteTransform to succeed.');
+
+  const missingDeleteId = await invokeMessage(messageListener, { action: 'deleteTransform' });
+  assert(missingDeleteId?.success === false, 'Expected deleteTransform to require an id.');
 }
 
 (async () => {

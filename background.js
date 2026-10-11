@@ -19,6 +19,8 @@ importScripts(
   'core/prompts.js',
   'core/errors.js',
   'core/telemetry.js',
+  'core/shortcuts.js',
+  'core/transforms.js',
   'providers/utils.js',
   'providers/gemini.js',
   'providers/openai.js',

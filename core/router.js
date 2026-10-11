@@ -139,16 +139,16 @@
     };
   }
 
-  async function callProvider(provider, prompt, config) {
+  async function callProvider(provider, prompt, config, options) {
     const providerFn = providers[provider];
     if (typeof providerFn !== 'function') {
       throw new Error(`Unsupported provider: ${provider}`);
     }
 
-    return providerFn(prompt, config);
+    return providerFn(prompt, config, options);
   }
 
-  async function enhanceWithAuto(prompt, config) {
+  async function enhanceWithAuto(prompt, config, options) {
     const intent = detectPromptIntent(prompt);
     const primaryRoute = autoRouteForIntent(intent);
     const candidates = buildAutoRouteCandidates(primaryRoute);
@@ -174,7 +174,7 @@
 
       try {
         const override = withProviderModelOverride(config, provider, model);
-        return await callProvider(provider, prompt, override);
+        return await callProvider(provider, prompt, override, options);
       } catch (error) {
         trackAutoFallback({
           provider,
@@ -191,7 +191,11 @@
     throw new Error(`Auto mode failed after smart routing attempts. ${attempted.join(' | ')}`);
   }
 
-  async function enhancePrompt(prompt) {
+  /**
+   * @param {string} prompt
+   * @param {{ transform?: { id: string, name: string, instruction: string } }} [options]
+   */
+  async function enhancePrompt(prompt, options) {
     if (!String(prompt || '').trim()) {
       throw new Error('Empty prompt provided.');
     }
@@ -212,13 +216,23 @@
       const config = await settingsModule.loadSettings();
       const provider = String(config?.provider || settingsModule.createDefaultSettings().provider).trim();
 
-      console.log(`${logPrefix.info} ROUTING PROMPT`, logStyle.info, { provider });
+      // A transform supplies its own rewrite instruction; the prompt builder keeps
+      // the shared formatting and safety rules regardless.
+      const transform = options?.transform && typeof options.transform === 'object' ? options.transform : null;
+      const promptOptions = transform
+        ? { instruction: transform.instruction, label: transform.name }
+        : undefined;
+
+      console.log(`${logPrefix.info} ROUTING PROMPT`, logStyle.info, {
+        provider,
+        transform: transform?.id || 'default'
+      });
 
       let result;
       if (provider === 'auto') {
-        result = await enhanceWithAuto(prompt, config);
+        result = await enhanceWithAuto(prompt, config, promptOptions);
       } else {
-        result = await callProvider(provider, prompt, config);
+        result = await callProvider(provider, prompt, config, promptOptions);
       }
 
       const duration = Date.now() - startTime;

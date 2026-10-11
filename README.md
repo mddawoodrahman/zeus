@@ -90,6 +90,8 @@ Zeus is designed around maintainable modules and clean runtime boundaries:
 - `core/observer.js`: debounced MutationObserver and SPA URL-change refresh trigger.
 - `core/ghostText.js`: mirror rendering and positioning of completion ghost text overlays for textareas and editables.
 - `core/copilot.js`: client-side inline suggestion state machine, keystroke debouncer, port messaging, and keyboard bindings.
+- `core/shortcuts.js`: combo parsing/formatting/validation, keydown matching, and the shared shortcut recorder control.
+- `core/transforms.js`: the shared transform store (defaults, normalization, legacy template migration, sync-quota guard).
 - `adapters/*.js`: host matching plus site-specific selectors and positioning strategy hooks.
 
 This separation keeps site heuristics isolated and avoids intrusive DOM reparenting.
@@ -118,6 +120,19 @@ This separation keeps site heuristics isolated and avoids intrusive DOM reparent
 |  |- grok.js
 |  |- openrouter.js
 |- core/
+|  |- copilot.js
+|  |- domUtils.js
+|  |- errors.js
+|  |- ghostText.js
+|  |- injector.js
+|  |- observer.js
+|  |- prompts.js
+|  |- retry.js
+|  |- router.js
+|  |- shortcuts.js
+|  |- telemetry.js
+|  |- transforms.js
+|  |- useFloatingPosition.js
 |- messaging/
 |  |- messageHandler.js
 |- providers/
@@ -211,6 +226,28 @@ npm test
 - Right-click an editable prompt field and select `Enhance Prompt with Zeus`.
 
 ### Advanced Modules
+
+#### Prompt Transforms and Keyboard Shortcuts
+1. Open the Zeus popup and scroll to the **TRANSFORMS** card (the side panel's **TRANSFORMS** tab edits the same list).
+2. Click a shortcut field, then press a combination. `Backspace` or `Delete` clears it.
+3. Click **SAVE TRANSFORMS**.
+4. Focus a prompt input on a supported site and press the shortcut.
+
+Built-in transforms: **Polish** (`Ctrl+Shift+1`) improves clarity and conciseness; **Prompt Engineer** (`Ctrl+Shift+2`) performs a full structured rewrite.
+
+Shortcut rules:
+
+- A real key is required. Modifier keys alone (`Shift`, `Ctrl+Alt`) cannot be bound, and a bare typing key such as `P` is refused so ordinary typing is never interrupted.
+- Combinations reserved by Chrome or the OS (`Ctrl+T`, `Ctrl+W`, `Alt+F4`, …) are refused with a stated reason.
+- Shortcuts are unique per transform; assigning a combination that is already taken is rejected.
+- Shortcuts fire only while the caret is in a prompt input on a supported site, and are captured in the capture phase so site editors cannot swallow them first.
+
+Behaviour notes:
+
+- The content script sends only the transform **id**. The background resolves the rewrite instruction from its own storage, so a host page can never inject prompt text into your paid provider request.
+- Transforms are stored under `zeus_transforms` in `chrome.storage.sync` and shared by the popup and the side panel. Legacy `zeus_templates` entries are imported once and the legacy key is left in place.
+- Transforms that use `{{var}}` placeholders cannot prompt for values from a page-level hotkey; pressing the shortcut reports which variables are missing instead of injecting placeholders.
+- Editing a transform takes effect in open tabs immediately, without a page reload.
 
 #### Chrome Side Panel Workbench
 1. Open the Zeus popup or options page.
@@ -463,11 +500,15 @@ Handled by `messaging/messageHandler.js`:
 
 - `ping`
 - `getSettings`
-- `enhancePrompt`
+- `enhancePrompt` (optional `transformId`)
 - `settingsUpdated`
+- `transformsUpdated`
 - `forceInject`
 - `getTelemetrySummary`
 - `clearTelemetry`
+- `getTransforms`
+- `saveTransforms`
+- `deleteTransform`
 - `sidePanel:getCurrentInput`
 - `sidePanel:setInputValue`
 - `sidePanel:getHistory`

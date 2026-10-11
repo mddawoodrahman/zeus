@@ -73,7 +73,7 @@
     throw new Error(OLLAMA_NO_MODEL_MESSAGE);
   }
 
-  async function enhance(prompt, config) {
+  async function enhance(prompt, config, options) {
     await checkHealth();
 
     try {
@@ -83,7 +83,7 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           model,
-          prompt: prompts.buildEnhancePrompt(prompt),
+          prompt: prompts.buildEnhancePrompt(prompt, options),
           stream: false
         })
       });

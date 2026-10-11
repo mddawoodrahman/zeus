@@ -24,7 +24,7 @@
     <nav class="sidepanel-tabs">
       <button class="tab-btn active" data-tab="editor">/// ENHANCE</button>
       <button class="tab-btn" data-tab="history">/// HISTORY</button>
-      <button class="tab-btn" data-tab="templates">/// TEMPLATES</button>
+      <button class="tab-btn" data-tab="templates">/// TRANSFORMS</button>
     </nav>
 
     <!-- Tab Content Area -->
@@ -68,39 +68,46 @@
         </div>
       </section>
 
-      <!-- Templates Tab -->
+      <!-- Transforms Tab -->
       <section id="tab-templates" class="tab-section">
-        <!-- Template List view -->
+        <!-- Transform List view -->
         <div id="templates-list-view" class="template-view-sub">
           <div class="zeus-terminal-card" data-variant="cyan">
             <div class="card-accent"></div>
-            <label class="zeus-label">/// ACTIVE PATTERNS</label>
+            <label class="zeus-label">/// MY TRANSFORMS</label>
             <div id="template-list" class="template-list-container"></div>
-            <button id="btn-new-template" class="zeus-btn zeus-btn-yellow" style="width: 100%; margin-top: 15px;">CREATE NEW TEMPLATE</button>
+            <button id="btn-new-template" class="zeus-btn zeus-btn-yellow" style="width: 100%; margin-top: 15px;">CREATE NEW TRANSFORM</button>
           </div>
         </div>
 
-        <!-- Template Editor view (hidden by default) -->
+        <!-- Transform Editor view (hidden by default) -->
         <div id="templates-editor-view" class="template-view-sub" style="display: none;">
           <div class="zeus-terminal-card" data-variant="yellow">
             <div class="card-accent"></div>
-            <label class="zeus-label">/// PATTERN EDITOR</label>
+            <label class="zeus-label">/// TRANSFORM EDITOR</label>
             
             <div class="form-group">
-              <label class="zeus-label" for="template-name">PATTERN ID</label>
-              <input type="text" id="template-name" class="zeus-input" placeholder="e.g., Code Refactor">
+              <label class="zeus-label" for="template-name">TRANSFORM ID</label>
+              <input type="text" id="template-name" class="zeus-input" placeholder="e.g., Polish">
             </div>
 
             <div class="form-group" style="margin-top: 12px;">
-              <label class="zeus-label" for="template-text">TEMPLATE PAYLOAD (use {{var}} for variables)</label>
+              <label class="zeus-label">KEYBOARD SHORTCUT</label>
+              <div id="transform-shortcut" class="zeus-input" style="cursor: pointer; text-align: center;"></div>
+              <p class="helper-text">Click, then press a combination. Backspace clears it. A real key is required.</p>
+            </div>
+
+            <div class="form-group" style="margin-top: 12px;">
+              <label class="zeus-label" for="template-text">REWRITE INSTRUCTION (use {{var}} for variables)</label>
               <textarea id="template-text" class="zeus-input" placeholder="e.g., Please refactor the following {{language}} code: {{code}}" style="height: 120px;"></textarea>
             </div>
 
             <div class="button-row" style="margin-top: 15px;">
-              <button id="btn-save-template" class="zeus-btn zeus-btn-yellow">SAVE PATTERN</button>
+              <button id="btn-save-template" class="zeus-btn zeus-btn-yellow">SAVE TRANSFORM</button>
               <button id="btn-delete-template" class="zeus-btn zeus-btn-red">DELETE</button>
               <button id="btn-cancel-template" class="zeus-btn zeus-btn-ghost">CANCEL</button>
             </div>
+            <div id="transform-editor-status" class="status"></div>
           </div>
         </div>
       </section>
@@ -124,6 +131,8 @@
     <div id="sidepanel-toast-holder" style="position: absolute; bottom: 10px; right: 10px; z-index: 10000; pointer-events: none;"></div>
   </div>
 
+  <script src="core/shortcuts.js"></script>
+  <script src="core/transforms.js"></script>
   <script src="sidepanel.js" type="module"></script>
 </body>
 </html>

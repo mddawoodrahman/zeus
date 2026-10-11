@@ -84,7 +84,8 @@ describe('ZeusRouter unit behavior', () => {
     expect(settingsModule.loadSettings).toHaveBeenCalledTimes(1);
     expect(providers.openai).toHaveBeenCalledWith(
       'hello world',
-      expect.objectContaining({ provider: 'openai' })
+      expect.objectContaining({ provider: 'openai' }),
+      undefined
     );
   });
 

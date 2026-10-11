@@ -571,6 +571,252 @@ document.addEventListener('DOMContentLoaded', () => {
     // Ignore browser support edge cases.
   }
 
+  // ---------------------------------------------------------------------------
+  // Transforms: shortcut editing backed by the shared zeus_transforms store.
+  // ---------------------------------------------------------------------------
+  const transformsModule = globalThis.ZeusTransforms || null;
+  const shortcuts = globalThis.ZeusShortcuts || null;
+
+  const transformsList = document.getElementById('transforms-list');
+  const transformsStatus = document.getElementById('transforms-status');
+  const transformAddBtn = document.getElementById('transformAddBtn');
+  const transformSaveBtn = document.getElementById('transformSaveBtn');
+
+  let popupTransforms = [];
+  let popupRecorders = [];
+
+  function setTransformsStatus(text, variant) {
+    if (!transformsStatus) return;
+    transformsStatus.textContent = text || '';
+    if (variant && transformsStatus.classList) {
+      transformsStatus.className = `status ${variant}`;
+    }
+  }
+
+  function sendRuntimeMessage(message) {
+    return new Promise((resolve, reject) => {
+      try {
+        chrome.runtime.sendMessage(message, (response) => {
+          if (chrome.runtime.lastError) {
+            reject(new Error(chrome.runtime.lastError.message || 'Extension runtime error'));
+            return;
+          }
+          resolve(response);
+        });
+      } catch (error) {
+        reject(error);
+      }
+    });
+  }
+
+  // Clearing a shortcut in one row should also clear the display of any row that
+  // was showing the same combination.
+  function clearMatchingRecorders(combo) {
+    if (!combo) {
+      return;
+    }
+
+    popupRecorders.forEach((entry, index) => {
+      if (popupTransforms[index]?.shortcut === combo) {
+        entry.recorder.setCombo('');
+      }
+    });
+  }
+
+  function renderTransforms() {
+    if (!transformsList || !transformsModule || !shortcuts) {
+      return;
+    }
+
+    popupRecorders.forEach((entry) => entry.recorder.destroy());
+    popupRecorders = [];
+    transformsList.innerHTML = '';
+
+    if (popupTransforms.length === 0) {
+      const empty = document.createElement('p');
+      empty.className = 'helper-text';
+      empty.textContent = 'No transforms yet. Create one to bind a shortcut.';
+      transformsList.appendChild(empty);
+      return;
+    }
+
+    popupTransforms.forEach((transform, index) => {
+      const row = document.createElement('div');
+      row.className = 'transform-row';
+      row.style.cssText = 'border: 1px solid rgba(255,255,255,0.12); padding: 8px; display: flex; flex-direction: column; gap: 6px;';
+
+      const header = document.createElement('div');
+      header.style.cssText = 'display: flex; align-items: center; justify-content: space-between; gap: 8px;';
+
+      const nameInput = document.createElement('input');
+      nameInput.type = 'text';
+      nameInput.className = 'zeus-input';
+      nameInput.value = transform.name || '';
+      nameInput.placeholder = 'Name';
+      nameInput.addEventListener('input', () => {
+        popupTransforms[index].name = nameInput.value;
+      });
+
+      const enabledLabel = document.createElement('label');
+      enabledLabel.style.cssText = 'display: flex; align-items: center; gap: 6px; font-size: 10px; cursor: pointer; white-space: nowrap;';
+
+      const enabledInput = document.createElement('input');
+      enabledInput.type = 'checkbox';
+      enabledInput.checked = transform.enabled !== false;
+      enabledInput.addEventListener('change', () => {
+        popupTransforms[index].enabled = enabledInput.checked;
+      });
+
+      const enabledText = document.createElement('span');
+      enabledText.textContent = 'ON';
+      enabledLabel.appendChild(enabledInput);
+      enabledLabel.appendChild(enabledText);
+
+      header.appendChild(nameInput);
+      header.appendChild(enabledLabel);
+
+      const instructionLabel = document.createElement('label');
+      instructionLabel.className = 'zeus-label';
+      instructionLabel.textContent = 'REWRITE INSTRUCTION';
+
+      const instructionInput = document.createElement('textarea');
+      instructionInput.className = 'zeus-input';
+      instructionInput.rows = 3;
+      instructionInput.value = transform.instruction || '';
+      instructionInput.placeholder = 'How should this transform rewrite the prompt?';
+      instructionInput.addEventListener('input', () => {
+        popupTransforms[index].instruction = instructionInput.value;
+      });
+
+      const shortcutRow = document.createElement('div');
+      shortcutRow.style.cssText = 'display: flex; align-items: center; justify-content: space-between; gap: 8px;';
+
+      const shortcutLabel = document.createElement('span');
+      shortcutLabel.className = 'zeus-label';
+      shortcutLabel.textContent = 'SHORTCUT';
+
+      const shortcutField = document.createElement('div');
+      shortcutField.className = 'zeus-input';
+      shortcutField.style.cssText = 'cursor: pointer; text-align: center; min-width: 120px; font-size: 11px;';
+
+      shortcutRow.appendChild(shortcutLabel);
+      shortcutRow.appendChild(shortcutField);
+
+      const removeBtn = document.createElement('button');
+      removeBtn.type = 'button';
+      removeBtn.className = 'zeus-btn zeus-btn-ghost';
+      removeBtn.textContent = 'DELETE';
+      removeBtn.addEventListener('click', () => {
+        popupTransforms.splice(index, 1);
+        renderTransforms();
+      });
+
+      row.appendChild(header);
+      row.appendChild(instructionLabel);
+      row.appendChild(instructionInput);
+      row.appendChild(shortcutRow);
+      row.appendChild(removeBtn);
+      transformsList.appendChild(row);
+
+      const recorder = shortcuts.createRecorder(shortcutField, {
+        onCommit(combo) {
+          const duplicate = shortcuts.findDuplicateShortcut(popupTransforms, combo, transform.id);
+          if (combo && duplicate) {
+            setTransformsStatus(`${shortcuts.formatCombo(combo)} IS ALREADY USED BY ${duplicate.name.toUpperCase()}`, 'error');
+            recorder.setCombo(popupTransforms[index].shortcut || '');
+            return;
+          }
+
+          popupTransforms[index].shortcut = combo;
+          setTransformsStatus(combo ? `${shortcuts.formatCombo(combo)} READY TO SAVE` : 'SHORTCUT CLEARED', 'success');
+          clearMatchingRecorders(combo);
+        },
+        onReject(reason) {
+          setTransformsStatus(String(reason || 'THAT COMBINATION CANNOT BE USED').toUpperCase(), 'error');
+          recorder.setCombo(popupTransforms[index].shortcut || '');
+        }
+      });
+
+      recorder.setCombo(transform.shortcut || '');
+      popupRecorders.push({ index, recorder });
+    });
+  }
+
+  async function loadTransforms() {
+    if (!transformsModule) return;
+
+    try {
+      const response = await sendRuntimeMessage({ action: 'getTransforms' });
+      popupTransforms = Array.isArray(response?.transforms) ? response.transforms.map((t) => ({ ...t })) : [];
+      renderTransforms();
+    } catch (_) {
+      setTransformsStatus('FAILED TO LOAD TRANSFORMS', 'error');
+    }
+  }
+
+  async function savePopupTransforms() {
+    if (!transformsModule) return;
+
+    if (transformSaveBtn) {
+      transformSaveBtn.disabled = true;
+    }
+
+    try {
+      const response = await sendRuntimeMessage({
+        action: 'saveTransforms',
+        transforms: popupTransforms
+      });
+
+      if (!response?.success) {
+        throw new Error(String(response?.error || 'Save failed'));
+      }
+
+      popupTransforms = Array.isArray(response.transforms)
+        ? response.transforms.map((t) => ({ ...t }))
+        : popupTransforms;
+      renderTransforms();
+      setTransformsStatus('TRANSFORMS COMMITTED', 'success');
+
+      // Nudge every open tab so shortcuts apply without a reload.
+      chrome.tabs.query({}, (tabs) => {
+        for (const tab of tabs || []) {
+          if (tab?.id) {
+            chrome.tabs.sendMessage(tab.id, { action: 'transformsUpdated' }).catch(() => {});
+          }
+        }
+      });
+    } catch (error) {
+      setTransformsStatus(String(error?.message || 'FAILED TO SAVE TRANSFORMS').toUpperCase(), 'error');
+    } finally {
+      if (transformSaveBtn) {
+        transformSaveBtn.disabled = false;
+      }
+    }
+  }
+
+  transformAddBtn?.addEventListener('click', () => {
+    if (!transformsModule) return;
+
+    popupTransforms.push({
+      id: transformsModule.createTransformId('custom'),
+      name: 'New Transform',
+      description: '',
+      instruction: '',
+      template: '',
+      variables: [],
+      shortcut: '',
+      enabled: true,
+      builtin: false
+    });
+
+    renderTransforms();
+  });
+
+  transformSaveBtn?.addEventListener('click', () => {
+    savePopupTransforms();
+  });
+
   initializeDarkMode();
   loadSettings();
+  loadTransforms();
 });

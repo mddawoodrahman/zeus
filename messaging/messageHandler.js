@@ -3,6 +3,7 @@
   const router = globalScope.ZeusRouter;
   const errors = globalScope.ZeusErrors;
   const telemetry = globalScope.ZeusTelemetry || null;
+  const transformsModule = globalScope.ZeusTransforms || null;
 
   // Must stay in sync with manifest.json content_scripts[].js — forceInject
   // re-injects this exact set into a tab that is missing the content script.
@@ -12,6 +13,8 @@
     'core/injector.js',
     'core/observer.js',
     'core/ghostText.js',
+    'core/shortcuts.js',
+    'core/transforms.js',
     'core/copilot.js',
     'adapters/chatgpt.js',
     'adapters/claude.js',
@@ -23,19 +26,82 @@
     'content.js'
   ];
 
-  function setupContextMenu() {
-    chrome.runtime.onInstalled.addListener(() => {
-      chrome.contextMenus.create({
-        id: 'zeus-enhance-prompt',
-        title: 'Enhance Prompt with Zeus',
-        contexts: ['editable']
-      });
+  const CONTEXT_MENU_ROOT_ID = 'zeus-enhance-prompt';
+  const CONTEXT_MENU_TRANSFORM_PREFIX = 'zeus-transform:';
+  const CONTEXT_MENU_DEFAULT_ID = 'zeus-enhance-default';
+
+  function buildContextMenu() {
+    // Rebuild from scratch so renamed or removed transforms never leave stale
+    // entries behind. Older Chrome builds may not expose removeAll.
+    if (typeof chrome.contextMenus.removeAll === 'function') {
+      chrome.contextMenus.removeAll(() => createContextMenuEntries());
+      return;
+    }
+
+    createContextMenuEntries();
+  }
+
+  function createContextMenuEntries() {
+    chrome.contextMenus.create({
+      id: CONTEXT_MENU_ROOT_ID,
+      title: 'Enhance Prompt with Zeus',
+      contexts: ['editable']
     });
 
+    chrome.contextMenus.create({
+      id: CONTEXT_MENU_DEFAULT_ID,
+      parentId: CONTEXT_MENU_ROOT_ID,
+      title: 'Full enhancement',
+      contexts: ['editable']
+    });
+
+    if (!transformsModule || typeof transformsModule.loadTransforms !== 'function') {
+      return;
+    }
+
+    transformsModule.loadTransforms()
+      .then((transforms) => {
+        for (const transform of transformsModule.getEnabledTransforms(transforms)) {
+          chrome.contextMenus.create({
+            id: `${CONTEXT_MENU_TRANSFORM_PREFIX}${transform.id}`,
+            parentId: CONTEXT_MENU_ROOT_ID,
+            title: transform.name,
+            contexts: ['editable']
+          });
+        }
+      })
+      .catch(() => {});
+  }
+
+  function setupContextMenu() {
+    chrome.runtime.onInstalled.addListener(() => {
+      buildContextMenu();
+    });
+
+    // Rebuild when the user edits transforms so the menu never goes stale.
+    if (chrome.storage?.onChanged) {
+      chrome.storage.onChanged.addListener((changes, areaName) => {
+        if (areaName !== 'sync' || !transformsModule) return;
+        if (changes[transformsModule.TRANSFORMS_STORAGE_KEY]) {
+          buildContextMenu();
+        }
+      });
+    }
+
     chrome.contextMenus.onClicked.addListener((info, tab) => {
-      if (info.menuItemId === 'zeus-enhance-prompt' && tab?.id) {
-        chrome.tabs.sendMessage(tab.id, { action: 'contextEnhancePrompt' }).catch(() => {});
+      const menuItemId = String(info?.menuItemId || '');
+      if (!tab?.id || !menuItemId.startsWith(CONTEXT_MENU_ROOT_ID)) {
+        return;
       }
+
+      const transformId = menuItemId.startsWith(CONTEXT_MENU_TRANSFORM_PREFIX)
+        ? menuItemId.slice(CONTEXT_MENU_TRANSFORM_PREFIX.length)
+        : '';
+
+      chrome.tabs.sendMessage(tab.id, {
+        action: 'contextEnhancePrompt',
+        transformId
+      }).catch(() => {});
     });
   }
 
@@ -76,12 +142,35 @@
     });
   }
 
+  /**
+   * Resolves the transform a request refers to. The id comes from an untrusted
+   * page, so the instruction is always read from our own storage — never from the
+   * message — which keeps a host page from injecting prompt text.
+   */
+  async function resolveTransform(transformId) {
+    const wantedId = String(transformId || '').trim();
+    if (!wantedId || !transformsModule) {
+      return null;
+    }
+
+    try {
+      const transforms = await transformsModule.loadTransforms();
+      const transform = transformsModule.getTransformById(transforms, wantedId);
+
+      // A disabled or unknown transform falls back to the default enhancement.
+      return transform && transform.enabled ? transform : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
   async function handleEnhancePrompt(message, sendResponse) {
     const prompt = String(message?.prompt || '').trim();
 
     try {
-      const enhancedPrompt = await router.enhancePrompt(prompt);
-      sendResponse({ success: true, enhancedPrompt });
+      const transform = await resolveTransform(message?.transformId);
+      const enhancedPrompt = await router.enhancePrompt(prompt, { transform });
+      sendResponse({ success: true, enhancedPrompt, transformId: transform?.id || '' });
     } catch (error) {
       let provider = '';
       let model = '';
@@ -196,6 +285,63 @@
         case 'enhancePrompt':
           handleEnhancePrompt(message, sendResponse);
           return true;
+
+        case 'getTransforms':
+          if (!transformsModule) {
+            sendResponse({ transforms: [], error: 'Transform store unavailable.' });
+            return true;
+          }
+
+          transformsModule.loadTransforms()
+            .then((transforms) => sendResponse({ transforms }))
+            .catch((error) => sendResponse({
+              transforms: [],
+              error: String(error?.message || 'Failed to load transforms.')
+            }));
+          return true;
+
+        case 'saveTransforms':
+          if (!transformsModule) {
+            sendResponse({ success: false, error: 'Transform store unavailable.' });
+            return true;
+          }
+
+          if (!Array.isArray(message?.transforms)) {
+            sendResponse({ success: false, error: 'Transform payload must be an array.' });
+            return true;
+          }
+
+          transformsModule.saveTransforms(message.transforms)
+            .then((transforms) => sendResponse({ success: true, transforms }))
+            .catch((error) => sendResponse({
+              success: false,
+              error: String(error?.message || 'Failed to save transforms.')
+            }));
+          return true;
+
+        case 'deleteTransform': {
+          if (!transformsModule) {
+            sendResponse({ success: false, error: 'Transform store unavailable.' });
+            return true;
+          }
+
+          const targetId = String(message?.id || '').trim();
+          if (!targetId) {
+            sendResponse({ success: false, error: 'A transform id is required.' });
+            return true;
+          }
+
+          transformsModule.loadTransforms()
+            .then((transforms) => transformsModule.saveTransforms(
+              transforms.filter((transform) => transform.id !== targetId)
+            ))
+            .then((transforms) => sendResponse({ success: true, transforms }))
+            .catch((error) => sendResponse({
+              success: false,
+              error: String(error?.message || 'Failed to delete transform.')
+            }));
+          return true;
+        }
 
         case 'ping':
           sendResponse({ status: 'pong' });

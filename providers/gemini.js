@@ -70,7 +70,7 @@
       .join('');
   }
 
-  async function enhance(prompt, config) {
+  async function enhance(prompt, config, options) {
     const apiKey = String(config?.apiKeys?.gemini || '').trim();
     const model = String(config?.models?.gemini || '').trim();
     if (!apiKey) throw new Error('Missing Gemini API key.');
@@ -85,12 +85,12 @@
       for (let attempt = 0; attempt < GEMINI_MAX_RETRIES; attempt += 1) {
         const body = {
           systemInstruction: {
-            parts: [{ text: prompts.getRewriteSystemInstruction() }]
+            parts: [{ text: prompts.getRewriteSystemInstruction(options && options.instruction) }]
           },
           contents: [
             {
               role: 'user',
-              parts: [{ text: prompts.buildEnhancePrompt(prompt) }]
+              parts: [{ text: prompts.buildEnhancePrompt(prompt, options) }]
             }
           ],
           generationConfig: {

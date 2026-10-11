@@ -26,6 +26,15 @@ document.addEventListener('DOMContentLoaded', () => {
   const btnSaveTemplate = document.getElementById('btn-save-template');
   const btnDeleteTemplate = document.getElementById('btn-delete-template');
   const btnCancelTemplate = document.getElementById('btn-cancel-template');
+  const transformShortcutField = document.getElementById('transform-shortcut');
+  const transformEditorStatus = document.getElementById('transform-editor-status');
+
+  const transformsModule = globalThis.ZeusTransforms || null;
+  const shortcutEngine = globalThis.ZeusShortcuts || null;
+
+  // Transform records currently loaded from the shared zeus_transforms store.
+  let currentTransforms = [];
+  let editingTransformId = null;
 
   // Modal Elements
   const modalFillVariables = document.getElementById('modal-fill-variables');
@@ -36,7 +45,6 @@ document.addEventListener('DOMContentLoaded', () => {
   // Toast holder
   const toastHolder = document.getElementById('sidepanel-toast-holder');
 
-  let currentTemplates = [];
   // Close Panel Elements
   const btnClosePanel = document.getElementById('btn-close-panel');
   if (btnClosePanel) {
@@ -75,9 +83,57 @@ document.addEventListener('DOMContentLoaded', () => {
     if (tabName === 'history') {
       loadHistory();
     } else if (tabName === 'templates') {
-      loadTemplates();
+      loadTransforms();
       cancelTemplateEdit();
     }
+  }
+
+  function setEditorStatus(text, variant) {
+    if (!transformEditorStatus) return;
+    transformEditorStatus.textContent = text || '';
+    transformEditorStatus.className = variant ? `status ${variant}` : 'status';
+  }
+
+  // Recorder for the transform currently open in the editor.
+  let activeRecorder = null;
+
+  function ensureRecorder() {
+    if (activeRecorder || !transformShortcutField || !shortcutEngine) {
+      return activeRecorder;
+    }
+
+    activeRecorder = shortcutEngine.createRecorder(transformShortcutField, {
+      onCommit(combo) {
+        if (!editingTransformId) {
+          setEditorStatus('SAVE THE TRANSFORM FIRST', 'error');
+          return;
+        }
+
+        const duplicate = shortcutEngine.findDuplicateShortcut(currentTransforms, combo, editingTransformId);
+        if (combo && duplicate) {
+          setEditorStatus(`${shortcutEngine.formatCombo(combo)} IS ALREADY USED BY ${duplicate.name.toUpperCase()}`, 'error');
+          activeRecorder.setCombo(getEditingTransform()?.shortcut || '');
+          return;
+        }
+
+        const transform = getEditingTransform();
+        if (transform) {
+          transform.shortcut = combo;
+        }
+
+        setEditorStatus(combo ? `${shortcutEngine.formatCombo(combo)} READY — SAVE TRANSFORM` : 'SHORTCUT CLEARED', 'success');
+      },
+      onReject(reason) {
+        setEditorStatus(String(reason || 'THAT COMBINATION CANNOT BE USED').toUpperCase(), 'error');
+        activeRecorder.setCombo(getEditingTransform()?.shortcut || '');
+      }
+    });
+
+    return activeRecorder;
+  }
+
+  function getEditingTransform() {
+    return currentTransforms.find((transform) => transform.id === editingTransformId) || null;
   }
 
   // Toast helper
@@ -325,46 +381,58 @@ document.addEventListener('DOMContentLoaded', () => {
     chrome.runtime.sendMessage({ type: 'sidePanel:saveHistory', entry });
   }
 
-  // Templates Management
-  function loadTemplates() {
-    chrome.runtime.sendMessage({ type: 'sidePanel:getTemplates' }, (response) => {
-      currentTemplates = response?.templates || [];
-      templateList.innerHTML = '';
+  // Transforms Management (shared zeus_transforms store)
+  function loadTransforms() {
+    chrome.runtime.sendMessage({ action: 'getTransforms' }, (response) => {
+      currentTransforms = Array.isArray(response?.transforms) ? response.transforms : [];
+      renderTransforms();
+    });
+  }
 
-      if (currentTemplates.length === 0) {
-        templateList.innerHTML = '<p style="color: var(--text-muted); text-align: center; padding: 20px;">NO CONFIGURED PATTERNS.</p>';
-        return;
+  function renderTransforms() {
+    if (!templateList) return;
+    templateList.innerHTML = '';
+
+    if (currentTransforms.length === 0) {
+      templateList.innerHTML = '<p style="color: var(--text-muted); text-align: center; padding: 20px;">NO CONFIGURED TRANSFORMS.</p>';
+      return;
+    }
+
+    currentTransforms.forEach((transform) => {
+      const div = document.createElement('div');
+      div.className = 'template-item';
+
+      const title = document.createElement('div');
+      title.className = 'template-title';
+      title.textContent = transform.enabled === false ? `${transform.name} (off)` : transform.name;
+
+      const preview = document.createElement('div');
+      preview.className = 'template-preview';
+      preview.textContent = transform.template || transform.instruction || '';
+
+      div.appendChild(title);
+      div.appendChild(preview);
+
+      if (transform.shortcut && shortcutEngine) {
+        const badge = document.createElement('div');
+        badge.className = 'template-preview';
+        badge.style.color = 'var(--cyber-yellow, #FCEE0A)';
+        badge.textContent = shortcutEngine.formatCombo(transform.shortcut);
+        div.appendChild(badge);
       }
 
-      currentTemplates.forEach((tpl, index) => {
-        const div = document.createElement('div');
-        div.className = 'template-item';
-
-        const title = document.createElement('div');
-        title.className = 'template-title';
-        title.textContent = tpl.name;
-
-        const preview = document.createElement('div');
-        preview.className = 'template-preview';
-        preview.textContent = tpl.template;
-
-        div.appendChild(title);
-        div.appendChild(preview);
-
-        // Click on template item triggers execution
-        div.addEventListener('click', (event) => {
-          // Avoid triggering on doubleclick or child selectors if any
-          executeTemplate(tpl);
-        });
-
-        // Long-press or right click edit pattern
-        div.addEventListener('contextmenu', (event) => {
-          event.preventDefault();
-          startTemplateEdit(index);
-        });
-
-        templateList.appendChild(div);
+      // Click loads the transform into the workbench editor.
+      div.addEventListener('click', () => {
+        executeTransform(transform);
       });
+
+      // Right click edits the transform itself.
+      div.addEventListener('contextmenu', (event) => {
+        event.preventDefault();
+        startTemplateEdit(transform.id);
+      });
+
+      templateList.appendChild(div);
     });
   }
 
@@ -435,21 +503,31 @@ document.addEventListener('DOMContentLoaded', () => {
     modalFillVariables.style.display = 'none';
   });
 
-  // New Template creation
+  // New Transform creation
   btnNewTemplate.addEventListener('click', () => {
     editingTemplateIndex = -1;
+    editingTransformId = null;
     templateNameInput.value = '';
     templateTextInput.value = '';
+    if (activeRecorder) activeRecorder.setCombo('');
+    setEditorStatus('');
     btnDeleteTemplate.style.display = 'none';
     templatesListView.style.display = 'none';
     templatesEditorView.style.display = 'block';
   });
 
-  function startTemplateEdit(index) {
-    const tpl = currentTemplates[index];
-    editingTemplateIndex = index;
-    templateNameInput.value = tpl.name;
-    templateTextInput.value = tpl.template;
+  function startTemplateEdit(transformId) {
+    const tpl = currentTransforms.find((transform) => transform.id === transformId);
+    if (!tpl) return;
+
+    editingTemplateIndex = currentTransforms.indexOf(tpl);
+    editingTransformId = tpl.id;
+    templateNameInput.value = tpl.name || '';
+    templateTextInput.value = tpl.builtin
+      ? (tpl.instruction || '')
+      : (tpl.template || tpl.instruction || '');
+    if (activeRecorder) activeRecorder.setCombo(tpl.shortcut || '');
+    setEditorStatus('');
     btnDeleteTemplate.style.display = 'inline-block';
     templatesListView.style.display = 'none';
     templatesEditorView.style.display = 'block';
@@ -464,53 +542,102 @@ document.addEventListener('DOMContentLoaded', () => {
 
   btnSaveTemplate.addEventListener('click', () => {
     const name = templateNameInput.value.trim();
-    const template = templateTextInput.value.trim();
+    const body = templateTextInput.value.trim();
 
-    if (!name || !template) {
+    if (!name || !body) {
       showToast('FIELDS CANNOT BE EMPTY', 'error', 2000);
       return;
     }
 
-    // Detect variables
-    const varsRegex = /{{\s*([\w]+)\s*}}/g;
+    const nameTaken = currentTransforms.some((transform) =>
+      transform.id !== editingTransformId &&
+      String(transform.name || '').toLowerCase() === name.toLowerCase()
+    );
+
+    if (nameTaken) {
+      showToast('A TRANSFORM WITH THAT NAME EXISTS', 'error', 2500);
+      return;
+    }
+
+    // Detect {{var}} placeholders in either the instruction or the template.
+    const varsRegex = /\{\{\s*([\w]+)\s*\}\}/g;
     const variables = [];
     let match;
-    while ((match = varsRegex.exec(template)) !== null) {
+    while ((match = varsRegex.exec(body)) !== null) {
       if (!variables.includes(match[1])) {
         variables.push(match[1]);
       }
     }
 
-    const tplObject = { name, template, variables };
+    // Preserve the record's existing shape: a built-in rewrites via instruction,
+    // a user transform rewrites or injects via template.
+    const previous = getEditingTransform();
+    const next = {
+      id: editingTransformId || (transformsModule ? transformsModule.createTransformId(name) : `custom-${Date.now()}`),
+      name,
+      description: previous?.description || '',
+      instruction: previous?.instruction || '',
+      template: previous?.template || '',
+      variables,
+      shortcut: previous?.shortcut || '',
+      enabled: previous ? previous.enabled !== false : true,
+      builtin: Boolean(previous?.builtin)
+    };
 
-    if (editingTemplateIndex === -1) {
-      currentTemplates.push(tplObject);
+    if (previous?.builtin) {
+      next.instruction = body;
     } else {
-      currentTemplates[editingTemplateIndex] = tplObject;
+      next.template = body;
     }
 
+    if (editingTemplateIndex === -1 || !previous) {
+      currentTransforms.push(next);
+    } else {
+      currentTransforms[editingTemplateIndex] = next;
+    }
+
+    editingTransformId = next.id;
     saveTemplates();
   });
 
   btnDeleteTemplate.addEventListener('click', () => {
-    if (editingTemplateIndex >= 0) {
-      currentTemplates.splice(editingTemplateIndex, 1);
-      saveTemplates();
+    if (!editingTransformId) {
+      showToast('NOTHING TO DELETE', 'error', 2000);
+      return;
     }
+
+    currentTransforms = currentTransforms.filter((transform) => transform.id !== editingTransformId);
+    editingTransformId = null;
+    saveTemplates();
   });
 
   function saveTemplates() {
     chrome.runtime.sendMessage({
-      type: 'sidePanel:saveTemplates',
-      templates: currentTemplates
+      action: 'saveTransforms',
+      transforms: currentTransforms
     }, (response) => {
       if (response && response.success) {
-        showToast('PATTERN BUFFER COMMITTED', 'success', 2000);
+        currentTransforms = Array.isArray(response.transforms) ? response.transforms : currentTransforms;
+        showToast('TRANSFORMS COMMITTED', 'success', 2000);
         cancelTemplateEdit();
-        loadTemplates();
+        renderTransforms();
+        notifyTabsOfTransforms();
       } else {
-        showToast('FAILED TO COMMIT PATTERN', 'error', 3000);
+        showToast(String(response?.error || 'FAILED TO COMMIT TRANSFORMS').toUpperCase(), 'error', 3000);
       }
     });
   }
+
+  // Push the change to open tabs so shortcuts apply without a page reload.
+  function notifyTabsOfTransforms() {
+    chrome.tabs.query({}, (tabs) => {
+      for (const tab of tabs || []) {
+        if (tab?.id) {
+          chrome.tabs.sendMessage(tab.id, { action: 'transformsUpdated' }).catch(() => {});
+        }
+      }
+    });
+  }
+
+  ensureRecorder();
 });
