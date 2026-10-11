@@ -4,6 +4,8 @@
   const errors = globalScope.ZeusErrors;
   const telemetry = globalScope.ZeusTelemetry || null;
 
+  // Must stay in sync with manifest.json content_scripts[].js — forceInject
+  // re-injects this exact set into a tab that is missing the content script.
   const CONTENT_SCRIPT_FILES = [
     'core/domUtils.js',
     'core/useFloatingPosition.js',
@@ -218,9 +220,9 @@
             return true;
           }
 
-          telemetry.getSummary((summary) => {
-            sendResponse({ summary });
-          });
+          telemetry.getSummary()
+            .then((summary) => sendResponse({ summary }))
+            .catch(() => sendResponse({ summary: { totalEvents: 0, byProvider: {}, byReason: {}, recent: [] } }));
           return true;
 
         case 'clearTelemetry':

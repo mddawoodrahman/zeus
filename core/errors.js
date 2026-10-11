@@ -255,6 +255,9 @@
       return options.ollamaNotRunningMessage;
     }
 
+    // Ordered before the isSafeSpecificMessage fallthrough: a real fetch timeout
+    // surfaces as an AbortError with an empty message, which would otherwise
+    // degrade to the generic "check your settings" text.
     if (error?.name === 'AbortError') {
       return 'Request timed out. Please try again.';
     }
@@ -266,9 +269,33 @@
     return categoryMessage('UNKNOWN_ERROR', provider || 'provider', model);
   }
 
+  /**
+   * Narrows a message before it is sent to a content script or side panel.
+   * Long-lived port callers receive provider text that never passed through
+   * normalizeEnhanceError, so redaction has to happen here too.
+   */
+  function sanitizePortError(error) {
+    if (error instanceof ProviderHttpError) {
+      return buildUserFacingError(error.provider, error.status, error.data, error.model, {});
+    }
+
+    if (error?.name === 'AbortError') {
+      return 'Request timed out. Please try again.';
+    }
+
+    const message = sanitizeServerMessage(error?.message || '');
+    if (isSafeSpecificMessage(message)) {
+      return message;
+    }
+
+    return 'Suggestion request failed. Check your provider settings and try again.';
+  }
+
   globalScope.ZeusErrors = Object.freeze({
     ProviderHttpError,
     normalizeEnhanceError,
-    looksLikeOllamaConnectionError
+    looksLikeOllamaConnectionError,
+    sanitizeServerMessage,
+    sanitizePortError
   });
 })(typeof globalThis !== 'undefined' ? globalThis : this);

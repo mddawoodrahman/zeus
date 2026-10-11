@@ -5,31 +5,43 @@
   const providerUtils = globalScope.ZeusProviderUtils;
   const providers = providerUtils.ensureProviderBag();
 
-  const GEMINI_API_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/models';
+  const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
   const GEMINI_MAX_RETRIES = 3;
+  const GEMINI_MAX_OUTPUT_TOKENS = 2048;
+  const GEMINI_TEMPERATURE = 0.4;
+
+  function buildEndpoint(model, { stream = false } = {}) {
+    const normalizedModel = String(model || '').trim().replace(/^\/+/, '');
+    const method = stream ? 'streamGenerateContent' : 'generateContent';
+    const query = stream ? '?alt=sse' : '';
+    return `${GEMINI_API_BASE}/${encodeURIComponent(normalizedModel)}:${method}${query}`;
+  }
+
+  function buildHeaders(apiKey) {
+    return {
+      'Content-Type': 'application/json',
+      'x-goog-api-key': apiKey
+    };
+  }
 
   function extractSignal(errData) {
-    const code = String(errData?.error?.code ?? errData?.code ?? '').toLowerCase();
-    const status = String(errData?.error?.status ?? errData?.status ?? '').toLowerCase();
+    const code = String(errData?.error?.status ?? errData?.error?.code ?? errData?.status ?? '').toLowerCase();
     const message = String(errData?.error?.message ?? errData?.message ?? '').toLowerCase();
-    return `${code} ${status} ${message}`.trim();
+    return `${code} ${message}`.trim();
   }
 
   function shouldFallback(status, errData) {
     const signal = extractSignal(errData);
-    if (status === 404 || status === 429 || status === 503) return true;
+    if (status === 404) return true;
 
     return (
-      signal.includes('resource_exhausted') ||
-      signal.includes('quota') ||
-      signal.includes('rate limit') ||
-      signal.includes('model_not_found') ||
+      signal.includes('not_found') ||
       signal.includes('not found') ||
-      signal.includes('high demand') ||
-      signal.includes('currently experiencing high demand') ||
-      signal.includes('temporarily unavailable') ||
-      signal.includes('unavailable') ||
-      signal.includes('overloaded')
+      signal.includes('is not supported') ||
+      signal.includes('unsupported model') ||
+      signal.includes('does not exist') ||
+      signal.includes('resource_exhausted') ||
+      signal.includes('quota')
     );
   }
 
@@ -40,14 +52,22 @@
     }
 
     return (
-      signal.includes('high demand') ||
-      signal.includes('currently experiencing high demand') ||
       signal.includes('unavailable') ||
       signal.includes('overloaded') ||
-      signal.includes('temporarily unavailable') ||
-      signal.includes('backend error') ||
-      signal.includes('internal error')
+      signal.includes('deadline_exceeded') ||
+      signal.includes('internal')
     );
+  }
+
+  function extractCandidateText(data) {
+    const parts = data?.candidates?.[0]?.content?.parts;
+    if (!Array.isArray(parts)) {
+      return '';
+    }
+
+    return parts
+      .map((part) => (typeof part?.text === 'string' ? part.text : ''))
+      .join('');
   }
 
   async function enhance(prompt, config) {
@@ -56,28 +76,38 @@
     if (!apiKey) throw new Error('Missing Gemini API key.');
     if (!model) throw new Error('Missing Gemini model.');
 
-    const body = {
-      contents: [{ parts: [{ text: prompts.buildEnhancePrompt(prompt) }] }],
-      generationConfig: { temperature: 0.4, maxOutputTokens: 2048 }
-    };
-
     const modelCandidates = providerUtils.buildModelCandidates('gemini', model);
     let lastError = null;
 
     for (let modelIndex = 0; modelIndex < modelCandidates.length; modelIndex += 1) {
       const currentModel = modelCandidates[modelIndex];
-      const apiUrl = `${GEMINI_API_BASE_URL}/${currentModel}:generateContent?key=${apiKey}`;
 
       for (let attempt = 0; attempt < GEMINI_MAX_RETRIES; attempt += 1) {
-        const response = await retry.fetchWithTimeout(apiUrl, {
+        const body = {
+          systemInstruction: {
+            parts: [{ text: prompts.getRewriteSystemInstruction() }]
+          },
+          contents: [
+            {
+              role: 'user',
+              parts: [{ text: prompts.buildEnhancePrompt(prompt) }]
+            }
+          ],
+          generationConfig: {
+            temperature: GEMINI_TEMPERATURE,
+            maxOutputTokens: GEMINI_MAX_OUTPUT_TOKENS
+          }
+        };
+
+        const response = await retry.fetchWithTimeout(buildEndpoint(currentModel), {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: buildHeaders(apiKey),
           body: JSON.stringify(body)
         });
 
         if (response.ok) {
           const data = await providerUtils.readJsonSafe(response);
-          const enhancedText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+          const enhancedText = extractCandidateText(data);
           if (!enhancedText) throw new Error('Provider responded without enhanced text.');
           return String(enhancedText).trim();
         }
@@ -116,17 +146,27 @@
     const model = String(settings?.models?.gemini || 'gemini-3-flash').trim();
     if (!apiKey) throw new Error('Missing Gemini API key.');
 
-    const promptText = `You are a concise prompt-completion assistant. Continue the user's incomplete prompt with at most 2 sentences. Do not repeat what they already typed. Prompt: ${text}`;
     const body = {
-      contents: [{ parts: [{ text: promptText }] }],
-      generationConfig: { temperature: 0.3, maxOutputTokens: settings.copilotMaxTokens || 60 }
+      systemInstruction: {
+        parts: [{
+          text: "You are a concise prompt-completion assistant. Continue the user's incomplete prompt with at most 2 sentences. Do not repeat what they already typed."
+        }]
+      },
+      contents: [
+        {
+          role: 'user',
+          parts: [{ text: `Prompt: ${text}` }]
+        }
+      ],
+      generationConfig: {
+        temperature: 0.3,
+        maxOutputTokens: Number(settings?.copilotMaxTokens) > 0 ? Number(settings.copilotMaxTokens) : 60
+      }
     };
 
-    const apiUrl = `${GEMINI_API_BASE_URL}/${model}:streamGenerateContent?alt=sse&key=${apiKey}`;
-
-    const response = await fetch(apiUrl, {
+    const response = await fetch(buildEndpoint(model, { stream: true }), {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: buildHeaders(apiKey),
       body: JSON.stringify(body),
       signal
     });
@@ -136,10 +176,24 @@
       throw new Error(errData?.error?.message || `HTTP error ${response.status}`);
     }
 
+    // streamGenerateContent emits cumulative candidate text, so forward only the
+    // newly appended portion of each chunk to keep the ghost-text delta correct.
+    let receivedText = '';
+
     await providerUtils.parseSseStream(response, (chunk) => {
-      const content = chunk?.candidates?.[0]?.content?.parts?.[0]?.text;
-      if (content) {
-        port.postMessage({ type: 'chunk', text: content });
+      const fullText = extractCandidateText(chunk);
+      if (!fullText) {
+        return;
+      }
+
+      const delta = fullText.startsWith(receivedText)
+        ? fullText.slice(receivedText.length)
+        : fullText;
+
+      receivedText = fullText;
+
+      if (delta) {
+        port.postMessage({ type: 'chunk', text: delta });
       }
     }, signal);
 

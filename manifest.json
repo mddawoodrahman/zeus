@@ -12,6 +12,11 @@
     "sidePanel"
   ],
   "host_permissions": [
+    "https://api.openai.com/*",
+    "https://api.anthropic.com/*",
+    "https://generativelanguage.googleapis.com/*",
+    "https://openrouter.ai/*",
+    "http://localhost:11434/*",
     "https://chatgpt.com/*",
     "https://chat.openai.com/*",
     "https://www.kimi.com/*",
@@ -20,9 +25,7 @@
     "https://bard.google.com/*",
     "https://deepseek.com/*",
     "https://chat.deepseek.com/*",
-    "https://grok.com/*",
-    "https://openrouter.ai/*",
-    "http://localhost:11434/*"
+    "https://grok.com/*"
   ],
   "background": {
     "service_worker": "background.js"

@@ -7,6 +7,7 @@
 
   const CLAUDE_API_URL = 'https://api.anthropic.com/v1/messages';
   const CLAUDE_MAX_RETRIES = 3;
+  const CLAUDE_SUGGEST_TIMEOUT_MS = 8000;
 
   function extractSignal(errData) {
     const code = String(errData?.error?.code ?? errData?.code ?? '').toLowerCase();
@@ -126,7 +127,7 @@
       stream: true
     };
 
-    const response = await fetch(CLAUDE_API_URL, {
+    const response = await retry.fetchWithTimeout(CLAUDE_API_URL, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -135,7 +136,7 @@
       },
       body: JSON.stringify(body),
       signal
-    });
+    }, CLAUDE_SUGGEST_TIMEOUT_MS);
 
     if (!response.ok) {
       const errData = await providerUtils.readJsonSafe(response);

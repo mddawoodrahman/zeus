@@ -3,6 +3,7 @@
   const registry = globalScope.ZeusModelRegistry || null;
   const providers = globalScope.ZeusProviders || {};
   const telemetry = globalScope.ZeusTelemetry || null;
+  const errors = globalScope.ZeusErrors || null;
 
   function trackAutoFallback(payload) {
     const logPrefix = globalScope?.LOG_PREFIX || { warn: '%c[ZEUS_NET]' };
@@ -286,7 +287,11 @@
       await providerFn.suggest(text, settings, port, abortSignal);
     } catch (err) {
       if (abortSignal?.aborted) return;
-      port.postMessage({ type: 'error', message: err.message || 'Error fetching suggestion' });
+      // Provider text must be redacted before it reaches the page.
+      const safeMessage = errors && typeof errors.sanitizePortError === 'function'
+        ? errors.sanitizePortError(err)
+        : 'Suggestion request failed.';
+      port.postMessage({ type: 'error', message: safeMessage });
     }
   }
 

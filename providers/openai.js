@@ -7,6 +7,7 @@
 
   const OPENAI_API_URL = 'https://api.openai.com/v1/chat/completions';
   const OPENAI_MAX_RETRIES = 3;
+  const OPENAI_SUGGEST_TIMEOUT_MS = 8000;
 
   function extractSignal(errData) {
     const code = String(errData?.error?.code ?? errData?.code ?? '').toLowerCase();
@@ -136,7 +137,7 @@
       stream: true
     };
 
-    const response = await fetch(OPENAI_API_URL, {
+    const response = await retry.fetchWithTimeout(OPENAI_API_URL, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -144,7 +145,7 @@
       },
       body: JSON.stringify(body),
       signal
-    });
+    }, OPENAI_SUGGEST_TIMEOUT_MS);
 
     if (!response.ok) {
       const errData = await providerUtils.readJsonSafe(response);

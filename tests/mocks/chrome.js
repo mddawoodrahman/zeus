@@ -1,171 +1,289 @@
+/**
+ * Minimal Chrome extension API mock for unit and integration tests.
+ *
+ * The runtime modules under test use callback-style Chrome APIs
+ * (for example `chrome.storage.sync.get(keys, callback)`), so every async
+ * method here invokes its callback on a microtask and supports
+ * `chrome.runtime.lastError` for failure-path tests.
+ */
+
+const DEEP_CLONE_FALLBACK = (value) => JSON.parse(JSON.stringify(value));
+
+function clone(value) {
+  if (value === undefined || value === null) {
+    return value;
+  }
+
+  if (typeof globalThis.structuredClone === 'function') {
+    try {
+      return globalThis.structuredClone(value);
+    } catch (_) {
+      // Fall through to JSON cloning for non-cloneable values.
+    }
+  }
+
+  try {
+    return DEEP_CLONE_FALLBACK(value);
+  } catch (_) {
+    return value;
+  }
+}
+
+function createStorageArea(initialData) {
+  const data = new Map();
+
+  if (initialData && typeof initialData === 'object') {
+    for (const [key, value] of Object.entries(initialData)) {
+      data.set(key, clone(value));
+    }
+  }
+
+  function applyGet(defaults, keys) {
+    const result = {};
+
+    if (keys === undefined || keys === null) {
+      for (const [key, value] of data.entries()) {
+        result[key] = clone(value);
+      }
+      return result;
+    }
+
+    if (typeof keys === 'string') {
+      if (data.has(keys)) {
+        result[keys] = clone(data.get(keys));
+      }
+      return result;
+    }
+
+    if (Array.isArray(keys)) {
+      for (const key of keys) {
+        if (data.has(key)) {
+          result[key] = clone(data.get(key));
+        }
+      }
+      return result;
+    }
+
+    if (typeof keys === 'object') {
+      for (const [key, fallback] of Object.entries(keys)) {
+        result[key] = data.has(key) ? clone(data.get(key)) : clone(fallback);
+      }
+      return result;
+    }
+
+    return result;
+  }
+
+  function normalizeSetArgs(keysOrObject, maybeValue) {
+    if (typeof keysOrObject === 'string') {
+      return [[keysOrObject, maybeValue]];
+    }
+
+    if (keysOrObject && typeof keysOrObject === 'object') {
+      return Object.entries(keysOrObject);
+    }
+
+    return [];
+  }
+
+  return {
+    /** Raw snapshot of currently stored values, for assertions. */
+    __data: data,
+
+    /** Seed values without going through set(), for test setup. */
+    __seed(values) {
+      for (const [key, value] of Object.entries(values || {})) {
+        data.set(key, clone(value));
+      }
+    },
+
+    get(keys, callback) {
+      const cb = typeof keys === 'function' ? keys : callback;
+      const query = typeof keys === 'function' ? undefined : keys;
+      queueMicrotask(() => {
+        if (typeof cb === 'function') {
+          cb(applyGet(undefined, query));
+        }
+      });
+    },
+
+    set(keysOrObject, maybeValue, callback) {
+      const cb = typeof maybeValue === 'function' ? maybeValue : callback;
+
+      for (const [key, value] of normalizeSetArgs(keysOrObject, maybeValue)) {
+        if (value === undefined) {
+          data.delete(key);
+        } else {
+          data.set(key, clone(value));
+        }
+      }
+
+      queueMicrotask(() => {
+        if (typeof cb === 'function') {
+          cb();
+        }
+      });
+    },
+
+    remove(keys, callback) {
+      const list = Array.isArray(keys) ? keys : [keys];
+      for (const key of list) {
+        data.delete(key);
+      }
+
+      queueMicrotask(() => {
+        if (typeof callback === 'function') {
+          callback();
+        }
+      });
+    },
+
+    clear(callback) {
+      data.clear();
+      queueMicrotask(() => {
+        if (typeof callback === 'function') {
+          callback();
+        }
+      });
+    }
+  };
+}
+
 function createEvent() {
   const listeners = [];
 
   return {
     listeners,
-    addListener(fn) {
-      listeners.push(fn);
+    addListener(listener) {
+      if (typeof listener === 'function' && !listeners.includes(listener)) {
+        listeners.push(listener);
+      }
     },
-    removeListener(fn) {
-      const index = listeners.indexOf(fn);
+    removeListener(listener) {
+      const index = listeners.indexOf(listener);
       if (index >= 0) {
         listeners.splice(index, 1);
       }
     },
-    hasListener(fn) {
-      return listeners.includes(fn);
-    }
-  };
-}
-
-function copy(value) {
-  return JSON.parse(JSON.stringify(value));
-}
-
-function pickStoreValues(store, keys) {
-  if (!keys) {
-    return copy(store);
-  }
-
-  if (Array.isArray(keys)) {
-    const output = {};
-    for (const key of keys) {
-      output[key] = store[key];
-    }
-    return output;
-  }
-
-  if (typeof keys === 'string') {
-    return { [keys]: store[keys] };
-  }
-
-  if (keys && typeof keys === 'object') {
-    const output = {};
-    for (const key of Object.keys(keys)) {
-      output[key] = store[key] !== undefined ? store[key] : keys[key];
-    }
-    return output;
-  }
-
-  return copy(store);
-}
-
-function createStorageArea(store) {
-  return {
-    get(keys, callback) {
-      callback(pickStoreValues(store, keys));
+    hasListener(listener) {
+      return listeners.includes(listener);
     },
-    set(payload, callback) {
-      Object.assign(store, payload || {});
-      if (typeof callback === 'function') {
-        callback();
-      }
+    hasListeners() {
+      return listeners.length > 0;
     },
-    clear(callback) {
-      for (const key of Object.keys(store)) {
-        delete store[key];
-      }
-      if (typeof callback === 'function') {
-        callback();
-      }
+    clear() {
+      listeners.length = 0;
     }
   };
 }
 
-function createChromeMock(options = {}) {
-  const syncStore = { ...(options.syncStore || {}) };
-  const localStore = { ...(options.localStore || {}) };
+function createChromeMock(options) {
+  const settings = options || {};
+  const sync = createStorageArea(settings.sync);
+  const local = createStorageArea(settings.local);
+  const session = createStorageArea(settings.session);
 
-  const runtimeOnInstalled = createEvent();
-  const runtimeOnMessage = createEvent();
-  const contextMenuOnClicked = createEvent();
-
-  const calls = {
-    runtimeSendMessage: [],
-    tabsQuery: [],
-    tabsSendMessage: [],
-    executeScript: [],
-    contextMenusCreate: []
+  const runtime = {
+    lastError: null,
+    id: 'zeus-test-extension-id',
+    getURL: (relativePath) => `chrome-extension://zeus-test-extension-id/${String(relativePath || '').replace(/^\/+/, '')}`,
+    onMessage: createEvent(),
+    onConnect: createEvent(),
+    onInstalled: createEvent(),
+    sendMessage: (_message, callback) => {
+      queueCallback(callback, undefined);
+    },
+    connect: () => createPort()
   };
+
+  // Chrome clears runtime.lastError once the failing callback has run, so the
+  // simulated error must not leak into later assertions.
+  function queueCallback(callback, ...args) {
+    queueMicrotask(() => {
+      if (typeof callback === 'function') {
+        try {
+          callback(...args);
+        } finally {
+          runtime.lastError = null;
+        }
+      }
+    });
+  }
 
   const chrome = {
-    runtime: {
-      id: 'zeus-test-extension',
-      lastError: null,
-      onInstalled: runtimeOnInstalled,
-      onMessage: runtimeOnMessage,
-      sendMessage(message, callback) {
-        calls.runtimeSendMessage.push({ message });
-
-        const listeners = runtimeOnMessage.listeners.slice();
-        if (!listeners.length) {
-          if (typeof callback === 'function') callback(undefined);
-          return;
-        }
-
-        let responded = false;
-        const sendResponse = (payload) => {
-          responded = true;
-          if (typeof callback === 'function') {
-            callback(payload);
-          }
-        };
-
-        for (const listener of listeners) {
-          const handled = listener(message, {}, sendResponse);
-          if (handled === true) {
-            return;
-          }
-        }
-
-        if (!responded && typeof callback === 'function') {
-          callback(undefined);
-        }
-      }
-    },
+    runtime,
     storage: {
-      sync: createStorageArea(syncStore),
-      local: createStorageArea(localStore)
-    },
-    contextMenus: {
-      create(payload) {
-        calls.contextMenusCreate.push(payload);
-      },
-      onClicked: contextMenuOnClicked
+      sync,
+      local,
+      session,
+      onChanged: createEvent()
     },
     tabs: {
-      query(queryInfo, callback) {
-        calls.tabsQuery.push(queryInfo);
-        callback([{ id: 101 }]);
+      query: (_queryInfo, callback) => {
+        queueCallback(callback, []);
       },
-      sendMessage(tabId, message) {
-        calls.tabsSendMessage.push({ tabId, message });
-        return Promise.resolve({ ok: true });
+      sendMessage: (_tabId, _message, callback) => {
+        queueCallback(callback, undefined);
+        return Promise.resolve();
       }
     },
     scripting: {
-      executeScript(payload) {
-        calls.executeScript.push(payload);
-        return Promise.resolve([{ result: true }]);
+      executeScript: () => Promise.resolve([])
+    },
+    contextMenus: {
+      create: () => 'zeus-enhance-prompt',
+      onClicked: createEvent()
+    },
+    commands: {
+      onCommand: createEvent()
+    },
+    sidePanel: {
+      open: () => Promise.resolve(),
+      close: () => Promise.resolve()
+    },
+    windows: {
+      getLastFocused: (callback) => {
+        queueCallback(callback, { id: 1 });
       }
     }
   };
 
   return {
     chrome,
-    calls,
-    stores: {
-      sync: syncStore,
-      local: localStore
-    },
-    listeners: {
-      runtimeOnInstalled,
-      runtimeOnMessage,
-      contextMenuOnClicked
+    sync,
+    local,
+    /** Simulate a Chrome runtime error for the next callback-based call. */
+    setLastError(message) {
+      runtime.lastError = message ? { message: String(message) } : null;
     }
   };
 }
 
-module.exports = {
-  createChromeMock
-};
+/**
+ * Minimal chrome.runtime.Port stand-in, mirroring the long-lived connection
+ * contract used by the copilot streaming path.
+ */
+function createPort(name) {
+  const onMessage = createEvent();
+  const onDisconnect = createEvent();
+  const posted = [];
+
+  return {
+    name: name || 'zeus-test-port',
+    posted,
+    onMessage,
+    onDisconnect,
+    postMessage(message) {
+      posted.push(message);
+    },
+    disconnect() {
+      onDisconnect.listeners.slice().forEach((listener) => listener());
+    },
+    /** Deliver a message to this port's listeners. */
+    emit(message) {
+      onMessage.listeners.slice().forEach((listener) => listener(message));
+    }
+  };
+}
+
+module.exports = { createChromeMock };

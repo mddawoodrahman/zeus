@@ -118,17 +118,6 @@ This separation keeps site heuristics isolated and avoids intrusive DOM reparent
 |  |- grok.js
 |  |- openrouter.js
 |- core/
-|  |- copilot.js
-|  |- domUtils.js
-|  |- errors.js
-|  |- ghostText.js
-|  |- injector.js
-|  |- observer.js
-|  |- prompts.js
-|  |- retry.js
-|  |- router.js
-|  |- telemetry.js
-|  |- useFloatingPosition.js
 |- messaging/
 |  |- messageHandler.js
 |- providers/
@@ -171,6 +160,7 @@ This separation keeps site heuristics isolated and avoids intrusive DOM reparent
 - `https://deepseek.com/*`
 - `https://grok.com/*`
 - `https://openrouter.ai/*`
+- `https://www.kimi.com/*` (served by the generic adapter)
 
 ### Provider endpoints
 
@@ -179,6 +169,8 @@ This separation keeps site heuristics isolated and avoids intrusive DOM reparent
 - Claude: `https://api.anthropic.com`
 - OpenRouter: `https://openrouter.ai`
 - Ollama local runtime: `http://localhost:11434`
+
+Each of these hosts is declared in `manifest.json` `host_permissions`. `tests/unit/manifest-parity.test.js` asserts that every endpoint a provider calls has a matching permission pattern.
 
 ## Installation
 
@@ -225,7 +217,7 @@ npm test
 2. Scroll to the **ADVANCED MODULES** card and check **SIDE PANEL WORKBENCH**.
 3. Click **EXECUTE CONFIG** to save settings.
 4. Open or close the Chrome Side Panel UI:
-   - **Shortcut (Recommended)**: Press **Alt + Shift + Z** (or **Cmd + Shift + Z** on Mac) directly. This acts as a state-aware **toggle** (press once to open, press again to close).
+   - **Shortcut (Recommended)**: Press **Alt + Shift + Z** (**Option + Shift + Z** on Mac) directly. This acts as a state-aware **toggle** (press once to open, press again to close). The binding is declared in `manifest.json` under `commands`; macOS reports the `Alt` modifier as `Option`.
    - Click the **Side panel** icon in Chrome's top-right toolbar (looks like a split rectangle).
    - Alternatively, click the Extensions puzzle piece icon, find **ZEUS**, click the three vertical dots next to it, and select **Open side panel**.
    - **Physical Close Button**: Click the high-tech red **✕** close button in the top-right corner of the workbench header to close the panel instantly.
@@ -316,11 +308,13 @@ Zeus uses layered testing so runtime and integration risks are caught early.
 
 ### Test categories
 
-- Unit: routing logic, settings normalization/migration, utility behavior
+- Unit: routing logic, settings normalization/migration, utility behavior, manifest/file wiring parity, telemetry buffering, retry signal composition
 - Integration: router-provider interaction and fallback orchestration
 - Provider mocking: mocked `fetch` success, failures, and fallback triggers
 - DOM: input detection, injection behavior, and prompt write-back
 - Smoke: end-to-end settings migration + message actions in Node
+
+Unit tests are CommonJS (`require`) because `npm run test:syntax` parses every `.js` file with `node --check`; keep new test files free of ESM `import` statements.
 
 ### Adapter harness pages
 
@@ -360,7 +354,7 @@ Packaging intentionally excludes development-only folders such as tests, scripts
 The build process is deterministic and safety-focused:
 
 - Build output is rebuilt from a strict runtime whitelist.
-- Missing runtime files are skipped safely with explicit logs.
+- Every file referenced by `manifest.json` (service worker, content scripts, popup, options page, side panel, icons) must exist in the output, or the build exits non-zero with the concrete missing list. Missing runtime files are never silently skipped.
 - Dev/test/config artifacts are never copied to production output.
 - Common secret patterns (`.env`, `.local`) are blocked from output.
 
@@ -474,6 +468,16 @@ Handled by `messaging/messageHandler.js`:
 - `forceInject`
 - `getTelemetrySummary`
 - `clearTelemetry`
+- `sidePanel:getCurrentInput`
+- `sidePanel:setInputValue`
+- `sidePanel:getHistory`
+- `sidePanel:saveHistory`
+- `sidePanel:getTemplates`
+- `sidePanel:saveTemplates`
+
+Actions are accepted under either the `action` or `type` key for backwards compatibility; new call sites should use `action`.
+
+`forceInject` re-injects the exact file list declared in `manifest.json` `content_scripts[].js`. `tests/unit/manifest-parity.test.js` fails the build if that list, the manifest, and the build whitelist ever drift apart.
 
 ### Long-Lived Connection Ports
 
@@ -494,7 +498,9 @@ Fallback telemetry is implemented in `core/telemetry.js`.
   - `provider-fallback`
   - `auto-route-fallback`
 
-Use runtime actions `getTelemetrySummary` and `clearTelemetry` for inspection/reset.
+The in-memory event buffer is the source of truth. It hydrates from storage once and persists with a debounced write, so concurrent fallbacks in the same tick cannot overwrite each other.
+
+Use runtime actions `getTelemetrySummary` and `clearTelemetry` for inspection/reset. `ZeusTelemetry.getSummary()` and `getFallbackCount()` return promises (they previously took callbacks).
 
 ## Security and Permissions
 

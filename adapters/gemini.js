@@ -3,10 +3,11 @@
 
   const INPUT_SELECTORS = [
     'rich-textarea div[contenteditable="true"]',
+    'rich-textarea [role="textbox"]',
+    'div.ql-editor[contenteditable="true"]',
     'div[role="textbox"][contenteditable="true"]',
-    'div[contenteditable="true"][aria-label*="prompt" i]',
-    'div[contenteditable="true"][aria-label*="message" i]',
-    'textarea'
+    'textarea',
+    '[contenteditable="true"]'
   ];
 
   function isVisible(element) {
@@ -33,7 +34,7 @@
 
   function getInputElement() {
     const active = document.activeElement;
-    if (active instanceof Element && active.matches?.('div[contenteditable="true"], textarea') && isVisible(active)) {
+    if (active instanceof Element && active.matches?.('div[contenteditable="true"], textarea, [role="textbox"]') && isVisible(active)) {
       return active;
     }
 
@@ -51,69 +52,42 @@
     }
 
     return (
-      inputEl.closest('form') ||
-      inputEl.closest('chat-input') ||
+      inputEl.closest('rich-textarea') ||
+      inputEl.closest('input-area-v2') ||
       inputEl.closest('[class*="input-area"]') ||
-      inputEl.closest('[class*="inputArea"]') ||
-      inputEl.closest('[class*="composer"]') ||
+      inputEl.closest('form') ||
       inputEl.parentElement
     );
   }
 
-  function getRightControlsInset(anchor) {
-    if (!anchor) {
-      return 0;
-    }
-
-    const anchorRect = anchor.getBoundingClientRect();
-    if (!anchorRect.width || !anchorRect.height) {
-      return 0;
-    }
-
-    const controls = Array.from(anchor.querySelectorAll('button, [role="button"]'))
-      .filter((element) => isVisible(element) && !element.classList?.contains('zeus-enhance-btn') && !element.classList?.contains('zeus-enhance-button'));
-
-    const rightSideControls = controls.filter((element) => {
-      const rect = element.getBoundingClientRect();
-      const centerX = rect.left + (rect.width / 2);
-      const centerY = rect.top + (rect.height / 2);
-
-      return (
-        centerX >= anchorRect.left + (anchorRect.width * 0.58) &&
-        centerY >= anchorRect.top + (anchorRect.height * 0.42)
-      );
-    });
-
-    if (rightSideControls.length === 0) {
-      return 0;
-    }
-
-    let leftMost = Number.POSITIVE_INFINITY;
-    for (const control of rightSideControls) {
-      leftMost = Math.min(leftMost, control.getBoundingClientRect().left);
-    }
-
-    if (!Number.isFinite(leftMost)) {
-      return 0;
-    }
-
-    return Math.max(0, Math.round(anchorRect.right - leftMost + 8));
-  }
-
   function getPositionStrategy(inputEl) {
     const anchor = getAnchorContainer(inputEl);
+    const sendButton = anchor?.querySelector('button[aria-label*="Send"], button[aria-label*="send"], button.send-button');
+
+    if (!anchor || !sendButton) {
+      const rect = inputEl?.getBoundingClientRect?.() || { width: 0, height: 0 };
+      return {
+        mode: 'fixed',
+        offsetX: Math.max(10, Math.round(rect.width * 0.02)),
+        offsetY: Math.max(10, Math.round(rect.height * 0.2)),
+        viewportPadding: 10,
+        zIndex: 2147483000
+      };
+    }
+
+    const sendWidth = Math.round(sendButton.getBoundingClientRect().width || 0);
 
     return {
       mode: 'anchored',
-      right: Math.max(12, getRightControlsInset(anchor)),
+      right: Math.max(10, sendWidth + 14),
       bottom: 10,
-      avoidSelector: 'button[aria-label*="Send"], button[aria-label*="send"], button[aria-label*="voice"], button[aria-label*="Voice"], button[aria-label*="microphone"], button[aria-label*="Microphone"]',
-      zIndex: 28
+      avoidSelector: 'button[aria-label*="Send"], button[aria-label*="send"], button.send-button, button[aria-label*="microphone"]',
+      zIndex: 30
     };
   }
 
   adapters.push({
-    id: 'gemini-site',
+    id: 'gemini',
     matches(hostname) {
       return hostname.includes('gemini.google.com') || hostname.includes('bard.google.com');
     },

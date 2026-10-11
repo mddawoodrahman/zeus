@@ -244,8 +244,8 @@ async function runMessageActionSmoke() {
   };
 
   globalThis.ZeusTelemetry = {
-    getSummary(callback) {
-      callback({ totalEvents: 2, byProvider: { openai: 1, claude: 1 }, byReason: { quota: 2 }, recent: [] });
+    async getSummary() {
+      return { totalEvents: 2, byProvider: { openai: 1, claude: 1 }, byReason: { quota: 2 }, recent: [] };
     },
     clear() {
       telemetryCleared = true;

@@ -11,6 +11,7 @@
   const OPENROUTER_APP_TITLE = 'Zeus Prompt Enhancer';
   const OPENROUTER_MAX_RETRIES = 3;
   const OPENROUTER_CATALOG_TTL_MS = 10 * 60 * 1000;
+  const OPENROUTER_SUGGEST_TIMEOUT_MS = 8000;
 
   let catalogCache = {
     expiresAt: 0,
@@ -192,17 +193,17 @@
       max_tokens: settings.copilotMaxTokens || 60
     };
 
-    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    const response = await retry.fetchWithTimeout(OPENROUTER_API_URL, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${apiKey}`,
-        'HTTP-Referer': 'https://github.com/zeus-extension',
-        'X-Title': 'Zeus Prompt Injector'
+        'HTTP-Referer': OPENROUTER_APP_REFERER,
+        'X-Title': OPENROUTER_APP_TITLE
       },
       body: JSON.stringify(body),
       signal
-    });
+    }, OPENROUTER_SUGGEST_TIMEOUT_MS);
 
     if (!response.ok) {
       const errData = await providerUtils.readJsonSafe(response);

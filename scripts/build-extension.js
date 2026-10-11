@@ -45,6 +45,9 @@ const blockedFileSuffixes = [
   '.map'
 ];
 
+// Relative (posix) paths actually written into dist/extension during this run.
+const emittedFiles = new Set();
+
 function toPosix(relativePath) {
   return relativePath.split(path.sep).join('/');
 }
@@ -55,6 +58,10 @@ function logInfo(message) {
 
 function logSkip(message) {
   console.warn('[build:skip] ' + message);
+}
+
+function logError(message) {
+  console.error('[build:error] ' + message);
 }
 
 function normalizeRelativePath(relativePath) {
@@ -108,19 +115,21 @@ function copyFile(relativePath) {
 
   if (isBlockedFile(normalized)) {
     logSkip('Blocked file pattern: ' + toPosix(normalized));
-    return;
+    return false;
   }
 
   const source = path.join(rootDir, normalized);
   if (!fs.existsSync(source)) {
     logSkip('Missing file: ' + toPosix(normalized));
-    return;
+    return false;
   }
 
   const destination = path.join(extensionDir, normalized);
   fs.mkdirSync(path.dirname(destination), { recursive: true });
   fs.copyFileSync(source, destination);
+  emittedFiles.add(toPosix(normalized));
   logInfo('Copied file: ' + toPosix(normalized));
+  return true;
 }
 
 function copyDirectoryRecursive(relativeDirPath) {
@@ -156,6 +165,89 @@ function copyDirectoryRecursive(relativeDirPath) {
   }
 }
 
+function readManifest() {
+  const manifestPath = path.join(rootDir, 'manifest.json');
+  if (!fs.existsSync(manifestPath)) {
+    throw new Error('manifest.json is missing from the repository root.');
+  }
+
+  try {
+    return JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+  } catch (error) {
+    throw new Error('manifest.json is not valid JSON: ' + error.message);
+  }
+}
+
+// Every file Chrome must be able to load at runtime, derived from the manifest so
+// the whitelist cannot silently drift away from what the extension actually declares.
+function getManifestRequiredFiles(manifest) {
+  const required = new Map();
+
+  function require(relativePath, referencedBy) {
+    const normalized = String(relativePath || '').trim();
+    if (!normalized) {
+      return;
+    }
+
+    const posixPath = toPosix(path.normalize(normalized));
+    if (!required.has(posixPath)) {
+      required.set(posixPath, referencedBy);
+    }
+  }
+
+  require(manifest.background?.service_worker, 'background.service_worker');
+
+  for (const entry of manifest.content_scripts || []) {
+    for (const script of entry.js || []) {
+      require(script, 'content_scripts.js');
+    }
+    for (const stylesheet of entry.css || []) {
+      require(stylesheet, 'content_scripts.css');
+    }
+  }
+
+  require(manifest.action?.default_popup, 'action.default_popup');
+  require(manifest.options_ui?.page, 'options_ui.page');
+  require(manifest.side_panel?.default_path, 'side_panel.default_path');
+
+  for (const iconPath of getManifestAssetPaths()) {
+    require(iconPath, 'icons');
+  }
+
+  return required;
+}
+
+function verifyBuildOutput(manifest) {
+  const requiredFiles = getManifestRequiredFiles(manifest);
+  const missing = [];
+
+  for (const [relativePath, referencedBy] of requiredFiles.entries()) {
+    const builtPath = path.join(extensionDir, relativePath);
+    if (!fs.existsSync(builtPath)) {
+      missing.push(`${relativePath} (referenced by ${referencedBy})`);
+    }
+  }
+
+  if (missing.length > 0) {
+    throw new Error(
+      'Build output is incomplete. Every file referenced by manifest.json must exist in ' +
+      toPosix(path.relative(rootDir, extensionDir)) + ':\n  - ' + missing.join('\n  - ')
+    );
+  }
+
+  for (const file of runtimeFiles) {
+    const normalized = toPosix(path.normalize(file));
+    if (!emittedFiles.has(normalized)) {
+      throw new Error(
+        `Declared runtime file was not emitted: ${normalized} ` +
+        '(check the runtimeFiles list and the source tree).'
+      );
+    }
+  }
+
+  logInfo(`Verified ${requiredFiles.size} manifest-referenced runtime files`);
+}
+
 function getManifestAssetPaths() {
   const manifestPath = path.join(rootDir, 'manifest.json');
   if (!fs.existsSync(manifestPath)) {
@@ -163,7 +255,7 @@ function getManifestAssetPaths() {
   }
 
   try {
-    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+    const manifest = readManifest();
     const assets = new Set();
 
     function captureIconGroup(iconGroup) {
@@ -191,7 +283,10 @@ function getManifestAssetPaths() {
 function buildExtension() {
   fs.rmSync(extensionDir, { recursive: true, force: true });
   fs.mkdirSync(extensionDir, { recursive: true });
+  emittedFiles.clear();
   logInfo('Cleaned dist/extension and starting build');
+
+  const manifest = readManifest();
 
   const deterministicFiles = runtimeFiles.slice().sort((a, b) => a.localeCompare(b));
   for (const file of deterministicFiles) {
@@ -208,7 +303,14 @@ function buildExtension() {
     copyFile(assetPath);
   }
 
+  verifyBuildOutput(manifest);
+
   logInfo('Build complete: ' + toPosix(path.relative(rootDir, extensionDir)));
 }
 
-buildExtension();
+try {
+  buildExtension();
+} catch (error) {
+  logError(error && error.message ? error.message : String(error));
+  process.exitCode = 1;
+}
