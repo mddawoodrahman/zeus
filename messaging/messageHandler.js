@@ -79,10 +79,27 @@
       .catch(() => {});
   }
 
+  function applySidePanelBehavior(enabled) {
+    if (typeof chrome !== 'undefined' && chrome.sidePanel && typeof chrome.sidePanel.setPanelBehavior === 'function') {
+      chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: Boolean(enabled) }).catch(() => {});
+    }
+  }
+
   function setupContextMenu() {
     chrome.runtime.onInstalled.addListener(() => {
       buildContextMenu();
+      if (settingsModule && typeof settingsModule.loadSettings === 'function') {
+        settingsModule.loadSettings().then((s) => {
+          applySidePanelBehavior(s?.sidePanelEnabled);
+        }).catch(() => {});
+      }
     });
+
+    if (settingsModule && typeof settingsModule.loadSettings === 'function') {
+      settingsModule.loadSettings().then((s) => {
+        applySidePanelBehavior(s?.sidePanelEnabled);
+      }).catch(() => {});
+    }
 
     // Rebuild when the user edits transforms so the menu never goes stale.
     if (chrome.storage?.onChanged) {
@@ -360,6 +377,9 @@
           return true;
 
         case 'settingsUpdated':
+          if (message?.settings?.sidePanelEnabled !== undefined) {
+            applySidePanelBehavior(message.settings.sidePanelEnabled);
+          }
           notifyTabsOfUpdate(message?.settings || {});
           sendResponse({ success: true });
           return true;

@@ -324,6 +324,27 @@
     };
   }
 
+  const CREDENTIALS_KEY = 'zeus_secure_credentials';
+
+  function extractCredentials(settings) {
+    const apiKeys = { ...(settings?.apiKeys || {}) };
+    const customApiKeys = {};
+    if (Array.isArray(settings?.customProviders)) {
+      for (const cp of settings.customProviders) {
+        if (cp.id && cp.apiKey) {
+          customApiKeys[cp.id] = cp.apiKey;
+        }
+      }
+    }
+    return { apiKeys, customApiKeys };
+  }
+
+  function hasCredentials(settings) {
+    const keys = settings?.apiKeys || {};
+    return Boolean(keys.gemini || keys.openai || keys.claude || keys.openrouter) ||
+      (Array.isArray(settings?.customProviders) && settings.customProviders.some((p) => p.apiKey));
+  }
+
   function loadSettings() {
     return new Promise((resolve, reject) => {
       chrome.storage.sync.get(STORAGE_KEYS, (stored) => {
@@ -332,7 +353,30 @@
           return;
         }
 
-        resolve(migrateSettings(stored || {}));
+        const settings = migrateSettings(stored || {});
+
+        if (chrome.storage.local) {
+          chrome.storage.local.get([CREDENTIALS_KEY], (localData) => {
+            const creds = localData?.[CREDENTIALS_KEY];
+            if (creds && typeof creds === 'object') {
+              if (creds.apiKeys && typeof creds.apiKeys === 'object') {
+                settings.apiKeys = { ...settings.apiKeys, ...creds.apiKeys };
+              }
+              if (creds.customApiKeys && typeof creds.customApiKeys === 'object') {
+                settings.customProviders = settings.customProviders.map((cp) => ({
+                  ...cp,
+                  apiKey: creds.customApiKeys[cp.id] !== undefined ? creds.customApiKeys[cp.id] : cp.apiKey
+                }));
+              }
+            } else if (hasCredentials(settings)) {
+              chrome.storage.local.set({ [CREDENTIALS_KEY]: extractCredentials(settings) }, () => {});
+            }
+            resolve(settings);
+          });
+          return;
+        }
+
+        resolve(settings);
       });
     });
   }
@@ -342,6 +386,24 @@
     const payload = serializeSettings(normalized);
 
     return new Promise((resolve, reject) => {
+      if (chrome.storage.local) {
+        const creds = extractCredentials(normalized);
+        chrome.storage.local.set({ [CREDENTIALS_KEY]: creds }, () => {
+          if (chrome.runtime.lastError) {
+            reject(new Error(chrome.runtime.lastError.message || 'Failed to save local credentials.'));
+            return;
+          }
+          chrome.storage.sync.set(payload, () => {
+            if (chrome.runtime.lastError) {
+              reject(new Error(chrome.runtime.lastError.message || 'Failed to save settings.'));
+              return;
+            }
+            resolve({ settings: normalized, payload });
+          });
+        });
+        return;
+      }
+
       chrome.storage.sync.set(payload, () => {
         if (chrome.runtime.lastError) {
           reject(new Error(chrome.runtime.lastError.message || 'Failed to save settings.'));

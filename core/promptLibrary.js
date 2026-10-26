@@ -370,13 +370,44 @@
 
   function loadLibrary() {
     return new Promise((resolve) => {
-      const storage = globalScope.chrome?.storage?.sync || globalScope.chrome?.storage?.local;
-      if (!storage) {
+      const localStorage = globalScope.chrome?.storage?.local;
+      const syncStorage = globalScope.chrome?.storage?.sync;
+
+      if (!localStorage && !syncStorage) {
         resolve(createDefaultPrompts());
         return;
       }
 
-      storage.get([STORAGE_KEY], (data) => {
+      // Check local storage first
+      if (localStorage) {
+        localStorage.get([STORAGE_KEY], (localData) => {
+          if (localData?.[STORAGE_KEY] && Array.isArray(localData[STORAGE_KEY]) && localData[STORAGE_KEY].length > 0) {
+            resolve(normalizeLibrary(localData[STORAGE_KEY]));
+            return;
+          }
+
+          // If local is empty or missing, migrate from sync if sync has data
+          if (syncStorage) {
+            syncStorage.get([STORAGE_KEY], (syncData) => {
+              if (syncData?.[STORAGE_KEY] && Array.isArray(syncData[STORAGE_KEY]) && syncData[STORAGE_KEY].length > 0) {
+                const migrated = normalizeLibrary(syncData[STORAGE_KEY]);
+                localStorage.set({ [STORAGE_KEY]: migrated }, () => {
+                  resolve(migrated);
+                });
+                return;
+              }
+              resolve(createDefaultPrompts());
+            });
+            return;
+          }
+
+          resolve(createDefaultPrompts());
+        });
+        return;
+      }
+
+      // Fallback for environments with only sync (e.g. unit test mocks)
+      syncStorage.get([STORAGE_KEY], (data) => {
         if (globalScope.chrome?.runtime?.lastError) {
           resolve(createDefaultPrompts());
           return;
@@ -389,13 +420,13 @@
   function saveLibrary(prompts) {
     return new Promise((resolve, reject) => {
       const normalized = normalizeLibrary(prompts);
-      const storage = globalScope.chrome?.storage?.sync || globalScope.chrome?.storage?.local;
-      if (!storage) {
+      const targetStorage = globalScope.chrome?.storage?.local || globalScope.chrome?.storage?.sync;
+      if (!targetStorage) {
         resolve(normalized);
         return;
       }
 
-      storage.set({ [STORAGE_KEY]: normalized }, () => {
+      targetStorage.set({ [STORAGE_KEY]: normalized }, () => {
         if (globalScope.chrome?.runtime?.lastError) {
           reject(new Error(globalScope.chrome.runtime.lastError.message || 'Failed to save prompt library.'));
           return;

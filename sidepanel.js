@@ -724,7 +724,8 @@ document.addEventListener('DOMContentLoaded', () => {
       if (response && response.success) {
         showToast('INJECTED INTO ACTIVE SESSION', 'success', 2000);
       } else {
-        showToast('INJECTION FAILED. COMPOSER OUT OF FOCUS.', 'error', 3000);
+        const err = response?.error ? response.error.toUpperCase() : 'INJECTION FAILED. COMPOSER OUT OF FOCUS.';
+        showToast(err, 'error', 3000);
       }
     });
   });
@@ -755,15 +756,65 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function diffWords(oldStr, newStr) {
+    if (oldStr === newStr) {
+      return oldStr ? [{ type: 'common', value: oldStr }] : [];
+    }
+    if (!oldStr) {
+      return newStr ? [{ type: 'add', value: newStr }] : [];
+    }
+    if (!newStr) {
+      return [{ type: 'del', value: oldStr }];
+    }
+
     const one = oldStr.split(/(\s+)/);
     const other = newStr.split(/(\s+)/);
-    const n = one.length;
-    const m = other.length;
-    const dp = Array.from({ length: n + 1 }, () => Array(m + 1).fill(0));
 
+    // Fast trim common prefix
+    let start = 0;
+    while (start < one.length && start < other.length && one[start] === other[start]) {
+      start++;
+    }
+
+    // Fast trim common suffix
+    let endOne = one.length - 1;
+    let endOther = other.length - 1;
+    while (endOne >= start && endOther >= start && one[endOne] === other[endOther]) {
+      endOne--;
+      endOther--;
+    }
+
+    const prefix = [];
+    for (let k = 0; k < start; k++) {
+      prefix.push({ type: 'common', value: one[k] });
+    }
+
+    const suffix = [];
+    for (let k = endOne + 1; k < one.length; k++) {
+      suffix.push({ type: 'common', value: one[k] });
+    }
+
+    const midOne = one.slice(start, endOne + 1);
+    const midOther = other.slice(start, endOther + 1);
+    const n = midOne.length;
+    const m = midOther.length;
+
+    if (n === 0 && m === 0) {
+      return [...prefix, ...suffix];
+    }
+
+    // Workload limit: if sub-problem is too large, fallback to block replacement
+    const MAX_DP_CELLS = 40000;
+    if (n * m > MAX_DP_CELLS) {
+      const midDiff = [];
+      if (n > 0) midDiff.push({ type: 'del', value: midOne.join('') });
+      if (m > 0) midDiff.push({ type: 'add', value: midOther.join('') });
+      return [...prefix, ...midDiff, ...suffix];
+    }
+
+    const dp = Array.from({ length: n + 1 }, () => new Uint16Array(m + 1));
     for (let i = 1; i <= n; i++) {
       for (let j = 1; j <= m; j++) {
-        if (one[i - 1] === other[j - 1]) {
+        if (midOne[i - 1] === midOther[j - 1]) {
           dp[i][j] = dp[i - 1][j - 1] + 1;
         } else {
           dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
@@ -773,22 +824,22 @@ document.addEventListener('DOMContentLoaded', () => {
 
     let i = n;
     let j = m;
-    const result = [];
-
+    const midDiff = [];
     while (i > 0 || j > 0) {
-      if (i > 0 && j > 0 && one[i - 1] === other[j - 1]) {
-        result.unshift({ type: 'common', value: one[i - 1] });
+      if (i > 0 && j > 0 && midOne[i - 1] === midOther[j - 1]) {
+        midDiff.unshift({ type: 'common', value: midOne[i - 1] });
         i--;
         j--;
       } else if (j > 0 && (i === 0 || dp[i][j - 1] >= dp[i - 1][j])) {
-        result.unshift({ type: 'add', value: other[j - 1] });
+        midDiff.unshift({ type: 'add', value: midOther[j - 1] });
         j--;
       } else {
-        result.unshift({ type: 'del', value: one[i - 1] });
+        midDiff.unshift({ type: 'del', value: midOne[i - 1] });
         i--;
       }
     }
-    return result;
+
+    return [...prefix, ...midDiff, ...suffix];
   }
 
   function renderDiff(original, enhanced) {

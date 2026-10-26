@@ -412,7 +412,17 @@
     const startTime = Date.now();
     try {
       const config = await settingsModule.loadSettings();
-      const provider = String(config?.provider || settingsModule.createDefaultSettings().provider).trim();
+      const provider = String(options?.provider || config?.provider || settingsModule.createDefaultSettings().provider).trim();
+      const effectiveModel = options?.model ? String(options.model).trim() : '';
+
+      const effectiveConfig = {
+        ...config,
+        ...(provider ? { provider } : {}),
+        ...(effectiveModel ? {
+          model: effectiveModel,
+          [`${provider}Model`]: effectiveModel
+        } : {})
+      };
 
       // A transform supplies its own rewrite instruction; the prompt builder keeps
       // the shared formatting and safety rules regardless.
@@ -469,11 +479,12 @@
       const hasTransform = Boolean(transform);
       const hasContext = Boolean(effectiveContext);
       const hasAttachments = Boolean(attachments);
-      const promptOptions = (hasTransform || hasContext || hasAttachments)
+      const promptOptions = (hasTransform || hasContext || hasAttachments || effectiveModel)
         ? {
             ...(hasTransform ? { instruction: transform.instruction, label: transform.name } : {}),
             ...(hasContext ? { conversationContext: effectiveContext } : {}),
-            ...(hasAttachments ? { attachments } : {})
+            ...(hasAttachments ? { attachments } : {}),
+            ...(effectiveModel ? { model: effectiveModel } : {})
           }
         : undefined;
 
@@ -488,9 +499,9 @@
 
       let result;
       if (provider === 'auto') {
-        result = await enhanceWithAuto(effectivePrompt, config, promptOptions);
+        result = await enhanceWithAuto(effectivePrompt, effectiveConfig, promptOptions);
       } else {
-        result = await callProvider(provider, effectivePrompt, config, promptOptions);
+        result = await callProvider(provider, effectivePrompt, effectiveConfig, promptOptions);
       }
 
       if (isPrivacyEnabled && privacy && Object.keys(tokenMap).length > 0) {

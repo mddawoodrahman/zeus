@@ -523,8 +523,30 @@
       }
 
       if (message?.action === 'sidePanel:setInputValue' || message?.type === 'sidePanel:setInputValue') {
-        domUtils.setInputValue(message.value);
-        sendResponse({ success: true });
+        const textToInsert = String(message?.value || '');
+        let targetInput = domUtils.getActiveElementRecursive();
+        if (!targetInput || !domUtils.isEligibleInput(targetInput)) {
+          const adapter = activeAdapter || resolveAdapter();
+          if (typeof adapter?.getInputElement === 'function') {
+            try {
+              const preferred = adapter.getInputElement();
+              if (preferred && domUtils.isEligibleInput(preferred)) {
+                targetInput = preferred;
+              }
+            } catch (_) {}
+          }
+          if (!targetInput || !domUtils.isEligibleInput(targetInput)) {
+            const inputs = collectInputs();
+            targetInput = inputs[0] || null;
+          }
+        }
+
+        if (targetInput && domUtils.isEligibleInput(targetInput)) {
+          const success = domUtils.setInputValue(textToInsert, targetInput);
+          sendResponse({ success: Boolean(success), error: success ? null : 'Failed to write text to editor' });
+        } else {
+          sendResponse({ success: false, error: 'No active chat composer detected on page' });
+        }
         return true;
       }
 

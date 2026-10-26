@@ -129,8 +129,25 @@
     const value = String(text || '');
 
     if (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT') {
-      el.value = value;
+      const prototype = el.tagName === 'TEXTAREA'
+        ? (window.HTMLTextAreaElement?.prototype || el.constructor?.prototype)
+        : (window.HTMLInputElement?.prototype || el.constructor?.prototype);
+      const descriptor = prototype ? Object.getOwnPropertyDescriptor(prototype, 'value') : null;
+      if (descriptor && typeof descriptor.set === 'function') {
+        descriptor.set.call(el, value);
+      } else {
+        el.value = value;
+      }
+
       el.dispatchEvent(new Event('input', { bubbles: true }));
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+
+      if (typeof el.setSelectionRange === 'function') {
+        try {
+          el.setSelectionRange(value.length, value.length);
+        } catch (_) {}
+      }
+
       if (el.tagName === 'TEXTAREA') {
         el.style.height = 'auto';
         el.style.height = `${el.scrollHeight}px`;
@@ -140,8 +157,22 @@
     }
 
     if (el.isContentEditable) {
-      el.innerText = value;
-      el.dispatchEvent(new Event('input', { bubbles: true }));
+      el.focus();
+      let execSucceeded = false;
+      try {
+        if (typeof document.execCommand === 'function') {
+          document.execCommand('selectAll', false, null);
+          execSucceeded = document.execCommand('insertText', false, value);
+        }
+      } catch (_) {
+        execSucceeded = false;
+      }
+
+      if (!execSucceeded) {
+        el.innerText = value;
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+        el.dispatchEvent(new Event('change', { bubbles: true }));
+      }
       el.focus();
     }
   }
@@ -162,11 +193,10 @@
     return '';
   }
 
-  function setInputValue(text) {
-    const active = getActiveElementRecursive();
+  function setInputValue(text, targetElement = null) {
+    const active = targetElement || getActiveElementRecursive();
     if (isEligibleInput(active)) {
       setInputText(active, text);
-      active.dispatchEvent(new InputEvent('input', { bubbles: true }));
       return true;
     }
     return false;

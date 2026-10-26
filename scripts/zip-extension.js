@@ -43,7 +43,7 @@ async function zipExtension() {
     archive.on('error', reject);
 
     archive.pipe(output);
-    archive.directory(extensionDir, 'extension');
+    archive.directory(extensionDir, false);
     archive.finalize();
   });
 

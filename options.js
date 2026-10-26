@@ -402,6 +402,46 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
 
+    let originPattern;
+    try {
+      const parsed = new URL(baseUrl);
+      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+        alert(`Unsupported protocol "${parsed.protocol}". Only HTTP and HTTPS are supported.`);
+        return;
+      }
+      const isLocal = parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1' || parsed.hostname === '[::1]';
+      if (parsed.protocol === 'http:' && !isLocal) {
+        alert('Insecure HTTP is only permitted for local endpoints (localhost / 127.0.0.1). Remote endpoints must use HTTPS.');
+        return;
+      }
+      originPattern = `${parsed.protocol}//${parsed.hostname}/*`;
+    } catch (_) {
+      alert('Invalid endpoint URL. Please provide a valid HTTP or HTTPS URL.');
+      return;
+    }
+
+    if (typeof chrome !== 'undefined' && chrome.permissions && typeof chrome.permissions.request === 'function') {
+      let permissionGranted = false;
+      try {
+        permissionGranted = await new Promise((resolve) => {
+          chrome.permissions.request({ origins: [originPattern] }, (granted) => {
+            if (chrome.runtime?.lastError) {
+              resolve(false);
+              return;
+            }
+            resolve(Boolean(granted));
+          });
+        });
+      } catch (_) {
+        permissionGranted = false;
+      }
+
+      if (!permissionGranted) {
+        alert(`Host permission was denied for ${originPattern}. Custom provider cannot be saved without network permission.`);
+        return;
+      }
+    }
+
     const providerObj = {
       id,
       name,

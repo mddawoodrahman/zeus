@@ -8,21 +8,36 @@
    */
   function combineSignals(controller, callerSignal) {
     if (!callerSignal || typeof callerSignal.addEventListener !== 'function') {
-      return null;
+      return { signal: controller.signal, cleanup: null };
     }
 
     if (typeof globalScope?.AbortSignal?.any === 'function') {
-      return globalScope.AbortSignal.any([callerSignal, controller.signal]);
+      return {
+        signal: globalScope.AbortSignal.any([callerSignal, controller.signal]),
+        cleanup: null
+      };
     }
 
-    const forwardAbort = () => controller.abort();
     if (callerSignal.aborted) {
-      forwardAbort();
-      return null;
+      if (typeof controller.abort === 'function') {
+        controller.abort(callerSignal.reason);
+      }
+      return { signal: controller.signal, cleanup: null };
     }
+
+    const forwardAbort = () => {
+      if (typeof controller.abort === 'function') {
+        controller.abort(callerSignal.reason);
+      }
+    };
 
     callerSignal.addEventListener('abort', forwardAbort, { once: true });
-    return forwardAbort;
+    return {
+      signal: controller.signal,
+      cleanup: () => {
+        callerSignal.removeEventListener('abort', forwardAbort);
+      }
+    };
   }
 
   async function fetchWithTimeout(url, options, timeoutMs) {
@@ -32,18 +47,16 @@
 
     const requestOptions = { ...(options || {}) };
     const callerSignal = requestOptions.signal;
-    const combined = combineSignals(controller, callerSignal);
+    const { signal, cleanup } = combineSignals(controller, callerSignal);
 
-    requestOptions.signal = combined || controller.signal;
+    requestOptions.signal = signal;
 
     try {
       return await fetch(url, requestOptions);
     } finally {
       clearTimeout(timer);
-
-      // Detach the forwarding listener when AbortSignal.any was unavailable.
-      if (typeof combined === 'function') {
-        callerSignal.removeEventListener('abort', combined);
+      if (typeof cleanup === 'function') {
+        cleanup();
       }
     }
   }

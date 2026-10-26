@@ -6,11 +6,59 @@
 
   const CUSTOM_MAX_RETRIES = 3;
 
-  function normalizeEndpoint(baseUrl) {
-    let clean = String(baseUrl || '').trim().replace(/\/+$/, '');
+  function validateEndpointUrl(baseUrl) {
+    let clean = String(baseUrl || '').trim();
     if (!clean) {
       throw new Error('Custom provider baseUrl is required.');
     }
+
+    let parsed;
+    try {
+      parsed = new URL(clean);
+    } catch (_) {
+      throw new Error('Invalid endpoint URL: Must be a valid HTTP or HTTPS URL.');
+    }
+
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      throw new Error(`Unsupported protocol "${parsed.protocol}". Only HTTP and HTTPS are supported.`);
+    }
+
+    const isLocal = parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1' || parsed.hostname === '[::1]';
+    if (parsed.protocol === 'http:' && !isLocal) {
+      throw new Error('Insecure HTTP is only permitted for local endpoints (localhost / 127.0.0.1). Remote endpoints must use HTTPS.');
+    }
+
+    return parsed;
+  }
+
+  function getOriginPattern(baseUrl) {
+    const parsed = validateEndpointUrl(baseUrl);
+    return `${parsed.protocol}//${parsed.hostname}/*`;
+  }
+
+  async function hasOriginPermission(baseUrl) {
+    if (typeof globalScope?.chrome?.permissions?.contains !== 'function') {
+      return true;
+    }
+    try {
+      const origin = getOriginPattern(baseUrl);
+      return new Promise((resolve) => {
+        globalScope.chrome.permissions.contains({ origins: [origin] }, (granted) => {
+          if (globalScope.chrome.runtime?.lastError) {
+            resolve(false);
+            return;
+          }
+          resolve(Boolean(granted));
+        });
+      });
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function normalizeEndpoint(baseUrl) {
+    validateEndpointUrl(baseUrl);
+    let clean = String(baseUrl || '').trim().replace(/\/+$/, '');
 
     if (clean.endsWith('/chat/completions')) {
       return clean;
@@ -46,6 +94,12 @@
     const customConfig = resolveCustomConfig(config, config?.provider);
     if (!customConfig || !customConfig.baseUrl) {
       throw new Error('No valid custom OpenAI-compatible provider configured.');
+    }
+
+    const permitted = await hasOriginPermission(customConfig.baseUrl);
+    if (!permitted) {
+      const origin = getOriginPattern(customConfig.baseUrl);
+      throw new Error(`Host permission not granted for ${origin}. Please authorize this endpoint in Zeus Options.`);
     }
 
     const endpoint = normalizeEndpoint(customConfig.baseUrl);
@@ -121,6 +175,13 @@
       return;
     }
 
+    const permitted = await hasOriginPermission(customConfig.baseUrl);
+    if (!permitted) {
+      const origin = getOriginPattern(customConfig.baseUrl);
+      port.postMessage({ type: 'error', message: `Host permission not granted for ${origin}. Please authorize this endpoint in Zeus Options.` });
+      return;
+    }
+
     const endpoint = normalizeEndpoint(customConfig.baseUrl);
     const model = String(customConfig.model || 'default').trim();
     const apiKey = String(customConfig.apiKey || '').trim();
@@ -157,6 +218,9 @@
   enhance.suggest = suggest;
   enhance.normalizeEndpoint = normalizeEndpoint;
   enhance.resolveCustomConfig = resolveCustomConfig;
+  enhance.validateEndpointUrl = validateEndpointUrl;
+  enhance.getOriginPattern = getOriginPattern;
+  enhance.hasOriginPermission = hasOriginPermission;
 
   globalScope.ZeusProviders = globalScope.ZeusProviders || {};
   globalScope.ZeusProviders.custom = enhance;

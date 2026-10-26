@@ -55,13 +55,21 @@
     smartRouterProfile = 'balanced',
     includeApiKeys = false
   } = {}) {
-    const cleanTransforms = (Array.isArray(transforms) ? transforms : []).map((t) => ({
-      id: sanitizeString(t.id) || `transform_${Date.now().toString(36)}`,
-      name: sanitizeString(t.name) || 'Custom Transform',
-      systemInstruction: sanitizeString(t.systemInstruction),
-      shortcut: sanitizeString(t.shortcut),
-      isDefault: Boolean(t.isDefault)
-    }));
+    const cleanTransforms = (Array.isArray(transforms) ? transforms : []).map((t) => {
+      const instruction = sanitizeString(t.instruction !== undefined ? t.instruction : t.systemInstruction);
+      return {
+        id: sanitizeString(t.id) || `transform_${Date.now().toString(36)}`,
+        name: sanitizeString(t.name) || 'Custom Transform',
+        instruction,
+        systemInstruction: instruction,
+        description: sanitizeString(t.description),
+        template: sanitizeString(t.template),
+        variables: Array.isArray(t.variables) ? t.variables : [],
+        shortcut: sanitizeString(t.shortcut),
+        isDefault: Boolean(t.isDefault),
+        enabled: t.enabled !== undefined ? Boolean(t.enabled) : true
+      };
+    });
 
     const cleanPrompts = (Array.isArray(prompts) ? prompts : []).map((p) => ({
       id: sanitizeString(p.id) || `prompt_${Date.now().toString(36)}`,
@@ -141,7 +149,15 @@
 
     const mode = options.mode || 'merge'; // 'merge' | 'overwrite' | 'replace-all'
     const importedPresets = bundle.presets || {};
-    const importedTransforms = Array.isArray(importedPresets.transforms) ? importedPresets.transforms : [];
+    const rawImportedTransforms = Array.isArray(importedPresets.transforms) ? importedPresets.transforms : [];
+    const importedTransforms = rawImportedTransforms.map((t) => {
+      const instruction = sanitizeString(t.instruction !== undefined ? t.instruction : t.systemInstruction);
+      return {
+        ...t,
+        instruction,
+        systemInstruction: instruction
+      };
+    });
     const importedPrompts = Array.isArray(importedPresets.prompts) ? importedPresets.prompts : [];
     const importedProviders = Array.isArray(importedPresets.customProviders) ? importedPresets.customProviders : [];
     const importedWorkflows = Array.isArray(importedPresets.workflows) ? importedPresets.workflows : [];

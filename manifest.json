@@ -11,6 +11,9 @@
     "contextMenus",
     "sidePanel"
   ],
+  "optional_host_permissions": [
+    "*://*/*"
+  ],
   "host_permissions": [
     "https://api.openai.com/*",
     "https://api.anthropic.com/*",

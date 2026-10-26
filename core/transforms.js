@@ -123,7 +123,8 @@
     }
 
     const template = sanitizeString(record.template).slice(0, MAX_TEMPLATE_LENGTH);
-    const instruction = sanitizeString(record.instruction).slice(0, MAX_INSTRUCTION_LENGTH);
+    const rawInstruction = record.instruction !== undefined ? record.instruction : record.systemInstruction;
+    const instruction = sanitizeString(rawInstruction).slice(0, MAX_INSTRUCTION_LENGTH);
 
     // A transform must be able to do something: either rewrite via instruction or
     // inject text via template.

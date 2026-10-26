@@ -72,11 +72,7 @@
     overlay.style.opacity = '0.65';
     overlay.style.display = 'none';
 
-    if (inputElement.tagName === 'TEXTAREA') {
-      document.body.appendChild(overlay);
-    } else {
-      inputElement.appendChild(overlay);
-    }
+    document.body.appendChild(overlay);
     
     updateOverlayStyles(inputElement);
   }
@@ -93,31 +89,34 @@
   function positionOverlay(inputElement) {
     if (!overlay || !inputElement) return;
 
-    if (inputElement.tagName === 'TEXTAREA') {
+    if (inputElement.tagName === 'TEXTAREA' || inputElement.tagName === 'INPUT') {
       const coords = getCaretCoordinates(inputElement);
       overlay.style.left = `${coords.left}px`;
       overlay.style.top = `${coords.top}px`;
     } else {
       try {
         const selection = window.getSelection();
-        if (selection.rangeCount > 0) {
+        if (selection && selection.rangeCount > 0) {
           const range = selection.getRangeAt(0);
           const rects = range.getClientRects();
-          if (rects.length > 0) {
-            const rect = rects[0];
-            const parentRect = inputElement.getBoundingClientRect();
-            overlay.style.left = `${rect.left - parentRect.left}px`;
-            overlay.style.top = `${rect.top - parentRect.top}px`;
+          const targetRect = rects.length > 0 ? rects[0] : range.getBoundingClientRect();
+          if (targetRect.width || targetRect.height) {
+            overlay.style.left = `${targetRect.right + window.scrollX}px`;
+            overlay.style.top = `${targetRect.top + window.scrollY}px`;
           } else {
-            const rangeRect = range.getBoundingClientRect();
-            const parentRect = inputElement.getBoundingClientRect();
-            overlay.style.left = `${rangeRect.left - parentRect.left}px`;
-            overlay.style.top = `${rangeRect.top - parentRect.top}px`;
+            const inputRect = inputElement.getBoundingClientRect();
+            overlay.style.left = `${inputRect.left + window.scrollX}px`;
+            overlay.style.top = `${inputRect.top + window.scrollY}px`;
           }
+        } else {
+          const inputRect = inputElement.getBoundingClientRect();
+          overlay.style.left = `${inputRect.left + window.scrollX}px`;
+          overlay.style.top = `${inputRect.top + window.scrollY}px`;
         }
       } catch (_) {
-        overlay.style.left = '0px';
-        overlay.style.top = '0px';
+        const inputRect = inputElement.getBoundingClientRect();
+        overlay.style.left = `${inputRect.left + window.scrollX}px`;
+        overlay.style.top = `${inputRect.top + window.scrollY}px`;
       }
     }
   }
