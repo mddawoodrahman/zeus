@@ -134,6 +134,11 @@
   }
 
   function readApiKeyForProvider(provider) {
+    if (settings?.hasApiKey && typeof settings.hasApiKey === 'object') {
+      if (settings.hasApiKey[provider] !== undefined) {
+        return settings.hasApiKey[provider] ? 'configured' : '';
+      }
+    }
     return String(
       settings?.apiKeys?.[provider] ||
       settings?.[`zeus_${provider}_api_key`] ||

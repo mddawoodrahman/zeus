@@ -201,4 +201,95 @@ describe('Custom OpenAI-compatible provider with mocked fetch', () => {
       { type: 'done' }
     ]);
   });
+
+  describe('Endpoint URL and Host Permission Validation', () => {
+    it('validates HTTPS remote endpoints correctly', () => {
+      const custom = globalThis.ZeusProviders.custom;
+      const parsed = custom.validateEndpointUrl('https://api.together.xyz/v1');
+      expect(parsed.protocol).toBe('https:');
+      expect(parsed.hostname).toBe('api.together.xyz');
+      expect(custom.getOriginPattern('https://api.together.xyz/v1')).toBe('https://api.together.xyz/*');
+    });
+
+    it('rejects remote HTTP endpoints to protect user tokens over the wire', () => {
+      const custom = globalThis.ZeusProviders.custom;
+      expect(() => custom.validateEndpointUrl('http://api.together.xyz/v1')).toThrow(
+        /Insecure HTTP is only permitted for local endpoints/
+      );
+      expect(() => custom.validateEndpointUrl('http://192.168.1.50:8000/v1')).toThrow(
+        /Insecure HTTP is only permitted for local endpoints/
+      );
+    });
+
+    it('allows local HTTP exceptions for localhost, 127.0.0.1, and [::1]', () => {
+      const custom = globalThis.ZeusProviders.custom;
+      expect(custom.validateEndpointUrl('http://localhost:1234/v1').hostname).toBe('localhost');
+      expect(custom.validateEndpointUrl('http://127.0.0.1:8000/v1').hostname).toBe('127.0.0.1');
+      expect(custom.validateEndpointUrl('http://[::1]:11434/v1').hostname).toBe('[::1]');
+    });
+
+    it('fails safely for unsupported protocols and malformed URLs', () => {
+      const custom = globalThis.ZeusProviders.custom;
+      expect(() => custom.validateEndpointUrl('ftp://api.example.com/v1')).toThrow(/Unsupported protocol/);
+      expect(() => custom.validateEndpointUrl('ws://localhost:1234')).toThrow(/Unsupported protocol/);
+      expect(() => custom.validateEndpointUrl('file:///etc/hosts')).toThrow(/Unsupported protocol/);
+      expect(() => custom.validateEndpointUrl('not-a-valid-url')).toThrow(/Invalid endpoint URL/);
+      expect(() => custom.validateEndpointUrl('')).toThrow(/baseUrl is required/);
+    });
+
+    it('rejects enhance requests when origin permission is not granted', async () => {
+      // Mock chrome.permissions.contains returning false (permission denied)
+      globalThis.chrome = {
+        permissions: {
+          contains: vi.fn((_query, cb) => cb(false))
+        },
+        runtime: { lastError: null }
+      };
+
+      await expect(
+        globalThis.ZeusProviders.custom('test prompt', {
+          customProviders: [
+            {
+              id: 'custom-unapproved',
+              baseUrl: 'https://api.unapproved-origin.com/v1',
+              apiKey: 'sk-token'
+            }
+          ]
+        })
+      ).rejects.toThrow(/Host permission not granted for https:\/\/api\.unapproved-origin\.com\/\*/);
+
+      expect(globalThis.fetch).not.toHaveBeenCalled();
+      delete globalThis.chrome;
+    });
+
+    it('rejects suggest requests when origin permission is not granted', async () => {
+      globalThis.chrome = {
+        permissions: {
+          contains: vi.fn((_query, cb) => cb(false))
+        },
+        runtime: { lastError: null }
+      };
+
+      const messages = [];
+      const mockPort = {
+        postMessage: vi.fn((msg) => messages.push(msg))
+      };
+
+      await globalThis.ZeusProviders.custom.suggest('suggest prompt', {
+        customProviders: [
+          {
+            id: 'custom-unapproved',
+            baseUrl: 'https://api.unapproved-origin.com/v1'
+          }
+        ]
+      }, mockPort);
+
+      expect(messages.length).toBe(1);
+      expect(messages[0].type).toBe('error');
+      expect(messages[0].message).toContain('Host permission not granted');
+      expect(globalThis.fetch).not.toHaveBeenCalled();
+      delete globalThis.chrome;
+    });
+  });
 });
+

@@ -840,7 +840,7 @@ document.addEventListener('DOMContentLoaded', () => {
       showStatus('INJECTION COMPLETE', 'success');
       chrome.runtime.sendMessage({ action: 'settingsUpdated', settings: payload });
       applySettingsToUI();
-      writeToConsole('CONFIG SUCCESFULLY UPDATED. SETTINGS COMMITTED TO LOCAL SYNC.');
+      writeToConsole('CONFIG SUCCESFULLY UPDATED. CREDENTIALS STORED LOCALLY, PREFERENCES SYNCHRONIZED.');
     } catch (error) {
       showStatus('LINK FAILURE', 'error');
       writeToConsole('ERROR: FAILED TO COMMIT CONFIG.');

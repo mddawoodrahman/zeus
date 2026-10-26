@@ -418,4 +418,78 @@ describe('Remediation Regressions and Hardening Tests', () => {
       expect(diff.length).toBeGreaterThan(0);
     });
   });
+
+  describe('Side Panel Feature Settings and Behavior', () => {
+    it('defaults sidePanelEnabled to true and normalizes boolean flags', () => {
+      loadScript('model-registry.js');
+      loadScript('settings/settings.js');
+      const settings = globalThis.ZeusSettings;
+
+      const defaults = settings.createDefaultSettings();
+      expect(defaults.sidePanelEnabled).toBe(true);
+
+      const disabled = settings.normalizeSettings({ sidePanelEnabled: false });
+      expect(disabled.sidePanelEnabled).toBe(false);
+
+      const serialized = settings.serializeSettings(disabled);
+      expect(serialized.sidePanelEnabled).toBe(false);
+
+      const enabled = settings.normalizeSettings({ sidePanelEnabled: true });
+      expect(enabled.sidePanelEnabled).toBe(true);
+    });
+
+    it('applies chrome.sidePanel.setPanelBehavior based on sidePanelEnabled setting', async () => {
+      const panelBehaviors = [];
+      globalThis.chrome = {
+        sidePanel: {
+          setPanelBehavior: vi.fn((opts) => {
+            panelBehaviors.push(opts);
+            return Promise.resolve();
+          })
+        },
+        runtime: {
+          onInstalled: { addListener: vi.fn() },
+          onMessage: { addListener: vi.fn() }
+        },
+        storage: {
+          onChanged: { addListener: vi.fn() }
+        },
+        contextMenus: {
+          create: vi.fn(),
+          removeAll: vi.fn((cb) => cb && cb()),
+          onClicked: { addListener: vi.fn() }
+        },
+        tabs: {
+          query: vi.fn((_q, cb) => cb && cb([{ id: 1 }])),
+          sendMessage: vi.fn().mockResolvedValue({})
+        }
+      };
+
+      globalThis.ZeusSettings = {
+        loadSettings: vi.fn().mockResolvedValue({ sidePanelEnabled: false }),
+        serializeSettings: vi.fn((s) => s)
+      };
+
+      loadScript('messaging/messageHandler.js');
+
+      // The onInstalled hook calls applySidePanelBehavior
+      const installListener = globalThis.chrome.runtime.onInstalled.addListener.mock.calls[0]?.[0];
+      if (installListener) {
+        installListener();
+        await new Promise((r) => setTimeout(r, 10));
+      }
+
+      expect(panelBehaviors).toContainEqual({ openPanelOnActionClick: false });
+
+      // Simulate settingsUpdated message with sidePanelEnabled: true
+      const messageListener = globalThis.chrome.runtime.onMessage.addListener.mock.calls[0]?.[0];
+      expect(messageListener).toBeDefined();
+
+      const sendResponse = vi.fn();
+      messageListener({ action: 'settingsUpdated', settings: { sidePanelEnabled: true } }, {}, sendResponse);
+
+      expect(panelBehaviors).toContainEqual({ openPanelOnActionClick: true });
+      expect(sendResponse).toHaveBeenCalledWith({ success: true });
+    });
+  });
 });

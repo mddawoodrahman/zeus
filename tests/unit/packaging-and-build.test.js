@@ -30,16 +30,59 @@ describe('Packaging and Build Tooling', () => {
     const stats = fs.statSync(zipPath);
     expect(stats.size).toBeGreaterThan(10000); // Greater than 10KB
 
-    // Inspect entries using Node's standard zip header inspection or archiver/unzip
     const buffer = fs.readFileSync(zipPath);
-    // Find "manifest.json" in the central directory / local file headers
-    const manifestStr = 'manifest.json';
-    const hasRootManifest = buffer.includes(Buffer.from(manifestStr));
-    expect(hasRootManifest).toBe(true);
 
-    // Assert that 'extension/manifest.json' is NOT present
-    const nestedManifest = buffer.includes(Buffer.from('extension/manifest.json'));
-    expect(nestedManifest).toBe(false);
+    // Parse ZIP central directory entries
+    let eocdOffset = -1;
+    for (let i = buffer.length - 22; i >= 0; i--) {
+      if (buffer.readUInt32LE(i) === 0x06054b50) {
+        eocdOffset = i;
+        break;
+      }
+    }
+    expect(eocdOffset).toBeGreaterThan(0);
+
+    const cdEntriesCount = buffer.readUInt16LE(eocdOffset + 10);
+    const cdOffset = buffer.readUInt32LE(eocdOffset + 16);
+    expect(cdEntriesCount).toBeGreaterThan(20);
+
+    const zipEntries = [];
+    let offset = cdOffset;
+    for (let i = 0; i < cdEntriesCount; i++) {
+      const sig = buffer.readUInt32LE(offset);
+      if (sig !== 0x02014b50) break;
+      const fileNameLen = buffer.readUInt16LE(offset + 28);
+      const extraLen = buffer.readUInt16LE(offset + 30);
+      const commentLen = buffer.readUInt16LE(offset + 32);
+      const fileName = buffer.toString('utf8', offset + 46, offset + 46 + fileNameLen);
+      zipEntries.push(fileName);
+      offset += 46 + fileNameLen + extraLen + commentLen;
+    }
+
+    // Root-level manifest assertions
+    expect(zipEntries).toContain('manifest.json');
+    expect(zipEntries).not.toContain('extension/manifest.json');
+    expect(zipEntries).toContain('background.js');
+    expect(zipEntries).toContain('content.js');
+    expect(zipEntries).toContain('options.html');
+    expect(zipEntries).toContain('popup.html');
+    expect(zipEntries).toContain('sidepanel.html');
+
+    // Forbidden files assertion
+    const forbidden = zipEntries.filter((name) =>
+      name.startsWith('tests/') ||
+      name.startsWith('scripts/') ||
+      name.startsWith('.git') ||
+      name.startsWith('node_modules/') ||
+      name.includes('.env') ||
+      name.endsWith('.map') ||
+      name.endsWith('.test.js')
+    );
+    expect(forbidden).toEqual([]);
+
+    // Check built manifest version
+    const builtManifest = JSON.parse(fs.readFileSync(path.join(extensionDir, 'manifest.json'), 'utf8'));
+    expect(builtManifest.version).toBe('2.1.3');
   });
 
   it('clean script is cross-platform and does not fail when dist exists or is absent', () => {

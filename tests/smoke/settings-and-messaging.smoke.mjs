@@ -88,6 +88,15 @@ function createChromeMock(options = {}) {
           if (typeof callback === 'function') {
             callback();
           }
+        },
+        remove(keys, callback) {
+          const list = Array.isArray(keys) ? keys : [keys];
+          for (const key of list) {
+            delete syncStore[key];
+          }
+          if (typeof callback === 'function') {
+            callback();
+          }
         }
       },
       local: {
@@ -96,6 +105,15 @@ function createChromeMock(options = {}) {
         },
         set(payload, callback) {
           Object.assign(localStore, payload || {});
+          if (typeof callback === 'function') {
+            callback();
+          }
+        },
+        remove(keys, callback) {
+          const list = Array.isArray(keys) ? keys : [keys];
+          for (const key of list) {
+            delete localStore[key];
+          }
           if (typeof callback === 'function') {
             callback();
           }
@@ -209,9 +227,13 @@ async function runSettingsMigrationSmoke() {
   assert(saveResult.settings.provider === 'claude', 'Expected saved provider to normalize as claude.');
   assert(env.syncStore.provider === 'claude', 'Expected canonical provider key to be persisted.');
   assert(env.syncStore.zeus_selected_provider === 'claude', 'Expected legacy provider key to be persisted.');
+  assert(!env.syncStore.zeus_claude_api_key, 'Expected legacy sync API key not to be mirrored in sync storage.');
+  assert(!env.syncStore.apiKeys?.claude, 'Expected canonical API keys not to be mirrored in sync storage.');
+  assert(env.localStore.zeus_secure_credentials?.apiKeys?.claude === 'claude-test-key', 'Expected API key stored securely in local storage.');
 
   const loaded = await globalThis.ZeusSettings.loadSettings();
   assert(loaded.provider === 'claude', 'Expected loadSettings to return saved provider.');
+  assert(loaded.apiKeys.claude === 'claude-test-key', 'Expected loadSettings to return secure credentials from local storage.');
 }
 
 async function runMessageActionSmoke() {

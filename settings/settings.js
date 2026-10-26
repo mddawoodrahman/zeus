@@ -269,14 +269,35 @@
     };
   }
 
+  const CREDENTIALS_KEY = 'zeus_secure_credentials';
+  const LEGACY_SYNC_CREDENTIAL_KEYS = Object.freeze([
+    'zeus_gemini_api_key',
+    'zeus_openai_api_key',
+    'zeus_claude_api_key',
+    'zeus_openrouter_api_key'
+  ]);
+
   function migrateSettings(stored) {
     return normalizeSettings(stored || {});
   }
 
-  function serializeSettings(settingsInput) {
+  function serializeSettings(settingsInput, options = {}) {
     const settings = normalizeSettings(settingsInput || {});
+    const includeCredentials = Boolean(options && options.includeCredentials);
 
-    return {
+    const apiKeys = includeCredentials
+      ? { ...settings.apiKeys }
+      : { gemini: '', openai: '', claude: '', openrouter: '' };
+
+    const customProviders = settings.customProviders.map((p) => {
+      const copy = { ...p };
+      if (!includeCredentials) {
+        copy.apiKey = '';
+      }
+      return copy;
+    });
+
+    const payload = {
       schemaVersion: SCHEMA_VERSION,
       provider: settings.provider,
       sidePanelEnabled: settings.sidePanelEnabled,
@@ -299,40 +320,48 @@
       commandPaletteEnabled: settings.commandPaletteEnabled,
       commandPaletteShortcut: settings.commandPaletteShortcut,
       keyboardShortcutsEnabled: settings.keyboardShortcutsEnabled,
-      apiKeys: { ...settings.apiKeys },
+      apiKeys,
       models: { ...settings.models },
       ollama: { ...settings.ollama },
-      customProviders: settings.customProviders.map((p) => ({ ...p })),
+      customProviders,
 
-      // Legacy compatibility keys for existing extension versions.
+      // Legacy compatibility keys for existing extension versions (non-sensitive preferences only).
       zeus_selected_provider: settings.provider,
-      zeus_gemini_api_key: settings.apiKeys.gemini,
       zeus_gemini_model: settings.models.gemini,
-      zeus_openai_api_key: settings.apiKeys.openai,
       zeus_openai_model: settings.models.openai,
-      zeus_claude_api_key: settings.apiKeys.claude,
       zeus_claude_model: settings.models.claude,
-      zeus_openrouter_api_key: settings.apiKeys.openrouter,
       zeus_openrouter_model: settings.models.openrouter,
       zeus_ollama_model: settings.ollama.model,
       zeus_provider_configs: {
         openrouter: {
-          apiKey: settings.apiKeys.openrouter,
           model: settings.models.openrouter
         }
       }
     };
+
+    if (includeCredentials) {
+      payload.zeus_gemini_api_key = settings.apiKeys.gemini;
+      payload.zeus_openai_api_key = settings.apiKeys.openai;
+      payload.zeus_claude_api_key = settings.apiKeys.claude;
+      payload.zeus_openrouter_api_key = settings.apiKeys.openrouter;
+      payload.zeus_provider_configs.openrouter.apiKey = settings.apiKeys.openrouter;
+    }
+
+    return payload;
   }
 
-  const CREDENTIALS_KEY = 'zeus_secure_credentials';
-
   function extractCredentials(settings) {
-    const apiKeys = { ...(settings?.apiKeys || {}) };
+    const apiKeys = {
+      gemini: sanitizeString(settings?.apiKeys?.gemini),
+      openai: sanitizeString(settings?.apiKeys?.openai),
+      claude: sanitizeString(settings?.apiKeys?.claude),
+      openrouter: sanitizeString(settings?.apiKeys?.openrouter)
+    };
     const customApiKeys = {};
     if (Array.isArray(settings?.customProviders)) {
       for (const cp of settings.customProviders) {
-        if (cp.id && cp.apiKey) {
-          customApiKeys[cp.id] = cp.apiKey;
+        if (cp && cp.id && cp.apiKey) {
+          customApiKeys[cp.id] = sanitizeString(cp.apiKey);
         }
       }
     }
@@ -342,75 +371,319 @@
   function hasCredentials(settings) {
     const keys = settings?.apiKeys || {};
     return Boolean(keys.gemini || keys.openai || keys.claude || keys.openrouter) ||
-      (Array.isArray(settings?.customProviders) && settings.customProviders.some((p) => p.apiKey));
+      (Array.isArray(settings?.customProviders) && settings.customProviders.some((p) => p && p.apiKey));
   }
 
   function loadSettings() {
     return new Promise((resolve, reject) => {
       chrome.storage.sync.get(STORAGE_KEYS, (stored) => {
         if (chrome.runtime.lastError) {
-          reject(new Error(chrome.runtime.lastError.message || 'Failed to read settings.'));
+          reject(new Error(chrome.runtime.lastError.message || 'Failed to read settings from sync storage.'));
           return;
         }
 
         const settings = migrateSettings(stored || {});
 
-        if (chrome.storage.local) {
-          chrome.storage.local.get([CREDENTIALS_KEY], (localData) => {
-            const creds = localData?.[CREDENTIALS_KEY];
-            if (creds && typeof creds === 'object') {
-              if (creds.apiKeys && typeof creds.apiKeys === 'object') {
-                settings.apiKeys = { ...settings.apiKeys, ...creds.apiKeys };
-              }
-              if (creds.customApiKeys && typeof creds.customApiKeys === 'object') {
-                settings.customProviders = settings.customProviders.map((cp) => ({
-                  ...cp,
-                  apiKey: creds.customApiKeys[cp.id] !== undefined ? creds.customApiKeys[cp.id] : cp.apiKey
-                }));
-              }
-            } else if (hasCredentials(settings)) {
-              chrome.storage.local.set({ [CREDENTIALS_KEY]: extractCredentials(settings) }, () => {});
-            }
-            resolve(settings);
-          });
+        if (!chrome.storage.local) {
+          resolve(settings);
           return;
         }
 
-        resolve(settings);
+        chrome.storage.local.get([CREDENTIALS_KEY], (localData) => {
+          if (chrome.runtime.lastError) {
+            reject(new Error(chrome.runtime.lastError.message || 'Failed to read local credentials.'));
+            return;
+          }
+
+          const localCreds = localData?.[CREDENTIALS_KEY];
+          const hasLocalCreds = Boolean(localCreds && typeof localCreds === 'object');
+          const localApiKeys = (hasLocalCreds && typeof localCreds.apiKeys === 'object') ? localCreds.apiKeys : {};
+          const localCustomApiKeys = (hasLocalCreds && typeof localCreds.customApiKeys === 'object') ? localCreds.customApiKeys : {};
+
+          // Extract legacy credentials that might still reside in sync storage
+          const syncCreds = extractCredentials(settings);
+
+          // Local storage is authoritative on this device.
+          // If a key is missing from local but present in sync, migrate it into local.
+          const mergedApiKeys = {
+            gemini: sanitizeString(localApiKeys.gemini || syncCreds.apiKeys.gemini || ''),
+            openai: sanitizeString(localApiKeys.openai || syncCreds.apiKeys.openai || ''),
+            claude: sanitizeString(localApiKeys.claude || syncCreds.apiKeys.claude || ''),
+            openrouter: sanitizeString(localApiKeys.openrouter || syncCreds.apiKeys.openrouter || '')
+          };
+
+          const mergedCustomApiKeys = {
+            ...syncCreds.customApiKeys,
+            ...localCustomApiKeys
+          };
+
+          // Attach secure credentials to in-memory settings
+          settings.apiKeys = { ...mergedApiKeys };
+          settings.customProviders = settings.customProviders.map((cp) => ({
+            ...cp,
+            apiKey: mergedCustomApiKeys[cp.id] !== undefined ? mergedCustomApiKeys[cp.id] : (cp.apiKey || '')
+          }));
+
+          // Detect whether sync storage holds legacy credentials that need migration/scrubbing
+          const syncHasLegacyKeys = Boolean(
+            stored && (
+              stored.zeus_gemini_api_key ||
+              stored.zeus_openai_api_key ||
+              stored.zeus_claude_api_key ||
+              stored.zeus_openrouter_api_key ||
+              (stored.apiKeys && Object.values(stored.apiKeys).some(Boolean)) ||
+              stored.zeus_provider_configs?.openrouter?.apiKey ||
+              (Array.isArray(stored.customProviders) && stored.customProviders.some((p) => p && p.apiKey))
+            )
+          );
+
+          const needsInitialLocalSeed = !hasLocalCreds && (
+            Boolean(mergedApiKeys.gemini || mergedApiKeys.openai || mergedApiKeys.claude || mergedApiKeys.openrouter) ||
+            Object.keys(mergedCustomApiKeys).length > 0
+          );
+
+          const hasNewFromSync = API_KEY_PROVIDERS.some((p) => !localApiKeys[p] && syncCreds.apiKeys[p]) ||
+            Object.keys(syncCreds.customApiKeys).some((id) => !localCustomApiKeys[id] && syncCreds.customApiKeys[id]);
+
+          if (needsInitialLocalSeed || hasNewFromSync || syncHasLegacyKeys) {
+            const securePayload = {
+              apiKeys: mergedApiKeys,
+              customApiKeys: mergedCustomApiKeys
+            };
+
+            // Confirm local credentials are written and verified BEFORE removing legacy sync copies
+            chrome.storage.local.set({ [CREDENTIALS_KEY]: securePayload }, () => {
+              if (chrome.runtime.lastError) {
+                // Storage failure: do NOT delete sync credentials to avoid silent loss
+                console.error('[ZeusSettings] Failed to write local credentials during migration:', chrome.runtime.lastError);
+                resolve(settings);
+                return;
+              }
+
+              // Verify local write by reading back
+              chrome.storage.local.get([CREDENTIALS_KEY], (verifyData) => {
+                if (chrome.runtime.lastError) {
+                  console.error('[ZeusSettings] Verification read failed:', chrome.runtime.lastError);
+                  resolve(settings);
+                  return;
+                }
+
+                const verified = verifyData?.[CREDENTIALS_KEY];
+                const isVerified = verified &&
+                  typeof verified === 'object' &&
+                  API_KEY_PROVIDERS.every((p) => !mergedApiKeys[p] || verified.apiKeys?.[p] === mergedApiKeys[p]) &&
+                  Object.keys(mergedCustomApiKeys).every((id) => !mergedCustomApiKeys[id] || verified.customApiKeys?.[id] === mergedCustomApiKeys[id]);
+
+                if (!isVerified) {
+                  // Verification failed: do NOT delete sync credentials
+                  console.error('[ZeusSettings] Local credential verification mismatch; aborting sync cleanup.');
+                  resolve(settings);
+                  return;
+                }
+
+                // Verified! Safely purge legacy sync credential keys
+                // Note: This cleans up the sync store on the current account.
+                // It does not guarantee that other devices that synchronized in the past
+                // have purged their local cache until those devices connect and sync.
+                const finish = () => resolve(settings);
+
+                if (typeof chrome.storage.sync.remove === 'function') {
+                  chrome.storage.sync.remove(LEGACY_SYNC_CREDENTIAL_KEYS, () => {
+                    const syncSanitize = {};
+                    if (stored?.zeus_provider_configs?.openrouter?.apiKey) {
+                      syncSanitize.zeus_provider_configs = {
+                        openrouter: {
+                          model: settings.models.openrouter
+                        }
+                      };
+                    }
+                    if (Array.isArray(stored?.customProviders) && stored.customProviders.some((p) => p && p.apiKey)) {
+                      syncSanitize.customProviders = settings.customProviders.map((cp) => {
+                        const copy = { ...cp };
+                        delete copy.apiKey;
+                        return copy;
+                      });
+                    }
+                    if (stored?.apiKeys && Object.values(stored.apiKeys).some(Boolean)) {
+                      syncSanitize.apiKeys = { gemini: '', openai: '', claude: '', openrouter: '' };
+                    }
+                    if (Object.keys(syncSanitize).length > 0) {
+                      chrome.storage.sync.set(syncSanitize, finish);
+                    } else {
+                      finish();
+                    }
+                  });
+                } else {
+                  finish();
+                }
+              });
+            });
+            return;
+          }
+
+          resolve(settings);
+        });
       });
     });
   }
 
   function saveSettings(settingsInput) {
-    const normalized = normalizeSettings(settingsInput || {});
-    const payload = serializeSettings(normalized);
+    const input = settingsInput || {};
 
     return new Promise((resolve, reject) => {
-      if (chrome.storage.local) {
-        const creds = extractCredentials(normalized);
-        chrome.storage.local.set({ [CREDENTIALS_KEY]: creds }, () => {
-          if (chrome.runtime.lastError) {
-            reject(new Error(chrome.runtime.lastError.message || 'Failed to save local credentials.'));
-            return;
-          }
-          chrome.storage.sync.set(payload, () => {
-            if (chrome.runtime.lastError) {
-              reject(new Error(chrome.runtime.lastError.message || 'Failed to save settings.'));
-              return;
-            }
-            resolve({ settings: normalized, payload });
-          });
-        });
-        return;
-      }
-
-      chrome.storage.sync.set(payload, () => {
+      chrome.storage.sync.get(STORAGE_KEYS, (storedSync) => {
         if (chrome.runtime.lastError) {
-          reject(new Error(chrome.runtime.lastError.message || 'Failed to save settings.'));
+          reject(new Error(chrome.runtime.lastError.message || 'Failed to read sync settings.'));
           return;
         }
 
-        resolve({ settings: normalized, payload });
+        const mergedPrefInput = {
+          ...(storedSync || {}),
+          ...input
+        };
+
+        if (storedSync?.models && input.models && typeof input.models === 'object') {
+          mergedPrefInput.models = {
+            ...storedSync.models,
+            ...input.models
+          };
+        }
+
+        if (storedSync?.privacyCategories && input.privacyCategories && typeof input.privacyCategories === 'object') {
+          mergedPrefInput.privacyCategories = {
+            ...storedSync.privacyCategories,
+            ...input.privacyCategories
+          };
+        }
+
+        const normalized = normalizeSettings(mergedPrefInput);
+        const syncPayload = serializeSettings(normalized, { includeCredentials: false });
+
+        if (chrome.storage.local) {
+          chrome.storage.local.get([CREDENTIALS_KEY], (localData) => {
+            if (chrome.runtime.lastError) {
+              reject(new Error(chrome.runtime.lastError.message || 'Failed to read local credentials.'));
+              return;
+            }
+
+            const existingCreds = localData?.[CREDENTIALS_KEY] || {};
+            const existingApiKeys = (existingCreds && typeof existingCreds.apiKeys === 'object')
+              ? existingCreds.apiKeys
+              : {};
+            const existingCustomApiKeys = (existingCreds && typeof existingCreds.customApiKeys === 'object')
+              ? existingCreds.customApiKeys
+              : {};
+
+            const finalApiKeys = {
+              gemini: sanitizeString(existingApiKeys.gemini || ''),
+              openai: sanitizeString(existingApiKeys.openai || ''),
+              claude: sanitizeString(existingApiKeys.claude || ''),
+              openrouter: sanitizeString(existingApiKeys.openrouter || '')
+            };
+
+            if (input.apiKeys && typeof input.apiKeys === 'object') {
+              for (const p of API_KEY_PROVIDERS) {
+                if (p in input.apiKeys) {
+                  finalApiKeys[p] = sanitizeString(input.apiKeys[p]);
+                }
+              }
+            } else {
+              for (const p of API_KEY_PROVIDERS) {
+                const legacyKey = `zeus_${p}_api_key`;
+                if (legacyKey in input) {
+                  finalApiKeys[p] = sanitizeString(input[legacyKey]);
+                }
+              }
+            }
+
+            const finalCustomApiKeys = { ...existingCustomApiKeys };
+            const activeCustomIds = new Set();
+
+            if (Array.isArray(normalized.customProviders)) {
+              for (const cp of normalized.customProviders) {
+                if (cp && cp.id) {
+                  activeCustomIds.add(cp.id);
+                  if (cp.apiKey) {
+                    finalCustomApiKeys[cp.id] = sanitizeString(cp.apiKey);
+                  } else if (!finalCustomApiKeys[cp.id]) {
+                    finalCustomApiKeys[cp.id] = '';
+                  }
+                }
+              }
+
+              if ('customProviders' in input && Array.isArray(input.customProviders)) {
+                for (const id of Object.keys(finalCustomApiKeys)) {
+                  if (!activeCustomIds.has(id)) {
+                    delete finalCustomApiKeys[id];
+                  }
+                }
+              }
+            }
+
+            const credsToSave = {
+              apiKeys: finalApiKeys,
+              customApiKeys: finalCustomApiKeys
+            };
+
+            normalized.apiKeys = { ...finalApiKeys };
+            if (Array.isArray(normalized.customProviders)) {
+              normalized.customProviders = normalized.customProviders.map((cp) => ({
+                ...cp,
+                apiKey: finalCustomApiKeys[cp.id] || ''
+              }));
+            }
+
+            chrome.storage.local.set({ [CREDENTIALS_KEY]: credsToSave }, () => {
+              if (chrome.runtime.lastError) {
+                reject(new Error(chrome.runtime.lastError.message || 'Failed to save local credentials.'));
+                return;
+              }
+
+              chrome.storage.local.get([CREDENTIALS_KEY], (verifyData) => {
+                if (chrome.runtime.lastError) {
+                  reject(new Error(chrome.runtime.lastError.message || 'Failed to verify local credentials.'));
+                  return;
+                }
+
+                const verified = verifyData?.[CREDENTIALS_KEY];
+                const isVerified = verified &&
+                  typeof verified === 'object' &&
+                  API_KEY_PROVIDERS.every((p) => !credsToSave.apiKeys[p] || verified.apiKeys?.[p] === credsToSave.apiKeys[p]) &&
+                  Object.keys(credsToSave.customApiKeys).every((id) => !credsToSave.customApiKeys[id] || verified.customApiKeys?.[id] === credsToSave.customApiKeys[id]);
+
+                if (!isVerified) {
+                  reject(new Error('Verification of secure credential storage failed.'));
+                  return;
+                }
+
+                chrome.storage.sync.set(syncPayload, () => {
+                  if (chrome.runtime.lastError) {
+                    reject(new Error(chrome.runtime.lastError.message || 'Failed to save settings.'));
+                    return;
+                  }
+
+                  if (typeof chrome.storage.sync.remove === 'function') {
+                    chrome.storage.sync.remove(LEGACY_SYNC_CREDENTIAL_KEYS, () => {
+                      resolve({ settings: normalized, payload: syncPayload });
+                    });
+                  } else {
+                    resolve({ settings: normalized, payload: syncPayload });
+                  }
+                });
+              });
+            });
+          });
+          return;
+        }
+
+        chrome.storage.sync.set(syncPayload, () => {
+          if (chrome.runtime.lastError) {
+            reject(new Error(chrome.runtime.lastError.message || 'Failed to save settings.'));
+            return;
+          }
+
+          resolve({ settings: normalized, payload: syncPayload });
+        });
       });
     });
   }
@@ -440,12 +713,16 @@
     SUPPORTED_PROVIDERS,
     SETTINGS_SCHEMA,
     STORAGE_KEYS,
+    CREDENTIALS_KEY,
+    LEGACY_SYNC_CREDENTIAL_KEYS,
     createDefaultSettings,
     migrateSettings,
     normalizeSettings,
     serializeSettings,
     loadSettings,
     saveSettings,
+    extractCredentials,
+    hasCredentials,
     getModelForProvider,
     getApiKeyForProvider,
     normalizeCustomProvider,

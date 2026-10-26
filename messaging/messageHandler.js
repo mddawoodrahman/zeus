@@ -129,6 +129,7 @@
   }
 
   function notifyTabsOfUpdate(settingsPayload) {
+    if (!chrome?.tabs?.query) return;
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
       if (chrome.runtime.lastError) return;
       if (tabs[0]?.id) {
@@ -224,7 +225,21 @@
 
   function handleGetSettings(sendResponse) {
     settingsModule.loadSettings()
-      .then((settings) => sendResponse({ settings: settingsModule.serializeSettings(settings) }))
+      .then((settings) => {
+        const serialized = settingsModule.serializeSettings(settings);
+        const hasApiKey = {};
+        for (const p of ['gemini', 'openai', 'claude', 'openrouter']) {
+          hasApiKey[p] = Boolean(settings?.apiKeys?.[p]);
+        }
+        if (Array.isArray(settings?.customProviders)) {
+          for (const cp of settings.customProviders) {
+            if (cp?.id) {
+              hasApiKey[cp.id] = Boolean(cp.apiKey);
+            }
+          }
+        }
+        sendResponse({ settings: { ...serialized, hasApiKey } });
+      })
       .catch((error) => sendResponse({ error: String(error?.message || 'Failed to load settings.') }));
   }
 

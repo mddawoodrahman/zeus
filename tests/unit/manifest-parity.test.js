@@ -167,4 +167,23 @@ describe('manifest and runtime file wiring', () => {
       expect(isCopied(file), `${file} must be copied by the build`).toBe(true);
     }
   });
+
+  it('keeps manifest.json and package.json versions identical and valid for Chrome Web Store', () => {
+    const pkg = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'package.json'), 'utf8'));
+    const manifestData = readManifest();
+
+    expect(manifestData.version).toBe(pkg.version);
+    expect(manifestData.version).toBe('2.1.3');
+
+    // Chrome Web Store version format: 1 to 4 dot-separated integers between 0 and 65535, no leading zeroes
+    expect(manifestData.version).toMatch(/^(?:0|[1-9]\d{0,4})(?:\.(?:0|[1-9]\d{0,4})){0,3}$/);
+    const parts = manifestData.version.split('.').map(Number);
+    expect(parts.length).toBeGreaterThanOrEqual(1);
+    expect(parts.length).toBeLessThanOrEqual(4);
+    for (const num of parts) {
+      expect(num).toBeGreaterThanOrEqual(0);
+      expect(num).toBeLessThanOrEqual(65535);
+    }
+  });
 });
+
