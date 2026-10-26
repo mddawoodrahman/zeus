@@ -1,0 +1,115 @@
+{
+  "project": "Zeus Chrome Extension",
+  "branchName": "ralph/transforms-redesign",
+  "description": "Enterprise-Grade Redesign of the Transforms Section + Complete Keyboard Shortcut System Fix",
+  "userStories": [
+    {
+      "id": "US-001",
+      "title": "Core Shortcut Engine: Physical Key Normalization & Matcher",
+      "description": "As a user, I want keyboard shortcuts (including Shift+digit combinations like Ctrl+Shift+1 and Alt+V) to be normalized and parsed using physical event.code so that they reliably match in browser event dispatch.",
+      "acceptanceCriteria": [
+        "PHYSICAL_KEY_CODES mapping correctly normalizes Digit1-Digit0 and punctuation",
+        "Ctrl+Shift+1 matches event with key '!' and code 'Digit1'",
+        "Modifier-only keys (Ctrl, Shift, Alt, Meta) and bare typing keys are rejected",
+        "Lock keys (CapsLock, NumLock, ScrollLock) cannot be bound alone",
+        "Canonical combo formatting produces standard order: Ctrl+Alt+Shift+Meta+Key",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 1,
+      "passes": true,
+      "notes": "Verified in tests/unit/shortcuts.test.js"
+    },
+    {
+      "id": "US-002",
+      "title": "Capture-Phase Content Script Interception & Input Resolver",
+      "description": "As a user typing in a prompt box on an AI chat website, I want my keyboard shortcut to be intercepted in the capture phase and applied strictly to the focused editable element without modifying unfocused inputs.",
+      "acceptanceCriteria": [
+        "Content script attaches keydown listener synchronously in capture phase",
+        "domUtils.getActiveElementRecursive pierces open Shadow DOMs to find active input",
+        "resolveFocusedEditableInput returns null when no editable input is focused (no fallback to collectInputs()[0])",
+        "Empty prompts abort safely without API calls",
+        "Successful transform replaces input text and dispatches input and change events",
+        "ZeusContentRuntime.destroy cleans up listeners cleanly",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 2,
+      "passes": true,
+      "notes": "Verified in tests/dom/transform-shortcut.test.js"
+    },
+    {
+      "id": "US-003",
+      "title": "Enterprise UI Redesign of Transforms in Popup and Side Panel",
+      "description": "As a user, I want a modern, compact, accessible Transforms interface with distinct cards, explicit shortcut recording controls, enable/disable switches, inline instruction editors, and delete actions with confirmation.",
+      "acceptanceCriteria": [
+        "Distinct visual cards for each transform with clear visual hierarchy",
+        "Editable transform name with validation",
+        "Accessible enable/disable toggle switch on each card",
+        "Multiline rewrite instruction editor with suitable min-height and clear focus states",
+        "Explicit Record/Change shortcut button with clear recording state ('Press keys...')",
+        "Escape cancels recording without overwriting existing shortcut",
+        "Backspace/Delete clears the assigned shortcut",
+        "Conflict warning displayed when a shortcut collides with another transform",
+        "Delete action with confirmation",
+        "Typecheck passes",
+        "Tests pass",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 3,
+      "passes": true,
+      "notes": "Verified in popup.html, popup.js, sidepanel.html, sidepanel.js and Chrome DevTools"
+    },
+    {
+      "id": "US-004",
+      "title": "Dedicated Transforms HUD Management in Options Page",
+      "description": "As a user configuring Zeus, I want a full-page Transforms HUD in the Options page matching the Cyberpunk terminal theme to manage all my transforms, templates, and shortcuts.",
+      "acceptanceCriteria": [
+        "Navigation item '/// TRANSFORMS' present and switches to Transforms HUD",
+        "Displays list of all configured transforms with status badges (BUILTIN, ACTIVE)",
+        "Interactive shortcut recorder integration with physical key support",
+        "Add new custom transform with auto-generated unique ID",
+        "Save all transforms with validation and storage quota check (<90KB)",
+        "Live sync via chrome.storage.onChanged",
+        "Typecheck passes",
+        "Tests pass",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 4,
+      "passes": true,
+      "notes": "Integrated into options.html and options.js, verified in live DevTools"
+    },
+    {
+      "id": "US-005",
+      "title": "Storage Sync, Duplicate Detection & Schema Migration",
+      "description": "As a user, I want my transforms persisted safely in chrome.storage.sync with built-in defaults seeded, legacy templates migrated, and duplicate shortcuts prevented.",
+      "acceptanceCriteria": [
+        "Default transforms 'Polish' (Alt+V / Ctrl+Shift+1) and 'Prompt Engineer' (Ctrl+Shift+2) seeded",
+        "Legacy zeus_templates non-destructively migrated to zeus_transforms",
+        "Storage payload size enforced under 90KB limit",
+        "Shortcuts deduplicated so duplicate shortcuts are stripped on save",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 5,
+      "passes": true,
+      "notes": "Verified in tests/unit/transforms.test.js"
+    },
+    {
+      "id": "US-006",
+      "title": "End-to-End Automated & Chrome DevTools Verification",
+      "description": "As an engineer, I want automated test suites to pass and the complete end-to-end shortcut workflow verified in real Chrome DevTools on a live prompt editor.",
+      "acceptanceCriteria": [
+        "Full test suite passes: vitest run tests/unit, tests/dom, tests/integration, smoke tests",
+        "Live Chrome DevTools session verifies Alt+V and Ctrl+Shift+2 execution on prompt editor",
+        "scripts/diagnose-shortcuts.js outputs SUMMARY: 7 pass, 0 fail",
+        "Typecheck passes",
+        "Tests pass",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 6,
+      "passes": true,
+      "notes": "Verified 26 test files, 218 tests passing; Live Chrome session verified Alt+V and Ctrl+Shift+2 rewrite and diagnostic probe 7/7 pass"
+    }
+  ]
+}

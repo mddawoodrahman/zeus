@@ -178,6 +178,76 @@
     return eligible;
   }
 
+  function extractConversationTurns(rootDoc, options = {}) {
+    const doc = rootDoc || (typeof document !== 'undefined' ? document : null);
+    if (!doc) return [];
+
+    const maxTurns = Math.max(1, Math.min(10, Number(options.maxTurns) || 4));
+    const maxCharsPerTurn = Math.max(100, Math.min(2000, Number(options.maxCharsPerTurn) || 500));
+    const maxTotalChars = Math.max(200, Math.min(10000, Number(options.maxTotalChars) || 2000));
+
+    const turns = [];
+
+    const messageSelectors = [
+      { selector: '[data-message-author-role]', roleAttr: 'data-message-author-role' },
+      { selector: '[class*="font-user-message"], [class*="font-claude-message"], [data-is-streaming]', detectRole: (el) => (el.className && el.className.includes('user') ? 'user' : 'assistant') },
+      { selector: 'user-query, model-response', detectRole: (el) => (el.tagName && el.tagName.toLowerCase().includes('user') ? 'user' : 'assistant') },
+      { selector: '.chat-message, [class*="message-item"]', detectRole: (el) => (el.className && el.className.includes('user') ? 'user' : 'assistant') },
+      { selector: 'article[data-role], [data-role]', roleAttr: 'data-role' }
+    ];
+
+    let foundElements = [];
+
+    for (const rule of messageSelectors) {
+      try {
+        const matches = Array.from(doc.querySelectorAll(rule.selector));
+        if (matches.length > 0) {
+          foundElements = matches.map((el) => {
+            let role = 'user';
+            if (rule.roleAttr) {
+              const attrVal = String(el.getAttribute(rule.roleAttr) || '').toLowerCase();
+              role = attrVal.includes('user') ? 'user' : 'assistant';
+            } else if (typeof rule.detectRole === 'function') {
+              role = rule.detectRole(el);
+            }
+            const text = (el.innerText || el.textContent || '').trim();
+            return { role, text };
+          }).filter((m) => m.text.length > 0);
+          break;
+        }
+      } catch (_) {
+        // Fall through to next selector
+      }
+    }
+
+    if (foundElements.length === 0) {
+      return [];
+    }
+
+    const recent = foundElements.slice(-maxTurns);
+    let totalChars = 0;
+
+    for (let i = recent.length - 1; i >= 0; i--) {
+      const item = recent[i];
+      let cleanText = item.text.replace(/\s+/g, ' ').trim();
+      if (cleanText.length > maxCharsPerTurn) {
+        cleanText = cleanText.slice(0, maxCharsPerTurn) + '...';
+      }
+
+      if (totalChars + cleanText.length > maxTotalChars && turns.length > 0) {
+        break;
+      }
+
+      totalChars += cleanText.length;
+      turns.unshift({
+        role: item.role,
+        text: cleanText
+      });
+    }
+
+    return turns;
+  }
+
   globalScope.ZeusDomUtils = Object.freeze({
     DEFAULT_INPUT_SELECTORS,
     debug,
@@ -189,6 +259,7 @@
     getInputText,
     setInputText,
     getActiveInputValue,
-    setInputValue
+    setInputValue,
+    extractConversationTurns
   });
 })(typeof globalThis !== 'undefined' ? globalThis : this);

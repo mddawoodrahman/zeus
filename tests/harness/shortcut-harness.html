@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Zeus Transform Shortcut Live Browser Harness</title>
+  <link rel="stylesheet" href="./harness.css" />
+  <style>
+    body {
+      background: #0d0e12;
+      color: #e0e0e0;
+      font-family: 'JetBrains Mono', monospace;
+      padding: 20px;
+    }
+    .harness-card {
+      background: #15171e;
+      border: 1px solid #232733;
+      border-radius: 6px;
+      padding: 20px;
+      margin-bottom: 20px;
+    }
+    textarea.prompt-box {
+      width: 100%;
+      height: 90px;
+      background: #1c1f2b;
+      border: 1px solid #363c4e;
+      color: #fff;
+      padding: 10px;
+      border-radius: 4px;
+      font-family: inherit;
+      font-size: 13px;
+      box-sizing: border-box;
+    }
+    button.btn {
+      background: #fcee0a;
+      color: #000;
+      border: none;
+      padding: 8px 16px;
+      font-weight: bold;
+      border-radius: 4px;
+      cursor: pointer;
+      margin-right: 8px;
+      font-family: inherit;
+      font-size: 11px;
+    }
+    button.btn-cyan {
+      background: #00ffff;
+    }
+    button.btn-ghost {
+      background: transparent;
+      border: 1px solid #444;
+      color: #aaa;
+    }
+    #log-console {
+      background: #0a0b0e;
+      border: 1px solid #1a1c24;
+      color: #00ff66;
+      padding: 12px;
+      border-radius: 4px;
+      max-height: 350px;
+      overflow-y: auto;
+      font-size: 11px;
+      white-space: pre-wrap;
+    }
+  </style>
+</head>
+<body>
+  <h1>/// ZEUS SHORTCUT &amp; TRANSFORMS BROWSER VERIFICATION</h1>
+  <p>Live DOM testing harness exercising physical keydown events, Shadow DOM activeElement, and diagnose-shortcuts.js.</p>
+
+  <div class="harness-card">
+    <h3>Mock AI Chat Prompt Target</h3>
+    <textarea id="prompt-textarea" class="prompt-box" placeholder="Write a python function to compute fibonacci..."></textarea>
+    <div style="margin-top: 10px;">
+      <button id="btn-fire-ctrl-shift-1" class="btn">DISPATCH CTRL+SHIFT+1 (POLISH)</button>
+      <button id="btn-fire-ctrl-shift-2" class="btn btn-cyan">DISPATCH CTRL+SHIFT+2 (PROMPT ENGINEER)</button>
+      <button id="btn-run-diagnostic" class="btn btn-ghost">RUN DIAGNOSTIC SCRIPT</button>
+      <button id="btn-clear-log" class="btn btn-ghost">CLEAR LOG</button>
+    </div>
+  </div>
+
+  <div class="harness-card">
+    <h3>Live Execution Output</h3>
+    <div id="log-console">Initializing browser harness...</div>
+  </div>
+
+  <!-- Extension Mock Environment -->
+  <script>
+    (function setupExtensionMock() {
+      const TRANSFORMS = [
+        {
+          id: 'builtin-polish',
+          name: 'Polish',
+          description: 'Improve clarity and conciseness',
+          instruction: 'Make the prompt clearer and more concise.',
+          template: '',
+          variables: [],
+          shortcut: 'Ctrl+Shift+1',
+          enabled: true,
+          builtin: true
+        },
+        {
+          id: 'builtin-prompt-engineer',
+          name: 'Prompt Engineer',
+          description: 'Full structured rewrite with role and output spec',
+          instruction: 'Rewrite into structured instruction set.',
+          template: '',
+          variables: [],
+          shortcut: 'Ctrl+Shift+2',
+          enabled: true,
+          builtin: true
+        }
+      ];
+
+      const logConsole = document.getElementById('log-console');
+      function appendLog(line) {
+        if (!logConsole) return;
+        const ts = new Date().toISOString().substring(11, 19);
+        logConsole.textContent += `[${ts}] ${line}\n`;
+        logConsole.scrollTop = logConsole.scrollHeight;
+      }
+      window.__harnessLog = appendLog;
+
+      window.chrome = {
+        runtime: {
+          lastError: null,
+          getManifest() {
+            return { version: '2.1.2', name: 'ZEUS — Prompt Enhancement System' };
+          },
+          sendMessage(message, callback) {
+            appendLog(`chrome.runtime.sendMessage: action=${message?.action} transformId=${message?.transformId || ''}`);
+            setTimeout(() => {
+              if (message?.action === 'ping') {
+                callback && callback({ status: 'pong' });
+              } else if (message?.action === 'getSettings') {
+                callback && callback({
+                  settings: {
+                    provider: 'openai',
+                    apiKeys: { openai: 'test-key-ok' },
+                    models: { openai: 'gpt-5.3-codex' },
+                    contextAwareEnabled: true,
+                    multimodalEnabled: false
+                  }
+                });
+              } else if (message?.action === 'getTransforms') {
+                callback && callback({ transforms: TRANSFORMS });
+              } else if (message?.action === 'enhancePrompt') {
+                const prompt = message.prompt || '';
+                const tfId = message.transformId;
+                const prefix = tfId === 'builtin-prompt-engineer'
+                  ? '/// [PROMPT ENGINEER REWRITE]:\nYou are an expert developer. '
+                  : '/// [POLISHED PROMPT]: ';
+                callback && callback({
+                  success: true,
+                  enhancedPrompt: `${prefix}${prompt}`
+                });
+              } else {
+                callback && callback({ success: true });
+              }
+            }, 10);
+          },
+          onMessage: {
+            listeners: [],
+            addListener(fn) { this.listeners.push(fn); },
+            removeListener(fn) {
+              const idx = this.listeners.indexOf(fn);
+              if (idx >= 0) this.listeners.splice(idx, 1);
+            }
+          }
+        },
+        storage: {
+          sync: {
+            get(keys, cb) {
+              cb && cb({ zeus_transforms: TRANSFORMS });
+            },
+            set(payload, cb) {
+              cb && cb();
+            }
+          },
+          onChanged: {
+            addListener() {}
+          }
+        }
+      };
+
+      appendLog('Chrome mock environment initialized.');
+    })();
+  </script>
+
+  <!-- Load Extension Content Script Modules -->
+  <script src="../../core/domUtils.js"></script>
+  <script src="../../core/useFloatingPosition.js"></script>
+  <script src="../../core/injector.js"></script>
+  <script src="../../core/observer.js"></script>
+  <script src="../../core/ghostText.js"></script>
+  <script src="../../core/shortcuts.js"></script>
+  <script src="../../core/transforms.js"></script>
+  <script src="../../adapters/chatgpt.js"></script>
+  <script src="../../adapters/generic.js"></script>
+  <script src="../../content.js"></script>
+  <script src="../../scripts/diagnose-shortcuts.js"></script>
+
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      const textarea = document.getElementById('prompt-textarea');
+      const btn1 = document.getElementById('btn-fire-ctrl-shift-1');
+      const btn2 = document.getElementById('btn-fire-ctrl-shift-2');
+      const btnDiag = document.getElementById('btn-run-diagnostic');
+      const btnClear = document.getElementById('btn-clear-log');
+
+      btnClear.addEventListener('click', () => {
+        document.getElementById('log-console').textContent = '';
+      });
+
+      function dispatchShiftDigit(digit) {
+        textarea.focus();
+        const shiftedMap = { 1: '!', 2: '@', 3: '#', 4: '$' };
+        const key = shiftedMap[digit] || String(digit);
+        const code = `Digit${digit}`;
+
+        window.__harnessLog(`Dispatching realistic keydown: key="${key}" code="${code}" ctrl=true shift=true`);
+        
+        const event = new KeyboardEvent('keydown', {
+          key: key,
+          code: code,
+          ctrlKey: true,
+          shiftKey: true,
+          bubbles: true,
+          cancelable: true
+        });
+
+        const dispatched = textarea.dispatchEvent(event);
+        window.__harnessLog(`Event dispatched. defaultPrevented=${event.defaultPrevented}`);
+      }
+
+      btn1.addEventListener('click', () => dispatchShiftDigit(1));
+      btn2.addEventListener('click', () => dispatchShiftDigit(2));
+
+      btnDiag.addEventListener('click', () => {
+        window.__harnessLog('--- RUNNING DIAGNOSTIC PROBE ---');
+        textarea.focus();
+        const oldLog = console.log;
+        console.log = (...args) => {
+          oldLog(...args);
+          window.__harnessLog(args.join(' '));
+        };
+        try {
+          // Re-run diagnostic
+          const script = document.createElement('script');
+          script.src = '../../scripts/diagnose-shortcuts.js?' + Date.now();
+          document.body.appendChild(script);
+        } finally {
+          setTimeout(() => { console.log = oldLog; }, 1000);
+        }
+      });
+
+      window.__harnessLog('Zeus content scripts successfully mounted and ready.');
+    });
+  </script>
+</body>
+</html>

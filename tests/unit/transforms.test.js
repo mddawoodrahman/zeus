@@ -172,4 +172,45 @@ describe('ZeusTransforms', () => {
     expect(first).toMatch(/^custom-my-cool-transform-/);
     expect(first).not.toBe(second);
   });
+
+  it('surfaces a rejected sync write instead of reporting success', async () => {
+    let setCalls = 0;
+    const originalSet = env.chrome.storage.sync.set;
+    env.chrome.storage.sync.set = (payload, callback) => {
+      setCalls += 1;
+      // Reproduce Chrome's quota failure: lastError is set and the payload is dropped.
+      env.setLastError('QUOTA_BYTES_PER_ITEM quota exceeded');
+      if (typeof callback === 'function') callback();
+    };
+
+    await expect(globalThis.ZeusTransforms.saveTransforms([{
+      id: 'custom-quota',
+      name: 'Quota',
+      instruction: 'Rewrite it.',
+      template: '',
+      variables: [],
+      shortcut: '',
+      enabled: true,
+      builtin: false
+    }])).rejects.toThrow(/quota/i);
+
+    // The guard must report the failure rather than swallow it.
+    expect(setCalls).toBe(1);
+    // Nothing was persisted, so callers must not treat this as a success.
+    expect(env.sync.__data.has(STORAGE_KEY)).toBe(false);
+
+    env.chrome.storage.sync.set = originalSet;
+  });
+
+  it('reports a failed read instead of silently returning no transforms', async () => {
+    const originalGet = env.chrome.storage.sync.get;
+    env.chrome.storage.sync.get = (_keys, callback) => {
+      env.setLastError('Storage read failed');
+      if (typeof callback === 'function') callback({});
+    };
+
+    await expect(globalThis.ZeusTransforms.loadTransforms()).rejects.toThrow(/storage read failed/i);
+
+    env.chrome.storage.sync.get = originalGet;
+  });
 });

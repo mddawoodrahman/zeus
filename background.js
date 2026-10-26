@@ -17,6 +17,10 @@ importScripts(
   'settings/settings.js',
   'core/retry.js',
   'core/prompts.js',
+  'core/promptLibrary.js',
+  'core/presets.js',
+  'core/qualityScore.js',
+  'core/multimodal.js',
   'core/errors.js',
   'core/telemetry.js',
   'core/shortcuts.js',
@@ -27,6 +31,10 @@ importScripts(
   'providers/claude.js',
   'providers/openrouter.js',
   'providers/ollama.js',
+  'providers/custom.js',
+  'core/privacy.js',
+  'core/workflows.js',
+  'core/commandPalette.js',
   'core/router.js',
   'messaging/messageHandler.js'
 );

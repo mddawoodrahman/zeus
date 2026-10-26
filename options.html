@@ -20,6 +20,8 @@
       
       <nav class="options-nav">
         <button class="options-nav-item active" data-target="config-section">/// ACCESS LOADOUT</button>
+        <button class="options-nav-item" data-target="transforms-section">/// TRANSFORMS</button>
+        <button class="options-nav-item" data-target="presets-section">/// TEAM PRESETS</button>
         <button class="options-nav-item" data-target="telemetry-section">/// SYSTEM LOGS</button>
       </nav>
 
@@ -56,6 +58,16 @@ READY.</div>
               <option value="auto">Auto (Smart Routing)</option>
             </select>
             <p id="provider-help-text" class="helper-text" style="margin-top: 8px;"></p>
+            <div id="smart-router-settings" style="margin-top: 15px; display: none;">
+              <label class="zeus-label" for="smartRouterProfile">SMART ROUTER 2.0 PROFILE</label>
+              <select class="zeus-input zeus-select" id="smartRouterProfile" style="width: 100%;">
+                <option value="balanced">Balanced (Intent-Aware Quality & Speed — Recommended)</option>
+                <option value="performance">Peak Performance (Highest Intelligence Models)</option>
+                <option value="cost-saver">Cost Saver (High Throughput & Low Latency)</option>
+                <option value="local-first">Local First (Zero-Cost Local Ollama Preference)</option>
+              </select>
+              <p class="helper-text" style="margin-top: 4px;">Controls dynamic provider selection and prioritization in Auto mode.</p>
+            </div>
           </div>
         </div>
 
@@ -103,6 +115,148 @@ READY.</div>
                 <label class="zeus-label" for="copilotMaxTokens">COPILOT TOKEN BOUND</label>
                 <input type="number" class="zeus-input" id="copilotMaxTokens" min="10" max="250" value="60">
               </div>
+            </div>
+
+            <div style="display: flex; align-items: center; justify-content: space-between; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 12px;">
+              <div>
+                <label class="zeus-label" style="margin: 0; cursor: pointer;" for="contextAwareEnabled">CONTEXT-AWARE MULTI-TURN ENHANCEMENT</label>
+                <p class="helper-text" style="margin: 2px 0 0 0;">Extracts recent chat history to resolve coreferences and pronouns</p>
+              </div>
+              <input type="checkbox" id="contextAwareEnabled" style="margin-right: 5px; cursor: pointer;">
+            </div>
+
+            <div id="context-aware-configs" style="display: flex; flex-direction: column; gap: 10px; margin-top: 5px;">
+              <div>
+                <label class="zeus-label" for="contextMaxTurns">MAX CONTEXT TURNS</label>
+                <select class="zeus-input zeus-select" id="contextMaxTurns" style="width: 100%;">
+                  <option value="2">2 Turns (Immediate prior user & assistant)</option>
+                  <option value="4">4 Turns (Balanced context - Recommended)</option>
+                  <option value="6">6 Turns (Deep thread context)</option>
+                  <option value="8">8 Turns (Maximum thread memory)</option>
+                </select>
+              </div>
+            </div>
+
+            <div style="display: flex; align-items: center; justify-content: space-between; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 12px; margin-top: 12px;">
+              <div>
+                <label class="zeus-label" style="margin: 0; cursor: pointer;" for="multimodalEnabled">MULTIMODAL PROMPT OPTIMIZATION</label>
+                <p class="helper-text" style="margin: 2px 0 0 0;">Inspects visual attachments and generates domain-tailored vision instructions</p>
+              </div>
+              <input type="checkbox" id="multimodalEnabled" style="margin-right: 5px; cursor: pointer;">
+            </div>
+
+            <div id="multimodal-configs" style="display: flex; flex-direction: column; gap: 10px; margin-top: 5px;">
+              <div>
+                <label class="zeus-label" for="visionOptimizationPreset">DEFAULT VISION OPTIMIZATION FOCUS</label>
+                <select class="zeus-input zeus-select" id="visionOptimizationPreset" style="width: 100%;">
+                  <option value="auto">Auto-Detect Domain (UI, Bugs, Diagrams, Docs)</option>
+                  <option value="ui-code">UI & Design to Code (Components, CSS, Layout)</option>
+                  <option value="error-debug">Error & Stack Trace Debugging (Logs, Terminals)</option>
+                  <option value="diagram-analysis">Architecture & Diagrams (Flowcharts, Schematics)</option>
+                  <option value="document-extract">Document Extraction & OCR (Tables, Text)</option>
+                  <option value="general-vision">General Vision Analysis</option>
+                </select>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Privacy & PII Shield Section -->
+        <div class="zeus-terminal-card" data-variant="cyan" id="privacy-section">
+          <div class="card-accent"></div>
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <h2 style="font-family: 'Orbitron', sans-serif; font-size: 13px; margin: 0;">/// PRIVACY & PII SHIELD</h2>
+            <div id="privacy-stats-pill" style="font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--net-cyan); background: rgba(0, 240, 255, 0.1); border: 1px solid var(--net-cyan); padding: 2px 6px; border-radius: 3px;">
+              PROTECTED: <span id="privacyTotalProtected">0</span>
+            </div>
+          </div>
+          
+          <div style="margin-top: 15px; display: flex; flex-direction: column; gap: 12px;">
+            <div style="display: flex; align-items: center; justify-content: space-between;">
+              <div>
+                <label class="zeus-label" style="margin: 0; cursor: pointer;" for="privacyModeEnabled">ENABLE PRIVACY SHIELD</label>
+                <p class="helper-text" style="margin: 2px 0 0 0;">Masks sensitive information into deterministic tokens before prompts leave your browser</p>
+              </div>
+              <input type="checkbox" id="privacyModeEnabled" style="margin-right: 5px; cursor: pointer;">
+            </div>
+
+            <div id="privacy-configs" style="display: none; flex-direction: column; gap: 12px; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 12px;">
+              <div>
+                <label class="zeus-label">PROTECTED ENTITY CATEGORIES</label>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 6px;">
+                  <label style="display: flex; align-items: center; gap: 6px; font-size: 12px; cursor: pointer;">
+                    <input type="checkbox" id="privacy_cat_email" checked> Email Addresses
+                  </label>
+                  <label style="display: flex; align-items: center; gap: 6px; font-size: 12px; cursor: pointer;">
+                    <input type="checkbox" id="privacy_cat_phone" checked> Phone Numbers
+                  </label>
+                  <label style="display: flex; align-items: center; gap: 6px; font-size: 12px; cursor: pointer;">
+                    <input type="checkbox" id="privacy_cat_creditCard" checked> Credit Cards
+                  </label>
+                  <label style="display: flex; align-items: center; gap: 6px; font-size: 12px; cursor: pointer;">
+                    <input type="checkbox" id="privacy_cat_ssn" checked> Social Security (SSN)
+                  </label>
+                  <label style="display: flex; align-items: center; gap: 6px; font-size: 12px; cursor: pointer;">
+                    <input type="checkbox" id="privacy_cat_ip" checked> IP Addresses (v4/v6)
+                  </label>
+                  <label style="display: flex; align-items: center; gap: 6px; font-size: 12px; cursor: pointer;">
+                    <input type="checkbox" id="privacy_cat_apiKey" checked> API Keys & Secrets
+                  </label>
+                  <label style="display: flex; align-items: center; gap: 6px; font-size: 12px; cursor: pointer;">
+                    <input type="checkbox" id="privacy_cat_custom" checked> Custom Keywords
+                  </label>
+                </div>
+              </div>
+
+              <div style="display: flex; align-items: center; justify-content: space-between; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 10px;">
+                <div>
+                  <label class="zeus-label" style="margin: 0; cursor: pointer;" for="privacyAutoRestore">AUTO-RESTORE RESPONSE</label>
+                  <p class="helper-text" style="margin: 2px 0 0 0;">Automatically restores original values when the LLM returns the enhanced prompt</p>
+                </div>
+                <input type="checkbox" id="privacyAutoRestore" checked style="margin-right: 5px; cursor: pointer;">
+              </div>
+
+              <div style="border-top: 1px solid rgba(255,255,255,0.08); padding-top: 10px;">
+                <label class="zeus-label" for="privacyCustomPatterns">CUSTOM SENSITIVE KEYWORDS / PATTERNS</label>
+                <textarea id="privacyCustomPatterns" class="zeus-input" rows="2" placeholder="One pattern per line, e.g. AcmeInternal or /Project-[A-Z]+/i" style="font-family: monospace; font-size: 11px;"></textarea>
+                <p class="helper-text" style="margin-top: 4px;">Words or regexes to redact as [SENSITIVE_1], [SENSITIVE_2], etc.</p>
+              </div>
+
+              <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px;">
+                <button type="button" id="btn-reset-privacy-stats" class="zeus-btn zeus-btn-ghost" style="font-size: 10px; padding: 4px 8px;">RESET AUDIT STATS</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Command Palette & Keyboard Controls -->
+        <div class="zeus-terminal-card" data-variant="cyan" id="keyboard-palette-section">
+          <div class="card-accent"></div>
+          <h2 style="font-family: 'Orbitron', sans-serif; font-size: 13px; margin: 0;">/// COMMAND PALETTE & KEYBOARD UX</h2>
+          
+          <div style="margin-top: 15px; display: flex; flex-direction: column; gap: 12px;">
+            <div style="display: flex; align-items: center; justify-content: space-between;">
+              <div>
+                <label class="zeus-label" style="margin: 0; cursor: pointer;" for="commandPaletteEnabled">COMMAND PALETTE</label>
+                <p class="helper-text" style="margin: 2px 0 0 0;">Keyboard-driven launcher for actions, navigation, transforms, and workflows</p>
+              </div>
+              <input type="checkbox" id="commandPaletteEnabled" checked style="margin-right: 5px; cursor: pointer;">
+            </div>
+
+            <div style="display: flex; align-items: center; justify-content: space-between; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 10px;">
+              <div>
+                <label class="zeus-label" style="margin: 0;" for="commandPaletteShortcut">PALETTE TRIGGER SHORTCUT</label>
+                <p class="helper-text" style="margin: 2px 0 0 0;">Keyboard trigger to open the command palette</p>
+              </div>
+              <input type="text" id="commandPaletteShortcut" class="zeus-input" value="Ctrl+K" style="width: 120px; font-family: monospace; font-size: 12px; text-align: center;">
+            </div>
+
+            <div style="display: flex; align-items: center; justify-content: space-between; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 10px;">
+              <div>
+                <label class="zeus-label" style="margin: 0; cursor: pointer;" for="keyboardShortcutsEnabled">POWER KEYBOARD SHORTCUTS</label>
+                <p class="helper-text" style="margin: 2px 0 0 0;">Enable Ctrl+Enter (Optimize), Ctrl+Shift+C (Copy), Ctrl+Shift+I (Insert), Ctrl+Shift+U (Capture)</p>
+              </div>
+              <input type="checkbox" id="keyboardShortcutsEnabled" checked style="margin-right: 5px; cursor: pointer;">
             </div>
           </div>
         </div>
@@ -212,6 +366,43 @@ READY.</div>
           </div>
         </div>
 
+        <!-- Custom OpenAI-Compatible Endpoints -->
+        <div class="zeus-terminal-card" data-variant="cyan" id="custom-providers-section">
+          <div class="card-accent"></div>
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <h2 style="font-family: 'Orbitron', sans-serif; font-size: 13px; margin: 0;">/// CUSTOM OPENAI-COMPATIBLE RUNTIMES</h2>
+            <button type="button" id="btnAddCustomProvider" class="zeus-btn zeus-btn-yellow" style="padding: 4px 10px; font-size: 11px;">+ ADD PROVIDER</button>
+          </div>
+          <p class="helper-text" style="margin: 6px 0 12px 0;">Connect local (LM Studio, vLLM, LocalAI) or cloud (Together, Groq, DeepSeek) OpenAI-compatible APIs.</p>
+          <div id="custom-providers-list" style="display: flex; flex-direction: column; gap: 8px;"></div>
+
+          <div id="custom-provider-form" style="display: none; margin-top: 15px; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 12px;">
+            <input type="hidden" id="customProviderId">
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+              <div>
+                <label class="zeus-label" for="customProviderName">NAME</label>
+                <input type="text" class="zeus-input" id="customProviderName" placeholder="e.g. LM Studio Local">
+              </div>
+              <div>
+                <label class="zeus-label" for="customProviderModel">MODEL ID</label>
+                <input type="text" class="zeus-input" id="customProviderModel" placeholder="e.g. qwen2.5-coder-7b">
+              </div>
+            </div>
+            <div style="margin-top: 10px;">
+              <label class="zeus-label" for="customProviderBaseUrl">BASE URL</label>
+              <input type="text" class="zeus-input" id="customProviderBaseUrl" placeholder="e.g. http://localhost:1234/v1">
+            </div>
+            <div style="margin-top: 10px;">
+              <label class="zeus-label" for="customProviderApiKey">API KEY (OPTIONAL FOR LOCAL)</label>
+              <input type="password" class="zeus-input" id="customProviderApiKey" placeholder="ENTER_KEY_OR_LEAVE_BLANK">
+            </div>
+            <div class="button-row" style="margin-top: 12px; display: flex; gap: 10px;">
+              <button type="button" id="btnSaveCustomProvider" class="zeus-btn zeus-btn-yellow" style="padding: 6px 12px; font-size: 11px;">SAVE RUNTIME</button>
+              <button type="button" id="btnCancelCustomProvider" class="zeus-btn zeus-btn-ghost" style="padding: 6px 12px; font-size: 11px;">CANCEL</button>
+            </div>
+          </div>
+        </div>
+
         <!-- Auto Routing Info -->
         <div class="zeus-terminal-card" data-variant="green" id="auto-settings" style="display:none;">
           <div class="card-accent"></div>
@@ -228,6 +419,107 @@ READY.</div>
         <div style="display: flex; gap: 15px;">
           <button class="zeus-btn zeus-btn-yellow" id="saveBtn" style="flex: 1;">EXECUTE CONFIG</button>
           <button class="zeus-btn zeus-btn-red" id="resetBtn" style="flex: 1;">PURGE LOCAL MEMORY</button>
+        </div>
+      </div>
+
+      <!-- Transforms Management Section -->
+      <div id="transforms-section" class="options-section" style="display: none; flex-direction: column; gap: 20px;">
+        <div class="zeus-terminal-card" data-variant="yellow">
+          <div class="card-accent"></div>
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <h2 style="font-family: 'Orbitron', sans-serif; font-size: 13px; margin: 0;">/// PROMPT TRANSFORMS HUD</h2>
+            <span class="badge" style="background: rgba(252, 238, 10, 0.2); color: var(--cyber-yellow); padding: 2px 8px; font-size: 10px; border-radius: 2px;">V2.1</span>
+          </div>
+          <p class="helper-text" style="margin: 8px 0 16px 0;">
+            Configure prompt rewrite directives and bind them to physical keyboard shortcuts. When focused in a prompt box on any supported AI chat site, pressing the assigned shortcut rewrites your prompt in place.
+          </p>
+
+          <div id="options-transforms-list" style="display: flex; flex-direction: column; gap: 10px;"></div>
+
+          <div style="margin-top: 15px; display: flex; gap: 10px; align-items: center;">
+            <button type="button" id="btnOptionsAddTransform" class="zeus-btn zeus-btn-cyan" style="padding: 6px 14px; font-size: 11px;">NEW TRANSFORM</button>
+            <button type="button" id="btnOptionsSaveTransforms" class="zeus-btn zeus-btn-yellow" style="padding: 6px 14px; font-size: 11px;">SAVE TRANSFORMS</button>
+            <span id="optionsTransformsFeedback" style="font-size: 11px; font-family: monospace;"></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Team / Shared Presets Section -->
+      <div id="presets-section" class="options-section" style="display: none; flex-direction: column; gap: 20px;">
+        <div class="zeus-terminal-card" data-variant="yellow">
+          <div class="card-accent"></div>
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <h2 style="font-family: 'Orbitron', sans-serif; font-size: 13px; margin: 0;">/// TEAM &amp; SHARED PRESET PACKS</h2>
+            <span class="badge" style="background: rgba(252, 238, 10, 0.2); color: var(--cyber-yellow); padding: 2px 8px; font-size: 10px; border-radius: 2px;">V1.0</span>
+          </div>
+          <p class="helper-text" style="margin: 8px 0 16px 0;">
+            Export and share standardized prompt transforms, prompt templates, custom runtimes, and routing profiles across your engineering team. Credentials are automatically scrubbed on export.
+          </p>
+
+          <!-- Export Area -->
+          <div style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); padding: 15px; border-radius: 4px; margin-bottom: 15px;">
+            <h3 style="font-size: 12px; margin: 0 0 10px 0; color: var(--net-cyan); font-family: 'Orbitron', sans-serif;">EXPORT BUNDLE</h3>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px;">
+              <div>
+                <label class="zeus-label" for="exportPresetName">PACK NAME</label>
+                <input type="text" class="zeus-input" id="exportPresetName" placeholder="e.g. Core Engineering Presets">
+              </div>
+              <div>
+                <label class="zeus-label" for="exportPresetAuthor">AUTHOR / TEAM</label>
+                <input type="text" class="zeus-input" id="exportPresetAuthor" placeholder="e.g. AI Platform Team">
+              </div>
+            </div>
+            <div style="margin-bottom: 12px;">
+              <label class="zeus-label" for="exportPresetDesc">DESCRIPTION</label>
+              <input type="text" class="zeus-input" id="exportPresetDesc" placeholder="e.g. Standard prompt rewriting and code review workflows">
+            </div>
+            <div style="display: flex; gap: 10px;">
+              <button type="button" id="btnExportPresetDownload" class="zeus-btn zeus-btn-yellow" style="padding: 6px 14px; font-size: 11px;">EXPORT .JSON BUNDLE</button>
+              <button type="button" id="btnExportPresetCopy" class="zeus-btn zeus-btn-ghost" style="padding: 6px 14px; font-size: 11px;">COPY JSON TO CLIPBOARD</button>
+            </div>
+          </div>
+
+          <!-- Import Area -->
+          <div style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); padding: 15px; border-radius: 4px;">
+            <h3 style="font-size: 12px; margin: 0 0 10px 0; color: var(--net-cyan); font-family: 'Orbitron', sans-serif;">IMPORT BUNDLE</h3>
+            <div style="margin-bottom: 10px;">
+              <label class="zeus-label">COLLISION STRATEGY</label>
+              <div style="display: flex; gap: 20px; align-items: center; margin-top: 4px;">
+                <label style="font-size: 11px; cursor: pointer; display: flex; align-items: center; gap: 6px;">
+                  <input type="radio" name="importMergeMode" value="merge" checked> Merge (Safe &mdash; keeps existing, appends new)
+                </label>
+                <label style="font-size: 11px; cursor: pointer; display: flex; align-items: center; gap: 6px;">
+                  <input type="radio" name="importMergeMode" value="overwrite"> Overwrite (Replaces items matching IDs)
+                </label>
+              </div>
+            </div>
+
+            <div style="margin-bottom: 10px;">
+              <label class="zeus-label" for="presetFileInput">LOAD FROM FILE</label>
+              <input type="file" id="presetFileInput" accept=".json" class="zeus-input" style="padding: 4px;">
+            </div>
+
+            <div style="margin-bottom: 10px;">
+              <label class="zeus-label" for="presetJsonInput">OR PASTE PRESET JSON</label>
+              <textarea id="presetJsonInput" class="zeus-input" rows="4" placeholder="Paste zeus-preset-pack JSON content here..." style="font-family: monospace; font-size: 11px;"></textarea>
+            </div>
+
+            <div style="display: flex; gap: 10px; align-items: center;">
+              <button type="button" id="btnImportPresetExecute" class="zeus-btn zeus-btn-cyan" style="padding: 6px 14px; font-size: 11px;">APPLY PRESET BUNDLE</button>
+              <span id="presetImportFeedback" style="font-size: 11px; font-family: monospace;"></span>
+            </div>
+          </div>
+        </div>
+
+        <!-- A/B Experiments Log Card -->
+        <div class="zeus-terminal-card" data-variant="cyan" id="ab-experiments-card">
+          <div class="card-accent"></div>
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <h2 style="font-family: 'Orbitron', sans-serif; font-size: 13px; margin: 0;">/// PROMPT A/B EXPERIMENT HISTORY</h2>
+            <button type="button" id="btnClearExperimentsBtn" class="zeus-btn zeus-btn-ghost" style="padding: 2px 8px; font-size: 10px; color: var(--arasaka-red);">CLEAR LOGS</button>
+          </div>
+          <p class="helper-text" style="margin: 6px 0 12px 0;">Empirical record of prompt variant head-to-head quality tests and chosen winners.</p>
+          <div id="ab-experiments-list" style="display: flex; flex-direction: column; gap: 8px;"></div>
         </div>
       </div>
 
@@ -272,6 +564,8 @@ READY.</div>
 
   <script src="model-registry.js"></script>
   <script src="settings/settings.js"></script>
+  <script src="core/shortcuts.js"></script>
+  <script src="core/transforms.js"></script>
   <script src="options.js"></script>
 </body>
 </html>

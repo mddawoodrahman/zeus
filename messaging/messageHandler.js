@@ -4,6 +4,11 @@
   const errors = globalScope.ZeusErrors;
   const telemetry = globalScope.ZeusTelemetry || null;
   const transformsModule = globalScope.ZeusTransforms || null;
+  const promptLibrary = globalScope.ZeusPromptLibrary || null;
+  const presetsModule = globalScope.ZeusPresets || null;
+  const qualityScorer = globalScope.ZeusQualityScorer || null;
+  const workflowsModule = globalScope.ZeusWorkflows || null;
+  const privacyModule = globalScope.ZeusPrivacy || null;
 
   // Must stay in sync with manifest.json content_scripts[].js — forceInject
   // re-injects this exact set into a tab that is missing the content script.
@@ -23,6 +28,7 @@
     'adapters/deepseek.js',
     'adapters/openrouter.js',
     'adapters/generic.js',
+    'core/multimodal.js',
     'content.js'
   ];
 
@@ -166,10 +172,12 @@
 
   async function handleEnhancePrompt(message, sendResponse) {
     const prompt = String(message?.prompt || '').trim();
+    const conversationContext = message?.conversationContext;
+    const attachments = message?.attachments;
 
     try {
       const transform = await resolveTransform(message?.transformId);
-      const enhancedPrompt = await router.enhancePrompt(prompt, { transform });
+      const enhancedPrompt = await router.enhancePrompt(prompt, { transform, conversationContext, attachments });
       sendResponse({ success: true, enhancedPrompt, transformId: transform?.id || '' });
     } catch (error) {
       let provider = '';
@@ -377,6 +385,389 @@
           }
           sendResponse({ success: true });
           return true;
+
+        case 'promptLibrary:getAll': {
+          const lib = globalScope.ZeusPromptLibrary || promptLibrary;
+          if (!lib) {
+            sendResponse({ success: false, error: 'Prompt library unavailable.' });
+            return true;
+          }
+          lib.loadLibrary()
+            .then((prompts) => sendResponse({ success: true, prompts }))
+            .catch((err) => sendResponse({ success: false, error: String(err?.message || err) }));
+          return true;
+        }
+
+        case 'promptLibrary:save': {
+          const lib = globalScope.ZeusPromptLibrary || promptLibrary;
+          if (!lib) {
+            sendResponse({ success: false, error: 'Prompt library unavailable.' });
+            return true;
+          }
+          lib.loadLibrary()
+            .then((prompts) => {
+              const incoming = message?.prompt;
+              if (!incoming) throw new Error('Missing prompt data.');
+              let updated;
+              const idx = prompts.findIndex((p) => p.id === incoming.id);
+              if (idx >= 0) {
+                prompts[idx] = lib.normalizePrompt({ ...prompts[idx], ...incoming });
+                updated = prompts;
+              } else {
+                const created = lib.createPrompt(incoming);
+                updated = [created, ...prompts];
+              }
+              return lib.saveLibrary(updated);
+            })
+            .then((saved) => sendResponse({ success: true, prompts: saved }))
+            .catch((err) => sendResponse({ success: false, error: String(err?.message || err) }));
+          return true;
+        }
+
+        case 'promptLibrary:addVersion': {
+          const lib = globalScope.ZeusPromptLibrary || promptLibrary;
+          if (!lib) {
+            sendResponse({ success: false, error: 'Prompt library unavailable.' });
+            return true;
+          }
+          lib.loadLibrary()
+            .then((prompts) => {
+              const promptId = message?.promptId;
+              const versionData = message?.versionData;
+              const idx = prompts.findIndex((p) => p.id === promptId);
+              if (idx < 0) throw new Error(`Prompt '${promptId}' not found.`);
+              prompts[idx] = lib.addVersion(prompts[idx], versionData);
+              return lib.saveLibrary(prompts);
+            })
+            .then((saved) => sendResponse({ success: true, prompts: saved }))
+            .catch((err) => sendResponse({ success: false, error: String(err?.message || err) }));
+          return true;
+        }
+
+        case 'promptLibrary:revertVersion': {
+          const lib = globalScope.ZeusPromptLibrary || promptLibrary;
+          if (!lib) {
+            sendResponse({ success: false, error: 'Prompt library unavailable.' });
+            return true;
+          }
+          lib.loadLibrary()
+            .then((prompts) => {
+              const promptId = message?.promptId;
+              const versionId = message?.versionId;
+              const idx = prompts.findIndex((p) => p.id === promptId);
+              if (idx < 0) throw new Error(`Prompt '${promptId}' not found.`);
+              prompts[idx] = lib.revertVersion(prompts[idx], versionId);
+              return lib.saveLibrary(prompts);
+            })
+            .then((saved) => sendResponse({ success: true, prompts: saved }))
+            .catch((err) => sendResponse({ success: false, error: String(err?.message || err) }));
+          return true;
+        }
+
+        case 'promptLibrary:delete': {
+          const lib = globalScope.ZeusPromptLibrary || promptLibrary;
+          if (!lib) {
+            sendResponse({ success: false, error: 'Prompt library unavailable.' });
+            return true;
+          }
+          lib.loadLibrary()
+            .then((prompts) => {
+              const promptId = message?.promptId || message?.id;
+              const filtered = prompts.filter((p) => p.id !== promptId);
+              return lib.saveLibrary(filtered);
+            })
+            .then((saved) => sendResponse({ success: true, prompts: saved }))
+            .catch((err) => sendResponse({ success: false, error: String(err?.message || err) }));
+          return true;
+        }
+
+        case 'presets:export': {
+          const presetsMod = globalScope.ZeusPresets || presetsModule;
+          const lib = globalScope.ZeusPromptLibrary || promptLibrary;
+          if (!presetsMod) {
+            sendResponse({ success: false, error: 'Presets module unavailable.' });
+            return true;
+          }
+          Promise.all([
+            transformsModule ? transformsModule.loadTransforms() : Promise.resolve([]),
+            lib ? lib.loadLibrary() : Promise.resolve([]),
+            settingsModule ? settingsModule.loadSettings() : Promise.resolve({})
+          ])
+            .then(([transforms, prompts, settings]) => {
+              const bundle = presetsMod.exportPresetBundle({
+                meta: message?.meta || {},
+                transforms,
+                prompts,
+                customProviders: settings?.customProviders || [],
+                smartRouterProfile: settings?.smartRouterProfile || 'balanced',
+                includeApiKeys: Boolean(message?.includeApiKeys)
+              });
+              sendResponse({ success: true, bundle });
+            })
+            .catch((err) => sendResponse({ success: false, error: String(err?.message || err) }));
+          return true;
+        }
+
+        case 'presets:import': {
+          const presetsMod = globalScope.ZeusPresets || presetsModule;
+          const lib = globalScope.ZeusPromptLibrary || promptLibrary;
+          if (!presetsMod) {
+            sendResponse({ success: false, error: 'Presets module unavailable.' });
+            return true;
+          }
+          const bundle = message?.bundle;
+          const options = message?.options || { mode: 'merge' };
+
+          Promise.all([
+            transformsModule ? transformsModule.loadTransforms() : Promise.resolve([]),
+            lib ? lib.loadLibrary() : Promise.resolve([]),
+            settingsModule ? settingsModule.loadSettings() : Promise.resolve({})
+          ])
+            .then(async ([transforms, prompts, settings]) => {
+              const currentState = {
+                transforms,
+                prompts,
+                customProviders: settings?.customProviders || [],
+                smartRouterProfile: settings?.smartRouterProfile || 'balanced'
+              };
+
+              const result = presetsMod.importPresetBundle(bundle, currentState, options);
+
+              if (transformsModule && result.nextState.transforms) {
+                await transformsModule.saveTransforms(result.nextState.transforms);
+              }
+
+              if (lib && result.nextState.prompts) {
+                await lib.saveLibrary(result.nextState.prompts);
+              }
+
+              if (settingsModule) {
+                const nextSettings = settingsModule.normalizeSettings({
+                  ...settings,
+                  customProviders: result.nextState.customProviders,
+                  smartRouterProfile: result.nextState.smartRouterProfile
+                });
+                await settingsModule.saveSettings(nextSettings);
+                notifyTabsOfUpdate(nextSettings);
+              }
+
+              sendResponse({ success: true, stats: result.stats, nextState: result.nextState });
+            })
+            .catch((err) => sendResponse({ success: false, error: String(err?.message || err) }));
+          return true;
+        }
+
+        case 'quality:evaluate': {
+          const scorer = globalScope.ZeusQualityScorer || qualityScorer;
+          if (!scorer) {
+            sendResponse({ success: false, error: 'Quality scorer unavailable.' });
+            return true;
+          }
+          try {
+            const evaluation = scorer.evaluateQuality(message?.prompt);
+            sendResponse({ success: true, evaluation });
+          } catch (err) {
+            sendResponse({ success: false, error: String(err?.message || err) });
+          }
+          return true;
+        }
+
+        case 'quality:compare': {
+          const scorer = globalScope.ZeusQualityScorer || qualityScorer;
+          if (!scorer) {
+            sendResponse({ success: false, error: 'Quality scorer unavailable.' });
+            return true;
+          }
+          try {
+            const comparison = scorer.compareVariants(message?.promptA, message?.promptB, message?.options);
+            sendResponse({ success: true, comparison });
+          } catch (err) {
+            sendResponse({ success: false, error: String(err?.message || err) });
+          }
+          return true;
+        }
+
+        case 'ab:getExperiments': {
+          const scorer = globalScope.ZeusQualityScorer || qualityScorer;
+          if (!scorer) {
+            sendResponse({ success: false, error: 'Quality scorer unavailable.' });
+            return true;
+          }
+          scorer.loadExperiments()
+            .then((experiments) => sendResponse({ success: true, experiments }))
+            .catch((err) => sendResponse({ success: false, error: String(err?.message || err) }));
+          return true;
+        }
+
+        case 'ab:saveExperiment': {
+          const scorer = globalScope.ZeusQualityScorer || qualityScorer;
+          if (!scorer) {
+            sendResponse({ success: false, error: 'Quality scorer unavailable.' });
+            return true;
+          }
+          scorer.loadExperiments()
+            .then((experiments) => {
+              const record = message?.experiment?.id
+                ? message.experiment
+                : scorer.createExperimentRecord(message?.experiment || {});
+              const updated = [record, ...experiments.filter((e) => e.id !== record.id)];
+              return scorer.saveExperiments(updated);
+            })
+            .then((saved) => sendResponse({ success: true, experiments: saved }))
+            .catch((err) => sendResponse({ success: false, error: String(err?.message || err) }));
+          return true;
+        }
+
+        case 'ab:deleteExperiment': {
+          const scorer = globalScope.ZeusQualityScorer || qualityScorer;
+          if (!scorer) {
+            sendResponse({ success: false, error: 'Quality scorer unavailable.' });
+            return true;
+          }
+          scorer.deleteExperiment(message?.id)
+            .then((experiments) => sendResponse({ success: true, experiments }))
+            .catch((err) => sendResponse({ success: false, error: String(err?.message || err) }));
+          return true;
+        }
+
+        case 'workflow:getAll': {
+          const mod = globalScope.ZeusWorkflows || workflowsModule;
+          if (!mod) {
+            sendResponse({ success: false, error: 'Workflows module unavailable.' });
+            return true;
+          }
+          mod.getAllWorkflows()
+            .then((workflows) => sendResponse({ success: true, workflows }))
+            .catch((err) => sendResponse({ success: false, error: String(err?.message || err) }));
+          return true;
+        }
+
+        case 'workflow:save': {
+          const mod = globalScope.ZeusWorkflows || workflowsModule;
+          if (!mod) {
+            sendResponse({ success: false, error: 'Workflows module unavailable.' });
+            return true;
+          }
+          mod.saveWorkflow(message?.workflow)
+            .then((workflow) => sendResponse({ success: true, workflow }))
+            .catch((err) => sendResponse({ success: false, error: String(err?.message || err) }));
+          return true;
+        }
+
+        case 'workflow:delete': {
+          const mod = globalScope.ZeusWorkflows || workflowsModule;
+          if (!mod) {
+            sendResponse({ success: false, error: 'Workflows module unavailable.' });
+            return true;
+          }
+          mod.deleteWorkflow(message?.id || message?.workflowId)
+            .then(() => sendResponse({ success: true }))
+            .catch((err) => sendResponse({ success: false, error: String(err?.message || err) }));
+          return true;
+        }
+
+        case 'workflow:execute': {
+          const mod = globalScope.ZeusWorkflows || workflowsModule;
+          if (!mod) {
+            sendResponse({ success: false, error: 'Workflows module unavailable.' });
+            return true;
+          }
+          const prompt = String(message?.prompt || '').trim();
+          let workflow = message?.workflow;
+          const workflowId = message?.workflowId;
+
+          const run = (wf) => {
+            mod.executeWorkflow(prompt, wf, {
+              router,
+              conversationContext: message?.conversationContext,
+              attachments: message?.attachments
+            })
+              .then((result) => sendResponse(result))
+              .catch((err) => sendResponse({ success: false, error: String(err?.message || err) }));
+          };
+
+          if (!workflow && workflowId) {
+            mod.getAllWorkflows()
+              .then((workflows) => {
+                const found = workflows.find((w) => w.id === workflowId);
+                if (!found) throw new Error(`Workflow with ID '${workflowId}' not found.`);
+                run(found);
+              })
+              .catch((err) => sendResponse({ success: false, error: String(err?.message || err) }));
+          } else {
+            run(workflow);
+          }
+          return true;
+        }
+
+        case 'privacy:scan': {
+          const mod = globalScope.ZeusPrivacy || privacyModule;
+          if (!mod) {
+            sendResponse({ success: false, error: 'Privacy module unavailable.' });
+            return true;
+          }
+          try {
+            const scanResult = mod.scanPromptForPII(message?.text, message?.options);
+            sendResponse({ success: true, ...scanResult });
+          } catch (err) {
+            sendResponse({ success: false, error: String(err?.message || err) });
+          }
+          return true;
+        }
+
+        case 'privacy:redact': {
+          const mod = globalScope.ZeusPrivacy || privacyModule;
+          if (!mod) {
+            sendResponse({ success: false, error: 'Privacy module unavailable.' });
+            return true;
+          }
+          try {
+            const red = mod.redactPrompt(message?.text, message?.options);
+            sendResponse({ success: true, ...red });
+          } catch (err) {
+            sendResponse({ success: false, error: String(err?.message || err) });
+          }
+          return true;
+        }
+
+        case 'privacy:restore': {
+          const mod = globalScope.ZeusPrivacy || privacyModule;
+          if (!mod) {
+            sendResponse({ success: false, error: 'Privacy module unavailable.' });
+            return true;
+          }
+          try {
+            const report = mod.restorePromptWithReport(message?.text, message?.tokenMap);
+            sendResponse({ success: true, ...report });
+          } catch (err) {
+            sendResponse({ success: false, error: String(err?.message || err) });
+          }
+          return true;
+        }
+
+        case 'privacy:getStats': {
+          const mod = globalScope.ZeusPrivacy || privacyModule;
+          if (!mod) {
+            sendResponse({ success: false, error: 'Privacy module unavailable.' });
+            return true;
+          }
+          mod.getPrivacyStats()
+            .then((stats) => sendResponse({ success: true, stats }))
+            .catch((err) => sendResponse({ success: false, error: String(err?.message || err) }));
+          return true;
+        }
+
+        case 'privacy:resetStats': {
+          const mod = globalScope.ZeusPrivacy || privacyModule;
+          if (!mod) {
+            sendResponse({ success: false, error: 'Privacy module unavailable.' });
+            return true;
+          }
+          mod.resetPrivacyStats()
+            .then(() => sendResponse({ success: true }))
+            .catch((err) => sendResponse({ success: false, error: String(err?.message || err) }));
+          return true;
+        }
 
         default:
           return false;

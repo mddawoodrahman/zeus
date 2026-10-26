@@ -29,6 +29,9 @@
     return: 'Enter'
   });
 
+  /** Keys that toggle a state rather than produce input; never bound on their own. */
+  const LOCK_KEYS = Object.freeze(['CapsLock', 'NumLock', 'ScrollLock']);
+
   /** Keys that can meaningfully appear in a combo, excluding free-form text. */
   const NAMED_KEYS = Object.freeze([
     'Escape', 'Enter', 'Tab', 'Space', 'Backspace', 'Delete', 'Insert',
@@ -50,6 +53,71 @@
     }
 
     return NAMED_KEYS.includes(value);
+  }
+
+  /**
+   * Physical-key names whose `event.key` changes when Shift is held. `event.key`
+   * for Ctrl+Shift+1 is "!" on a US layout, so the digit row (and the punctuation
+   * its shifted twins live on) must be identified from `event.code`.
+   */
+  const PHYSICAL_KEY_CODES = Object.freeze({
+    Digit1: '1',
+    Digit2: '2',
+    Digit3: '3',
+    Digit4: '4',
+    Digit5: '5',
+    Digit6: '6',
+    Digit7: '7',
+    Digit8: '8',
+    Digit9: '9',
+    Digit0: '0',
+    Backquote: 'Backquote',
+    Minus: 'Minus',
+    Equal: 'Equal',
+    BracketLeft: 'BracketLeft',
+    BracketRight: 'BracketRight',
+    Backslash: 'Backslash',
+    Semicolon: 'Semicolon',
+    Quote: 'Quote',
+    Comma: 'Comma',
+    Period: 'Period',
+    Slash: 'Slash'
+  });
+
+  /**
+   * Resolves the canonical key a *physical* key produces regardless of what Shift
+   * makes `event.key` report. Returns '' when the event carries no usable identity.
+   *
+   * `event.code` is authoritative when present so a binding cannot be silently
+   * re-pointed by the active layout or the Shift state; `event.key` remains the
+   * fallback for synthetic events and for keys the code table does not name.
+   */
+  function normalizeEventKey(event) {
+    if (!event) {
+      return '';
+    }
+
+    const code = String(event.code || '');
+
+    if (/^Key[A-Z]$/.test(code)) {
+      return code.slice(3);
+    }
+
+    if (Object.prototype.hasOwnProperty.call(PHYSICAL_KEY_CODES, code)) {
+      return PHYSICAL_KEY_CODES[code];
+    }
+
+    // Layout- or IME-driven codes the table does not name. Accept them only when
+    // they look like a real key identifier, never as free-form text.
+    if (code && isKnownKeyName(code)) {
+      return normalizeKeyName(code);
+    }
+
+    if (isKnownKeyName(event.key) && !isModifierKey(event.key)) {
+      return normalizeKeyName(event.key);
+    }
+
+    return '';
   }
 
   // Combos Chrome or the OS consumes before a page-level listener can act.
@@ -107,8 +175,8 @@
       return null;
     }
 
-    const key = normalizeKeyName(event.key);
-    if (!key || isModifierKey(event.key)) {
+    const key = normalizeEventKey(event);
+    if (!key) {
       return null;
     }
 
@@ -232,9 +300,14 @@
     return parsed ? comboFromParts(parsed.modifiers, parsed.key) : '';
   }
 
-  /** Keys that would interrupt ordinary typing if bound without a modifier. */
+  /**
+   * Keys that fire a keydown during ordinary typing and hold no modifier, so
+   * binding one alone would interrupt the user. Caps Lock and the other lock keys
+   * are included: they are not modifiers, so no modifier check catches them, yet
+   * they are pressed in passing while typing.
+   */
   function requiresModifier(key) {
-    if (key === 'Space') {
+    if (key === 'Space' || LOCK_KEYS.includes(key)) {
       return true;
     }
 
@@ -379,6 +452,7 @@
     const settings = options || {};
     const onCommit = typeof settings.onCommit === 'function' ? settings.onCommit : () => {};
     const onReject = typeof settings.onReject === 'function' ? settings.onReject : () => {};
+    const onCancel = typeof settings.onCancel === 'function' ? settings.onCancel : () => {};
     const validate = typeof settings.validate === 'function' ? settings.validate : validateCombo;
 
     let capturing = false;
@@ -398,13 +472,23 @@
       render('Press keys...', true);
     }
 
-    function endCapture() {
+    function endCapture(didCancel) {
+      const wasCapturing = capturing;
       capturing = false;
       renderCurrent();
+      if (wasCapturing && didCancel) {
+        onCancel();
+      }
     }
 
     function onFocus() {
       beginCapture();
+    }
+
+    function onClick() {
+      if (!capturing) {
+        beginCapture();
+      }
     }
 
     function onKeydown(event) {
@@ -418,14 +502,14 @@
       event.stopPropagation();
 
       if (event.key === 'Escape') {
-        endCapture();
+        endCapture(true);
         return;
       }
 
       if (event.key === 'Backspace' || event.key === 'Delete') {
         currentCombo = '';
         onCommit('');
-        endCapture();
+        endCapture(false);
         return;
       }
 
@@ -447,16 +531,17 @@
 
       currentCombo = result.canonical;
       onCommit(currentCombo);
-      endCapture();
+      endCapture(false);
     }
 
     function onBlur() {
       if (capturing) {
-        endCapture();
+        endCapture(true);
       }
     }
 
     field.addEventListener('focus', onFocus);
+    field.addEventListener('click', onClick);
     field.addEventListener('keydown', onKeydown, true);
     field.addEventListener('blur', onBlur);
     field.setAttribute('tabindex', field.getAttribute('tabindex') || '0');
@@ -472,11 +557,20 @@
       getCombo() {
         return currentCombo;
       },
+      isRecording() {
+        return capturing;
+      },
+      clear() {
+        currentCombo = '';
+        onCommit('');
+        endCapture(false);
+      },
       cancel() {
-        endCapture();
+        endCapture(true);
       },
       destroy() {
         field.removeEventListener('focus', onFocus);
+        field.removeEventListener('click', onClick);
         field.removeEventListener('keydown', onKeydown, true);
         field.removeEventListener('blur', onBlur);
       }
@@ -490,6 +584,7 @@
     isModifierKey,
     isModifierOnlyCombo,
     normalizeEvent,
+    normalizeEventKey,
     normalizeKeyName,
     comboFromEvent,
     parseCombo,

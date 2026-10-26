@@ -17,7 +17,13 @@
         <span class="logo-text">ZEUS</span>
         <span class="logo-version">v2.0_WORKBENCH</span>
       </div>
-      <button id="btn-close-panel" class="close-panel-btn" title="Close Workbench">✕</button>
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <button id="btn-open-palette" class="zeus-btn zeus-btn-cyan" style="padding: 3px 8px; font-size: 10px; font-family: 'JetBrains Mono', monospace; display: flex; align-items: center; gap: 4px;" title="Open Command Palette (Ctrl+K)">
+          <span>⌘ PALETTE</span>
+          <span style="font-size: 9px; opacity: 0.8; background: rgba(0,0,0,0.3); padding: 1px 4px; border-radius: 2px;">Ctrl+K</span>
+        </button>
+        <button id="btn-close-panel" class="close-panel-btn" title="Close Workbench">✕</button>
+      </div>
     </header>
 
     <!-- Navigation / Tab Bar -->
@@ -25,6 +31,8 @@
       <button class="tab-btn active" data-tab="editor">/// ENHANCE</button>
       <button class="tab-btn" data-tab="history">/// HISTORY</button>
       <button class="tab-btn" data-tab="templates">/// TRANSFORMS</button>
+      <button class="tab-btn" data-tab="library">/// LIBRARY</button>
+      <button class="tab-btn" data-tab="workflows">/// WORKFLOWS</button>
     </nav>
 
     <!-- Tab Content Area -->
@@ -36,8 +44,23 @@
           <div class="card-accent"></div>
           <label class="zeus-label" for="original-input">/// INPUT PAYLOAD</label>
           <textarea id="original-input" class="zeus-input" placeholder="Capture or type a prompt..."></textarea>
+          <div id="multimodal-attachments-container" class="multimodal-attachments-bar" style="display: none; margin: 8px 0; gap: 8px; flex-wrap: wrap;"></div>
+          <div id="privacy-shield-bar" style="display: flex; align-items: center; justify-content: space-between; font-family: 'JetBrains Mono', monospace; font-size: 11px; margin: 8px 0; padding: 5px 8px; border-radius: 3px; background: rgba(0, 240, 255, 0.06); border: 1px solid rgba(0, 240, 255, 0.25);">
+            <div style="display: flex; align-items: center; gap: 6px;">
+              <span id="privacy-shield-icon">🛡️</span>
+              <span id="privacy-shield-text" style="color: var(--net-cyan);">PRIVACY SHIELD ACTIVE</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 6px;">
+              <span id="privacy-detected-count" style="color: var(--cyber-yellow); font-size: 10px; display: none;">0 PII DETECTED</span>
+              <button type="button" id="btn-toggle-privacy-shield" class="zeus-btn zeus-btn-ghost" style="padding: 2px 6px; font-size: 10px; margin: 0;">TOGGLE</button>
+            </div>
+          </div>
           <div class="button-row">
             <button id="btn-capture" class="zeus-btn zeus-btn-cyan">CAPTURE FROM PAGE</button>
+            <label class="zeus-btn zeus-btn-ghost" style="cursor: pointer; margin: 0; display: inline-flex; align-items: center; justify-content: center; font-size: 11px; padding: 6px 10px;" title="Attach Image">
+              + ATTACH IMAGE
+              <input type="file" id="multimodal-file-input" accept="image/*" multiple style="display: none;">
+            </label>
             <button id="btn-enhance" class="zeus-btn zeus-btn-yellow">OPTIMIZE PROMPT</button>
           </div>
         </div>
@@ -50,11 +73,22 @@
 
         <div class="zeus-terminal-card" data-variant="green">
           <div class="card-accent"></div>
-          <label class="zeus-label" for="enhanced-output">/// OPTIMIZED OUTPUT</label>
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <label class="zeus-label" for="enhanced-output" style="margin: 0;">/// OPTIMIZED OUTPUT</label>
+            <div id="quality-score-badge" style="display: none; align-items: center; gap: 6px; font-family: 'JetBrains Mono', monospace; font-size: 11px; padding: 2px 8px; border-radius: 3px; background: rgba(0, 240, 255, 0.1); border: 1px solid var(--net-cyan); color: var(--net-cyan);">
+              <span>SCORE: <strong id="quality-score-value">--</strong></span>
+              <span id="quality-grade-badge" style="background: var(--net-cyan); color: #000; padding: 0 4px; font-weight: bold; border-radius: 2px;">-</span>
+            </div>
+          </div>
           <textarea id="enhanced-output" class="zeus-input" readonly placeholder="Optimized result will appear here..."></textarea>
+          <div id="quality-suggestions-panel" style="display: none; margin: 8px 0; padding: 8px 10px; background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 4px; font-size: 11px;">
+            <div style="font-weight: 600; color: var(--cyber-yellow); margin-bottom: 4px; font-family: 'Orbitron', sans-serif; font-size: 10px;">/// QUALITY RECOMMENDATIONS</div>
+            <ul id="quality-suggestions-list" style="margin: 0; padding-left: 16px; color: var(--text-secondary); line-height: 1.4;"></ul>
+          </div>
           <div class="button-row">
             <button id="btn-insert" class="zeus-btn zeus-btn-yellow">INSERT INTO CHAT</button>
             <button id="btn-copy" class="zeus-btn zeus-btn-cyan">COPY TO CLIPBOARD</button>
+            <button id="btn-ab-compare" class="zeus-btn zeus-btn-ghost" style="padding: 6px 10px; font-size: 11px;">A/B COMPARE</button>
           </div>
         </div>
       </section>
@@ -110,6 +144,97 @@
             <div id="transform-editor-status" class="status"></div>
           </div>
         </div>
+      <!-- Library Tab -->
+      <section id="tab-library" class="tab-section">
+        <div class="zeus-terminal-card" data-variant="cyan">
+          <div class="card-accent"></div>
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+            <label class="zeus-label" style="margin: 0;">/// PROMPT ASSET LIBRARY</label>
+            <button id="btn-new-library-prompt" class="zeus-btn zeus-btn-yellow" style="padding: 4px 10px; font-size: 11px;">+ NEW PROMPT</button>
+          </div>
+          <input type="text" id="library-search-input" class="zeus-input" placeholder="Search prompts by title, tag, or content..." style="margin-bottom: 12px;">
+          <div id="library-prompts-list" class="template-list-container"></div>
+        </div>
+
+        <!-- Prompt Version Editor Modal / Card -->
+        <div id="library-prompt-modal" class="zeus-modal" style="display: none;">
+          <div class="zeus-modal-content zeus-terminal-card" data-variant="yellow" style="max-width: 90%;">
+            <div class="card-accent"></div>
+            <label class="zeus-label" id="library-modal-title">/// NEW PROMPT REVISION</label>
+            <input type="hidden" id="library-edit-prompt-id">
+            
+            <div class="form-group" style="margin-top: 8px;">
+              <label class="zeus-label" for="library-prompt-name">TITLE</label>
+              <input type="text" id="library-prompt-name" class="zeus-input" placeholder="e.g. Production Incident Triage">
+            </div>
+
+            <div class="form-group" style="margin-top: 8px;">
+              <label class="zeus-label" for="library-prompt-desc">DESCRIPTION</label>
+              <input type="text" id="library-prompt-desc" class="zeus-input" placeholder="Short description of the prompt purpose">
+            </div>
+
+            <div class="form-group" style="margin-top: 8px;">
+              <label class="zeus-label" for="library-prompt-tags">TAGS (comma separated)</label>
+              <input type="text" id="library-prompt-tags" class="zeus-input" placeholder="incident, ops, triage">
+            </div>
+
+            <div class="form-group" style="margin-top: 8px;">
+              <label class="zeus-label" for="library-prompt-content">PROMPT CONTENT (supports {{var}})</label>
+              <textarea id="library-prompt-content" class="zeus-input" style="height: 140px;"></textarea>
+            </div>
+
+            <div class="form-group" style="margin-top: 8px;">
+              <label class="zeus-label" for="library-version-notes">VERSION REVISION NOTES</label>
+              <input type="text" id="library-version-notes" class="zeus-input" placeholder="e.g. Added mitigation step">
+            </div>
+
+            <div class="button-row" style="margin-top: 15px;">
+              <button id="btn-save-library-version" class="zeus-btn zeus-btn-yellow">COMMIT VERSION</button>
+              <button id="btn-cancel-library-modal" class="zeus-btn zeus-btn-ghost">CANCEL</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Workflows / Prompt Chaining Tab -->
+      <section id="tab-workflows" class="tab-section">
+        <div class="zeus-terminal-card" data-variant="cyan">
+          <div class="card-accent"></div>
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+            <label class="zeus-label" style="margin: 0;">/// SELECT WORKFLOW PIPELINE</label>
+            <span id="workflow-steps-count-badge" class="selected-model-badge" style="font-size: 10px; display: inline-flex;">3 STAGES</span>
+          </div>
+          <select id="workflow-select" class="zeus-input zeus-select" style="width: 100%; margin-bottom: 8px;"></select>
+          <p id="workflow-description" class="helper-text" style="color: var(--text-muted); font-size: 11px; margin: 0 0 12px 0;"></p>
+
+          <label class="zeus-label">/// PIPELINE STAGE ARCHITECTURE</label>
+          <div id="workflow-steps-pipeline" style="display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px;"></div>
+
+          <label class="zeus-label" for="workflow-input-prompt">/// WORKFLOW INPUT PAYLOAD</label>
+          <textarea id="workflow-input-prompt" class="zeus-input" style="min-height: 70px;" placeholder="Input prompt for sequential workflow execution..."></textarea>
+
+          <div class="button-row" style="margin-top: 10px;">
+            <button id="btn-workflow-sync-input" class="zeus-btn zeus-btn-cyan">SYNC FROM EDITOR</button>
+            <button id="btn-workflow-run" class="zeus-btn zeus-btn-yellow">RUN WORKFLOW</button>
+          </div>
+        </div>
+
+        <div id="workflow-execution-card" class="zeus-terminal-card" data-variant="green" style="display: none; margin-top: 15px;">
+          <div class="card-accent"></div>
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+            <label class="zeus-label" style="margin: 0;">/// PIPELINE EXECUTION TRACE</label>
+            <span id="workflow-exec-status-badge" style="font-family: monospace; font-size: 11px; color: var(--cyber-yellow);">IDLE</span>
+          </div>
+          <div id="workflow-trace-timeline" style="display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px;"></div>
+
+          <label class="zeus-label" for="workflow-final-output">/// FINAL SYNTHESIZED PROMPT</label>
+          <textarea id="workflow-final-output" class="zeus-input" readonly style="min-height: 90px;" placeholder="Final output will appear here..."></textarea>
+
+          <div class="button-row" style="margin-top: 10px;">
+            <button id="btn-workflow-apply-editor" class="zeus-btn zeus-btn-yellow">APPLY TO EDITOR</button>
+            <button id="btn-workflow-copy" class="zeus-btn zeus-btn-cyan">COPY RESULT</button>
+          </div>
+        </div>
       </section>
 
     </main>
@@ -127,12 +252,63 @@
       </div>
     </div>
 
+    <!-- A/B Comparison Modal -->
+    <div id="modal-ab-compare" class="zeus-modal" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.85); z-index: 1000; align-items: center; justify-content: center; padding: 15px;">
+      <div class="zeus-terminal-card" data-variant="cyan" style="width: 100%; max-width: 600px; max-height: 90vh; overflow-y: auto;">
+        <div class="card-accent"></div>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+          <h2 style="font-family: 'Orbitron', sans-serif; font-size: 13px; margin: 0;">/// PROMPT A/B QUALITY COMPARISON</h2>
+          <button id="btn-close-ab-modal" class="zeus-btn zeus-btn-ghost" style="padding: 2px 8px; font-size: 12px;">✕</button>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px;">
+          <!-- Variant A -->
+          <div style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); padding: 10px; border-radius: 4px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+              <span style="font-weight: bold; color: var(--net-cyan); font-size: 11px;">VARIANT A (ORIGINAL)</span>
+              <span id="ab-score-a" style="font-family: monospace; font-size: 12px; font-weight: bold;">--</span>
+            </div>
+            <div id="ab-content-a" style="font-size: 11px; font-family: monospace; max-height: 120px; overflow-y: auto; background: rgba(0,0,0,0.3); padding: 6px; border-radius: 3px; white-space: pre-wrap; word-break: break-word;"></div>
+          </div>
+
+          <!-- Variant B -->
+          <div style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); padding: 10px; border-radius: 4px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+              <span style="font-weight: bold; color: var(--acid-green); font-size: 11px;">VARIANT B (OPTIMIZED)</span>
+              <span id="ab-score-b" style="font-family: monospace; font-size: 12px; font-weight: bold;">--</span>
+            </div>
+            <div id="ab-content-b" style="font-size: 11px; font-family: monospace; max-height: 120px; overflow-y: auto; background: rgba(0,0,0,0.3); padding: 6px; border-radius: 3px; white-space: pre-wrap; word-break: break-word;"></div>
+          </div>
+        </div>
+
+        <!-- Delta & Comparison Stats -->
+        <div style="background: rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.1); padding: 10px; border-radius: 4px; margin-bottom: 12px;">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <span style="font-size: 11px; color: var(--text-muted);">SCORE DELTA:</span>
+            <span id="ab-score-delta" style="font-size: 14px; font-family: monospace; font-weight: bold;">--</span>
+          </div>
+          <div id="ab-dimension-breakdown" style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; margin-top: 8px; text-align: center; font-size: 10px; font-family: monospace;"></div>
+        </div>
+
+        <div style="display: flex; gap: 10px;">
+          <button id="btn-vote-a" class="zeus-btn zeus-btn-cyan" style="flex: 1; font-size: 11px;">SELECT VARIANT A</button>
+          <button id="btn-vote-b" class="zeus-btn zeus-btn-yellow" style="flex: 1; font-size: 11px;">SELECT VARIANT B</button>
+        </div>
+      </div>
+    </div>
+
     <!-- Status toast element -->
     <div id="sidepanel-toast-holder" style="position: absolute; bottom: 10px; right: 10px; z-index: 10000; pointer-events: none;"></div>
   </div>
 
   <script src="core/shortcuts.js"></script>
   <script src="core/transforms.js"></script>
+  <script src="core/promptLibrary.js"></script>
+  <script src="core/qualityScore.js"></script>
+  <script src="core/multimodal.js"></script>
+  <script src="core/workflows.js"></script>
+  <script src="core/privacy.js"></script>
+  <script src="core/commandPalette.js"></script>
   <script src="sidepanel.js" type="module"></script>
 </body>
 </html>

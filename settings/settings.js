@@ -2,7 +2,7 @@
   const registry = globalScope.ZeusModelRegistry || null;
 
   const SCHEMA_VERSION = 2;
-  const SUPPORTED_PROVIDERS = Object.freeze(['gemini', 'openai', 'claude', 'openrouter', 'ollama', 'auto']);
+  const SUPPORTED_PROVIDERS = Object.freeze(['gemini', 'openai', 'claude', 'openrouter', 'ollama', 'auto', 'custom']);
   const MODEL_PROVIDERS = Object.freeze(['gemini', 'openai', 'claude', 'openrouter']);
   const API_KEY_PROVIDERS = Object.freeze(['gemini', 'openai', 'claude', 'openrouter']);
 
@@ -32,11 +32,27 @@
     'apiKeys',
     'models',
     'ollama',
+    'customProviders',
     'sidePanelEnabled',
     'copilotEnabled',
     'copilotMode',
     'copilotProvider',
     'copilotMaxTokens',
+    'contextAwareEnabled',
+    'contextMaxTurns',
+    'contextMaxChars',
+    'smartRouterProfile',
+    'smartRouterCooldownMs',
+    'multimodalEnabled',
+    'visionOptimizationPreset',
+    'privacyModeEnabled',
+    'privacyCategories',
+    'privacyAutoRestore',
+    'privacyCustomPatterns',
+    'privacyAuditLogEnabled',
+    'commandPaletteEnabled',
+    'commandPaletteShortcut',
+    'keyboardShortcutsEnabled',
     'zeus_selected_provider',
     'zeus_gemini_api_key',
     'zeus_gemini_model',
@@ -69,6 +85,29 @@
       copilotMode: 'conservative',
       copilotProvider: 'auto',
       copilotMaxTokens: 60,
+      contextAwareEnabled: true,
+      contextMaxTurns: 4,
+      contextMaxChars: 2000,
+      smartRouterProfile: 'balanced',
+      smartRouterCooldownMs: 60000,
+      multimodalEnabled: true,
+      visionOptimizationPreset: 'auto',
+      privacyModeEnabled: false,
+      privacyCategories: {
+        email: true,
+        phone: true,
+        creditCard: true,
+        ssn: true,
+        ip: true,
+        apiKey: true,
+        custom: true
+      },
+      privacyAutoRestore: true,
+      privacyCustomPatterns: [],
+      privacyAuditLogEnabled: true,
+      commandPaletteEnabled: true,
+      commandPaletteShortcut: 'Ctrl+K',
+      keyboardShortcutsEnabled: true,
       apiKeys: {
         gemini: '',
         openai: '',
@@ -83,7 +122,8 @@
       },
       ollama: {
         model: ''
-      }
+      },
+      customProviders: []
     };
   }
 
@@ -91,9 +131,27 @@
     return String(value || '').trim();
   }
 
+  function normalizeCustomProvider(p) {
+    if (!p || typeof p !== 'object') return null;
+    const name = sanitizeString(p.name || 'Custom OpenAI').slice(0, 50);
+    const baseUrl = sanitizeString(p.baseUrl);
+    if (!baseUrl) return null;
+    const id = sanitizeString(p.id) || `custom-${name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${Math.random().toString(36).slice(2, 6)}`;
+    return {
+      id,
+      name,
+      baseUrl,
+      apiKey: sanitizeString(p.apiKey),
+      model: sanitizeString(p.model || 'default'),
+      customHeaders: (p.customHeaders && typeof p.customHeaders === 'object') ? p.customHeaders : {},
+      enabled: p.enabled === undefined ? true : Boolean(p.enabled),
+      createdAt: Number(p.createdAt) || Date.now()
+    };
+  }
+
   function normalizeProvider(provider, fallbackProvider) {
     const normalized = sanitizeString(provider).toLowerCase();
-    if (SUPPORTED_PROVIDERS.includes(normalized)) {
+    if (SUPPORTED_PROVIDERS.includes(normalized) || normalized.startsWith('custom')) {
       return normalized;
     }
     return fallbackProvider;
@@ -145,6 +203,41 @@
     const copilotMode = stored?.copilotMode !== undefined ? sanitizeString(stored.copilotMode) : defaults.copilotMode;
     const copilotProvider = stored?.copilotProvider !== undefined ? sanitizeString(stored.copilotProvider) : defaults.copilotProvider;
     const copilotMaxTokens = stored?.copilotMaxTokens !== undefined ? Number(stored.copilotMaxTokens) : defaults.copilotMaxTokens;
+    const contextAwareEnabled = stored?.contextAwareEnabled !== undefined ? Boolean(stored.contextAwareEnabled) : defaults.contextAwareEnabled;
+    const contextMaxTurns = stored?.contextMaxTurns !== undefined ? Math.max(1, Math.min(10, Number(stored.contextMaxTurns) || defaults.contextMaxTurns)) : defaults.contextMaxTurns;
+    const contextMaxChars = stored?.contextMaxChars !== undefined ? Math.max(200, Math.min(10000, Number(stored.contextMaxChars) || defaults.contextMaxChars)) : defaults.contextMaxChars;
+    const smartRouterProfile = ['balanced', 'performance', 'cost-saver', 'local-first'].includes(stored?.smartRouterProfile)
+      ? stored.smartRouterProfile
+      : defaults.smartRouterProfile;
+    const smartRouterCooldownMs = stored?.smartRouterCooldownMs !== undefined ? Math.max(5000, Number(stored.smartRouterCooldownMs) || defaults.smartRouterCooldownMs) : defaults.smartRouterCooldownMs;
+    const customProviders = Array.isArray(stored?.customProviders)
+      ? stored.customProviders.map(normalizeCustomProvider).filter(Boolean)
+      : defaults.customProviders;
+    const multimodalEnabled = stored?.multimodalEnabled !== undefined ? Boolean(stored.multimodalEnabled) : defaults.multimodalEnabled;
+    const validVisionPresets = ['auto', 'ui-code', 'error-debug', 'diagram-analysis', 'document-extract', 'general-vision'];
+    const visionOptimizationPreset = validVisionPresets.includes(stored?.visionOptimizationPreset)
+      ? stored.visionOptimizationPreset
+      : defaults.visionOptimizationPreset;
+    const privacyModeEnabled = stored?.privacyModeEnabled !== undefined ? Boolean(stored.privacyModeEnabled) : defaults.privacyModeEnabled;
+    const defaultCats = defaults.privacyCategories;
+    const storedCats = (stored && typeof stored.privacyCategories === 'object') ? stored.privacyCategories : {};
+    const privacyCategories = {
+      email: storedCats.email !== undefined ? Boolean(storedCats.email) : defaultCats.email,
+      phone: storedCats.phone !== undefined ? Boolean(storedCats.phone) : defaultCats.phone,
+      creditCard: storedCats.creditCard !== undefined ? Boolean(storedCats.creditCard) : defaultCats.creditCard,
+      ssn: storedCats.ssn !== undefined ? Boolean(storedCats.ssn) : defaultCats.ssn,
+      ip: storedCats.ip !== undefined ? Boolean(storedCats.ip) : defaultCats.ip,
+      apiKey: storedCats.apiKey !== undefined ? Boolean(storedCats.apiKey) : defaultCats.apiKey,
+      custom: storedCats.custom !== undefined ? Boolean(storedCats.custom) : defaultCats.custom
+    };
+    const privacyAutoRestore = stored?.privacyAutoRestore !== undefined ? Boolean(stored.privacyAutoRestore) : defaults.privacyAutoRestore;
+    const privacyCustomPatterns = Array.isArray(stored?.privacyCustomPatterns)
+      ? stored.privacyCustomPatterns.map((p) => String(p || '').trim()).filter(Boolean)
+      : defaults.privacyCustomPatterns;
+    const privacyAuditLogEnabled = stored?.privacyAuditLogEnabled !== undefined ? Boolean(stored.privacyAuditLogEnabled) : defaults.privacyAuditLogEnabled;
+    const commandPaletteEnabled = stored?.commandPaletteEnabled !== undefined ? Boolean(stored.commandPaletteEnabled) : defaults.commandPaletteEnabled;
+    const commandPaletteShortcut = sanitizeString(stored?.commandPaletteShortcut || defaults.commandPaletteShortcut);
+    const keyboardShortcutsEnabled = stored?.keyboardShortcutsEnabled !== undefined ? Boolean(stored.keyboardShortcutsEnabled) : defaults.keyboardShortcutsEnabled;
 
     return {
       schemaVersion: SCHEMA_VERSION,
@@ -154,9 +247,25 @@
       copilotMode,
       copilotProvider,
       copilotMaxTokens,
+      contextAwareEnabled,
+      contextMaxTurns,
+      contextMaxChars,
+      smartRouterProfile,
+      smartRouterCooldownMs,
+      multimodalEnabled,
+      visionOptimizationPreset,
+      privacyModeEnabled,
+      privacyCategories,
+      privacyAutoRestore,
+      privacyCustomPatterns,
+      privacyAuditLogEnabled,
+      commandPaletteEnabled,
+      commandPaletteShortcut,
+      keyboardShortcutsEnabled,
       apiKeys,
       models,
-      ollama
+      ollama,
+      customProviders
     };
   }
 
@@ -175,9 +284,25 @@
       copilotMode: settings.copilotMode,
       copilotProvider: settings.copilotProvider,
       copilotMaxTokens: settings.copilotMaxTokens,
+      contextAwareEnabled: settings.contextAwareEnabled,
+      contextMaxTurns: settings.contextMaxTurns,
+      contextMaxChars: settings.contextMaxChars,
+      smartRouterProfile: settings.smartRouterProfile,
+      smartRouterCooldownMs: settings.smartRouterCooldownMs,
+      multimodalEnabled: settings.multimodalEnabled,
+      visionOptimizationPreset: settings.visionOptimizationPreset,
+      privacyModeEnabled: settings.privacyModeEnabled,
+      privacyCategories: { ...settings.privacyCategories },
+      privacyAutoRestore: settings.privacyAutoRestore,
+      privacyCustomPatterns: [...settings.privacyCustomPatterns],
+      privacyAuditLogEnabled: settings.privacyAuditLogEnabled,
+      commandPaletteEnabled: settings.commandPaletteEnabled,
+      commandPaletteShortcut: settings.commandPaletteShortcut,
+      keyboardShortcutsEnabled: settings.keyboardShortcutsEnabled,
       apiKeys: { ...settings.apiKeys },
       models: { ...settings.models },
       ollama: { ...settings.ollama },
+      customProviders: settings.customProviders.map((p) => ({ ...p })),
 
       // Legacy compatibility keys for existing extension versions.
       zeus_selected_provider: settings.provider,
@@ -260,6 +385,9 @@
     loadSettings,
     saveSettings,
     getModelForProvider,
-    getApiKeyForProvider
+    getApiKeyForProvider,
+    normalizeCustomProvider,
+    getCustomProviders: (s) => (s && Array.isArray(s.customProviders) ? s.customProviders : []),
+    getCustomProvider: (s, id) => (s && Array.isArray(s.customProviders) ? s.customProviders.find((p) => p.id === id) : null)
   });
 })(typeof globalThis !== 'undefined' ? globalThis : this);

@@ -248,11 +248,40 @@
     try {
       await sendMessageWithTimeout({ action: 'ping' }, 3000).catch(() => null);
 
-      const response = await sendMessageWithTimeout({
+      let conversationContext = null;
+      if (settings?.contextAwareEnabled !== false && typeof domUtils.extractConversationTurns === 'function') {
+        try {
+          const maxTurns = settings?.contextMaxTurns || 4;
+          const maxTotalChars = settings?.contextMaxChars || 2000;
+          conversationContext = domUtils.extractConversationTurns(document, { maxTurns, maxTotalChars });
+        } catch (_) {
+          conversationContext = null;
+        }
+      }
+
+      let attachments = null;
+      if (settings?.multimodalEnabled !== false && globalScope.ZeusMultimodal?.extractAttachedImagesFromDOM) {
+        try {
+          const domAttachments = globalScope.ZeusMultimodal.extractAttachedImagesFromDOM(document);
+          if (domAttachments && domAttachments.length > 0) {
+            attachments = domAttachments;
+          }
+        } catch (_) {
+          attachments = null;
+        }
+      }
+
+      const enhancePayload = {
         action: 'enhancePrompt',
         prompt: originalPrompt,
-        transformId: transform?.id || ''
-      }, MESSAGE_TIMEOUT_MS);
+        transformId: transform?.id || '',
+        conversationContext
+      };
+      if (attachments && attachments.length > 0) {
+        enhancePayload.attachments = attachments;
+      }
+
+      const response = await sendMessageWithTimeout(enhancePayload, MESSAGE_TIMEOUT_MS);
 
       if (!response?.success) {
         throw new Error(String(response?.error || 'Unknown response from extension'));
@@ -287,14 +316,29 @@
     }
   }
 
-  function resolveActiveEditableInput() {
-    const active = document.activeElement;
+  /**
+   * Resolves the editable the user is actually typing in, or null. Never falls
+   * back to "some other box on the page": a shortcut must not rewrite an input the
+   * caret is not in.
+   *
+   * Walks shadow roots first — a prompt box inside a web component leaves
+   * document.activeElement pointing at the shadow host, not the editable node.
+   */
+  function resolveFocusedEditableInput() {
+    const active = domUtils.getActiveElementRecursive
+      ? domUtils.getActiveElementRecursive()
+      : document.activeElement;
+
     if (domUtils.isEditableElement(active) && domUtils.isEligibleInput(active)) {
       return active;
     }
 
-    const candidates = collectInputs();
-    return candidates[0] || null;
+    return null;
+  }
+
+  /** Context-menu target: prefers the focused editable, else the first candidate. */
+  function resolveActiveEditableInput() {
+    return resolveFocusedEditableInput() || collectInputs()[0] || null;
   }
 
   function showStatusToast(message, type, durationMs) {
@@ -308,7 +352,7 @@
    * caret is already in, so a shortcut can never silently rewrite another box.
    */
   async function applyTransformShortcut(transform, event) {
-    const input = resolveActiveEditableInput();
+    const input = resolveFocusedEditableInput();
     if (!input || (event?.target && event.target !== input && !input.contains(event.target))) {
       showStatusToast('FOCUS A PROMPT INPUT FIRST', 'error', 3000);
       return;
@@ -367,22 +411,45 @@
         return;
       }
 
-      const targetInput = resolveActiveEditableInput();
+      const targetInput = resolveFocusedEditableInput();
       if (!targetInput) {
         return;
       }
 
       const transform = shortcuts.findTransformForEvent(event, transforms);
-      if (!transform) {
+      if (transform) {
+        event.preventDefault();
+        event.stopPropagation();
+
+        applyTransformShortcut(transform, event).catch(() => {
+          showStatusToast('TRANSFORM FAILED', 'error', 3000);
+        });
         return;
       }
 
-      event.preventDefault();
-      event.stopPropagation();
+      // The transform list arrives asynchronously, so a press landing in the first
+      // few hundred milliseconds after load would otherwise be dropped in silence.
+      // Wait for the list, then re-match: the keystroke is claimed only if it turns
+      // out to be bound, so ordinary typing in that window is never swallowed.
+      Promise.resolve(transformsPromise)
+        .then(() => {
+          if (transforms.length === 0) {
+            return;
+          }
 
-      applyTransformShortcut(transform, event).catch(() => {
-        showStatusToast('TRANSFORM FAILED', 'error', 3000);
-      });
+          const lateTransform = shortcuts.findTransformForEvent(event, transforms);
+          if (!lateTransform) {
+            return;
+          }
+
+          event.preventDefault();
+          event.stopPropagation();
+
+          return applyTransformShortcut(lateTransform, event).catch(() => {
+            showStatusToast('TRANSFORM FAILED', 'error', 3000);
+          });
+        })
+        .catch(() => undefined);
     };
 
     document.addEventListener('keydown', transformKeydownHandler, true);
@@ -433,15 +500,24 @@
     chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       if (message?.action === 'sidePanel:getCurrentInput' || message?.type === 'sidePanel:getCurrentInput') {
         const val = domUtils.getActiveInputValue();
+        let attachments = [];
+        if (settings?.multimodalEnabled !== false && globalScope.ZeusMultimodal?.extractAttachedImagesFromDOM) {
+          try {
+            attachments = globalScope.ZeusMultimodal.extractAttachedImagesFromDOM(document);
+          } catch (_) {
+            attachments = [];
+          }
+        }
         if (val !== undefined && val !== null && val !== '') {
           const currentAdapter = activeAdapter || resolveAdapter();
           sendResponse({
             value: val,
+            attachments,
             url: location.href,
             site: currentAdapter ? currentAdapter.host : window.location.hostname
           });
         } else {
-          sendResponse({ value: '' });
+          sendResponse({ value: '', attachments });
         }
         return true;
       }
@@ -556,13 +632,29 @@
   }
 
   async function initialize() {
-    activeAdapter = resolveAdapter();
-    await fetchSettingsIfNeeded();
-    fetchTransformsIfNeeded();
+    // Register every input path BEFORE the first await. A hanging or rejected
+    // settings round-trip must never be able to leave the page with no keydown
+    // listener at all — that failure mode is completely silent to the user.
     setupRuntimeMessageListener();
     setupTransformChangeListener();
     setupTransformShortcutListener();
     setupVisibilityListener();
+
+    activeAdapter = resolveAdapter();
+
+    // Start the transform fetch now rather than after the settings round-trip:
+    // the shortcut listener can only match once this list has arrived, so delaying
+    // it widens the window in which a press has nothing to match against.
+    fetchTransformsIfNeeded();
+
+    // Deferred work: none of these can prevent the shortcut listener above from
+    // working, so failures are contained and do not abort initialization.
+    try {
+      await fetchSettingsIfNeeded();
+    } catch (_) {
+      // Settings are retried on the first enhancement attempt.
+    }
+
     refreshInjection();
     startObserver();
   }
@@ -576,5 +668,18 @@
     document.addEventListener('DOMContentLoaded', initialize, { once: true });
   } else {
     initialize();
+  }
+
+  // Single, greppable confirmation that this tab has the current build and that the
+  // shortcut listener is live. Absence of this line means the content script never
+  // ran here, which is the fastest way to tell "stale build/injection" apart from
+  // "binding does not match".
+  try {
+    console.log(
+      `[ZEUS] content script ready (v${chrome.runtime.getManifest().version}); ` +
+      'shortcut listener active; transforms loading'
+    );
+  } catch (_) {
+    // Logging must never be able to break initialization.
   }
 })(typeof globalThis !== 'undefined' ? globalThis : this);

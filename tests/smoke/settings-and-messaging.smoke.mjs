@@ -228,6 +228,10 @@ async function runMessageActionSmoke() {
 
   await loadScript('model-registry.js');
   await loadScript(path.join('settings', 'settings.js'));
+  await loadScript(path.join('core', 'promptLibrary.js'));
+  await loadScript(path.join('core', 'presets.js'));
+  await loadScript(path.join('core', 'qualityScore.js'));
+  await loadScript(path.join('core', 'privacy.js'));
 
   let telemetryCleared = false;
 
@@ -359,6 +363,71 @@ async function runMessageActionSmoke() {
 
   const missingDeleteId = await invokeMessage(messageListener, { action: 'deleteTransform' });
   assert(missingDeleteId?.success === false, 'Expected deleteTransform to require an id.');
+
+  const exportPresetRes = await invokeMessage(messageListener, {
+    action: 'presets:export',
+    meta: { name: 'Smoke Test Presets' }
+  });
+  assert(exportPresetRes?.success === true, 'Expected presets:export to succeed in smoke test.');
+  assert(exportPresetRes?.bundle?.format === 'zeus-preset-pack', 'Expected bundle format to match.');
+
+  const importPresetRes = await invokeMessage(messageListener, {
+    action: 'presets:import',
+    bundle: exportPresetRes.bundle,
+    options: { mode: 'merge' }
+  });
+  assert(importPresetRes?.success === true, 'Expected presets:import to succeed in smoke test.');
+  assert(typeof importPresetRes?.stats?.transformsCount === 'number', 'Expected import stats.');
+
+  const qualityEvalRes = await invokeMessage(messageListener, {
+    action: 'quality:evaluate',
+    prompt: 'You are a senior engineer. Write a function in Rust with constraints and tests.'
+  });
+  assert(qualityEvalRes?.success === true, 'Expected quality:evaluate to succeed in smoke test.');
+  assert(typeof qualityEvalRes?.evaluation?.score === 'number', 'Expected score to be number.');
+
+  const qualityCompRes = await invokeMessage(messageListener, {
+    action: 'quality:compare',
+    promptA: 'Write code.',
+    promptB: 'You are an expert. Write code with tests.'
+  });
+  assert(qualityCompRes?.success === true, 'Expected quality:compare to succeed in smoke test.');
+  assert(qualityCompRes?.comparison?.winner === 'B', 'Expected variant B to win.');
+
+  const saveExpRes = await invokeMessage(messageListener, {
+    action: 'ab:saveExperiment',
+    experiment: {
+      title: 'Smoke Test Exp',
+      promptA: 'Write code.',
+      promptB: 'You are an expert. Write code with tests.',
+      userWinner: 'B'
+    }
+  });
+  assert(saveExpRes?.success === true, 'Expected ab:saveExperiment to succeed in smoke test.');
+
+  const privacyScanRes = await invokeMessage(messageListener, {
+    action: 'privacy:scan',
+    text: 'Please send email to alice@example.com with key sk-proj-1234567890abcdef123456'
+  });
+  assert(privacyScanRes?.success === true, 'Expected privacy:scan to succeed in smoke test.');
+  assert(privacyScanRes?.hasPII === true, 'Expected privacy:scan to detect PII.');
+  assert(privacyScanRes?.count === 2, 'Expected 2 PII entities detected.');
+
+  const privacyRedactRes = await invokeMessage(messageListener, {
+    action: 'privacy:redact',
+    text: 'Please send email to alice@example.com with key sk-proj-1234567890abcdef123456'
+  });
+  assert(privacyRedactRes?.success === true, 'Expected privacy:redact to succeed in smoke test.');
+  assert(privacyRedactRes?.totalRedacted === 2, 'Expected 2 redacted entities.');
+  assert(privacyRedactRes?.redactedText.includes('[EMAIL_1]'), 'Expected surrogate token.');
+
+  const privacyRestoreRes = await invokeMessage(messageListener, {
+    action: 'privacy:restore',
+    text: privacyRedactRes.redactedText,
+    tokenMap: privacyRedactRes.tokenMap
+  });
+  assert(privacyRestoreRes?.success === true, 'Expected privacy:restore to succeed.');
+  assert(privacyRestoreRes?.restoredText.includes('alice@example.com'), 'Expected restored email.');
 }
 
 (async () => {

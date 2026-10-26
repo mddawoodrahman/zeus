@@ -41,23 +41,140 @@
     return String(model?.id || fallback || '').trim();
   }
 
-  function detectPromptIntent(prompt) {
-    const text = String(prompt || '').toLowerCase();
+  const providerFailureCooldowns = new Map();
+
+  function recordProviderFailure(provider) {
+    if (!provider) return;
+    providerFailureCooldowns.set(String(provider).toLowerCase(), Date.now());
+  }
+
+  function isProviderCoolingDown(provider, cooldownMs = 60000) {
+    if (!provider) return false;
+    const lastFailure = providerFailureCooldowns.get(String(provider).toLowerCase());
+    if (!lastFailure) return false;
+    return Date.now() - lastFailure < cooldownMs;
+  }
+
+  function clearProviderCooldown(provider) {
+    if (provider) {
+      providerFailureCooldowns.delete(String(provider).toLowerCase());
+    } else {
+      providerFailureCooldowns.clear();
+    }
+  }
+
+  function analyzePrompt(prompt, options = {}) {
+    const text = String(prompt || '').trim();
+    const lower = text.toLowerCase();
+
+    const hasAttachment = Boolean(options?.attachments?.length || options?.multimodal);
+    if (hasAttachment) {
+      return {
+        intent: 'vision',
+        complexity: Math.min(1.0, Math.max(0.6, Math.round((0.5 + text.length / 1000) * 10) / 10)),
+        estimatedTokens: Math.max(1, Math.ceil(text.length / 4)),
+        hasAttachments: true,
+        attachmentsCount: Array.isArray(options?.attachments) ? options.attachments.length : 1
+      };
+    }
 
     const codingSignals = /\b(code|coding|debug|bug|stack trace|refactor|typescript|javascript|python|sql|algorithm|function|compile|test case|unit test|api endpoint)\b/i;
     const cheapSignals = /\b(cheap|budget|low cost|fast answer|quick rewrite|minimal tokens|lightweight)\b/i;
     const longFormSignals = /\b(long form|long-form|essay|detailed report|comprehensive|in-depth|whitepaper|multi section|article|extensive)\b/i;
+    const reasoningSignals = /\b(proof|prove|derive|theorem|mathematical|logic|logical deduction|causal|step by step reasoning|step-by-step reasoning|chain of thought|first principles)\b/i;
+    const creativeSignals = /\b(story|poem|poetry|fiction|novel|character|screenplay|dialogue|creative writing|narrative|lyric)\b/i;
+    const visionSignals = /\b(image|diagram|chart|flowchart|wireframe|mockup|screenshot|visualize|infographic|ocr)\b/i;
 
-    if (codingSignals.test(text)) return 'coding';
-    if (cheapSignals.test(text)) return 'cheap';
-    if (longFormSignals.test(text) || text.length > 1200) return 'long-form';
-    return 'default';
+    let intent = 'default';
+    if (codingSignals.test(lower)) {
+      intent = 'coding';
+    } else if (cheapSignals.test(lower)) {
+      intent = 'cheap';
+    } else if (longFormSignals.test(lower) || lower.length > 1200) {
+      intent = 'long-form';
+    } else if (reasoningSignals.test(lower)) {
+      intent = 'reasoning';
+    } else if (creativeSignals.test(lower)) {
+      intent = 'creative';
+    } else if (visionSignals.test(lower)) {
+      intent = 'vision';
+    }
+
+    let complexity = 0.2;
+    if (text.length > 800) complexity += 0.3;
+    else if (text.length > 200) complexity += 0.15;
+
+    const structuralChecks = [
+      /\n\s*[-*]\s+/,
+      /\n\s*\d+\.\s+/,
+      /```[\s\S]*?```/,
+      /[{}()[\]]{2,}/,
+      /\b(must|strictly|constraint|requirement|validate|edge cases|deterministic)\b/i
+    ];
+
+    for (const pattern of structuralChecks) {
+      if (pattern.test(text)) {
+        complexity += 0.1;
+      }
+    }
+
+    complexity = Math.min(1.0, Math.round(complexity * 10) / 10);
+    const estimatedTokens = Math.max(1, Math.ceil(text.length / 4));
+
+    return {
+      intent,
+      complexity,
+      estimatedTokens,
+      hasAttachments: false,
+      attachmentsCount: 0
+    };
   }
 
-  function autoRouteForIntent(intent) {
+  function detectPromptIntent(prompt, options = {}) {
+    return analyzePrompt(prompt, options).intent;
+  }
+
+  function autoRouteForIntent(intent, options = {}) {
+    const profile = String(options?.profile || 'balanced').toLowerCase();
     const openAiDefault = getProviderDefaultModel('openai');
     const claudeDefault = getProviderDefaultModel('claude');
     const geminiDefault = getProviderDefaultModel('gemini');
+
+    if (profile === 'local-first') {
+      return { provider: 'ollama', model: '' };
+    }
+
+    if (profile === 'performance') {
+      if (intent === 'coding') {
+        return {
+          provider: 'openai',
+          model: getProviderModelByPredicate(
+            'openai',
+            (item) => item.group === 'coding-agents' || item.id.includes('codex') || item.group === 'high-intelligence',
+            openAiDefault
+          )
+        };
+      }
+      return {
+        provider: 'claude',
+        model: getProviderModelByPredicate(
+          'claude',
+          (item) => item.group === 'high-intelligence' || (item.bestFor || []).includes('reasoning'),
+          claudeDefault
+        )
+      };
+    }
+
+    if (profile === 'cost-saver') {
+      return {
+        provider: 'gemini',
+        model: getProviderModelByPredicate(
+          'gemini',
+          (item) => item.cost === 'low' || item.group === 'fast-cheap',
+          geminiDefault
+        )
+      };
+    }
 
     if (intent === 'coding') {
       return {
@@ -70,12 +187,23 @@
       };
     }
 
-    if (intent === 'long-form') {
+    if (intent === 'long-form' || intent === 'reasoning') {
       return {
         provider: 'claude',
         model: getProviderModelByPredicate(
           'claude',
-          (item) => (item.bestFor || []).includes('long-form') || item.group === 'high-intelligence',
+          (item) => (item.bestFor || []).includes('long-form') || item.group === 'high-intelligence' || (item.bestFor || []).includes('reasoning'),
+          claudeDefault
+        )
+      };
+    }
+
+    if (intent === 'creative') {
+      return {
+        provider: 'claude',
+        model: getProviderModelByPredicate(
+          'claude',
+          (item) => item.group === 'recommended' || item.group === 'high-intelligence',
           claudeDefault
         )
       };
@@ -92,35 +220,97 @@
       };
     }
 
+    if (intent === 'vision') {
+      return {
+        provider: 'gemini',
+        model: getProviderModelByPredicate(
+          'gemini',
+          (item) => item.group === 'recommended' || item.group === 'high-intelligence',
+          geminiDefault
+        )
+      };
+    }
+
     return { provider: 'openai', model: openAiDefault };
   }
 
-  function buildAutoRouteCandidates(primaryRoute) {
-    const defaults = [
-      primaryRoute,
-      { provider: 'openai', model: getProviderDefaultModel('openai') },
-      { provider: 'claude', model: getProviderDefaultModel('claude') },
-      { provider: 'gemini', model: getProviderDefaultModel('gemini') },
-      { provider: 'ollama', model: '' }
-    ];
+  function buildSmartRouteCandidates(primaryRoute, options = {}) {
+    const profile = String(options?.profile || 'balanced').toLowerCase();
+    const cooldownMs = Number(options?.cooldownMs) || 60000;
 
-    const unique = [];
+    const openAiDefault = getProviderDefaultModel('openai');
+    const claudeDefault = getProviderDefaultModel('claude');
+    const geminiDefault = getProviderDefaultModel('gemini');
+
+    let baseList = [];
+
+    if (profile === 'local-first') {
+      baseList = [
+        primaryRoute,
+        { provider: 'ollama', model: '' },
+        { provider: 'gemini', model: geminiDefault },
+        { provider: 'openai', model: openAiDefault },
+        { provider: 'claude', model: claudeDefault }
+      ];
+    } else if (profile === 'performance') {
+      baseList = [
+        primaryRoute,
+        { provider: 'claude', model: claudeDefault },
+        { provider: 'openai', model: openAiDefault },
+        { provider: 'gemini', model: geminiDefault },
+        { provider: 'ollama', model: '' }
+      ];
+    } else if (profile === 'cost-saver') {
+      baseList = [
+        primaryRoute,
+        { provider: 'gemini', model: geminiDefault },
+        { provider: 'openai', model: getProviderModelByPredicate('openai', (i) => i.cost === 'low', openAiDefault) },
+        { provider: 'ollama', model: '' },
+        { provider: 'claude', model: claudeDefault }
+      ];
+    } else {
+      baseList = [
+        primaryRoute,
+        { provider: 'openai', model: openAiDefault },
+        { provider: 'claude', model: claudeDefault },
+        { provider: 'gemini', model: geminiDefault },
+        { provider: 'ollama', model: '' }
+      ];
+    }
+
     const seen = new Set();
+    const healthy = [];
+    const coolingDown = [];
 
-    for (const item of defaults) {
+    for (const item of baseList) {
       const provider = String(item?.provider || '').trim();
       const model = String(item?.model || '').trim();
       const key = `${provider}:${model}`;
 
       if (!provider || seen.has(key)) continue;
       seen.add(key);
-      unique.push({ provider, model });
+
+      const routeItem = { provider, model };
+      if (primaryRoute && primaryRoute.provider === provider && primaryRoute.model === model) {
+        healthy.push(routeItem);
+      } else if (isProviderCoolingDown(provider, cooldownMs)) {
+        coolingDown.push(routeItem);
+      } else {
+        healthy.push(routeItem);
+      }
     }
 
-    return unique;
+    return [...healthy, ...coolingDown];
+  }
+
+  function buildAutoRouteCandidates(primaryRoute, options) {
+    return buildSmartRouteCandidates(primaryRoute, options);
   }
 
   function hasApiKeyForProvider(config, provider) {
+    if (provider === 'custom' || provider.startsWith('custom-')) {
+      return true;
+    }
     return Boolean(String(config?.apiKeys?.[provider] || '').trim());
   }
 
@@ -140,7 +330,11 @@
   }
 
   async function callProvider(provider, prompt, config, options) {
-    const providerFn = providers[provider];
+    let providerFn = providers[provider];
+    if (!providerFn && (provider === 'custom' || String(provider).startsWith('custom-'))) {
+      providerFn = providers.custom;
+    }
+
     if (typeof providerFn !== 'function') {
       throw new Error(`Unsupported provider: ${provider}`);
     }
@@ -149,9 +343,11 @@
   }
 
   async function enhanceWithAuto(prompt, config, options) {
-    const intent = detectPromptIntent(prompt);
-    const primaryRoute = autoRouteForIntent(intent);
-    const candidates = buildAutoRouteCandidates(primaryRoute);
+    const analysis = analyzePrompt(prompt, options);
+    const intent = analysis.intent;
+    const profile = config?.smartRouterProfile || 'balanced';
+    const primaryRoute = autoRouteForIntent(intent, { profile, complexity: analysis.complexity });
+    const candidates = buildSmartRouteCandidates(primaryRoute, { profile, config, cooldownMs: config?.smartRouterCooldownMs });
 
     const attempted = [];
 
@@ -174,8 +370,10 @@
 
       try {
         const override = withProviderModelOverride(config, provider, model);
-        return await callProvider(provider, prompt, override, options);
+        const result = await callProvider(provider, prompt, override, options);
+        return result;
       } catch (error) {
+        recordProviderFailure(provider);
         trackAutoFallback({
           provider,
           fromModel: model || 'auto',
@@ -219,20 +417,90 @@
       // A transform supplies its own rewrite instruction; the prompt builder keeps
       // the shared formatting and safety rules regardless.
       const transform = options?.transform && typeof options.transform === 'object' ? options.transform : null;
-      const promptOptions = transform
-        ? { instruction: transform.instruction, label: transform.name }
+      const conversationContext = options?.conversationContext || undefined;
+      const attachments = (Array.isArray(options?.attachments) && options.attachments.length) ? options.attachments : undefined;
+
+      const privacy = globalScope.ZeusPrivacy || null;
+      const isPrivacyEnabled = options?.privacyMode !== undefined
+        ? Boolean(options.privacyMode)
+        : Boolean(config?.privacyModeEnabled);
+
+      let effectivePrompt = prompt;
+      let effectiveContext = conversationContext;
+      const tokenMap = {};
+
+      if (isPrivacyEnabled && privacy) {
+        const privacyOptions = {
+          categories: config?.privacyCategories,
+          customPatterns: config?.privacyCustomPatterns
+        };
+
+        const promptRedaction = privacy.redactPrompt(prompt, privacyOptions);
+        effectivePrompt = promptRedaction.redactedText;
+        Object.assign(tokenMap, promptRedaction.tokenMap);
+
+        if (promptRedaction.totalRedacted > 0 && config?.privacyAuditLogEnabled !== false) {
+          privacy.recordRedactionStats(promptRedaction.counts).catch(() => {});
+        }
+
+        if (effectiveContext) {
+          if (typeof effectiveContext === 'string') {
+            const ctxRedaction = privacy.redactPrompt(effectiveContext, privacyOptions);
+            Object.assign(tokenMap, ctxRedaction.tokenMap);
+            effectiveContext = ctxRedaction.redactedText;
+          } else if (Array.isArray(effectiveContext)) {
+            effectiveContext = effectiveContext.map((turn) => {
+              if (typeof turn === 'string') {
+                const tr = privacy.redactPrompt(turn, privacyOptions);
+                Object.assign(tokenMap, tr.tokenMap);
+                return tr.redactedText;
+              }
+              if (turn && typeof turn === 'object' && typeof turn.text === 'string') {
+                const tr = privacy.redactPrompt(turn.text, privacyOptions);
+                Object.assign(tokenMap, tr.tokenMap);
+                return { ...turn, text: tr.redactedText };
+              }
+              return turn;
+            });
+          }
+        }
+      }
+
+      const hasTransform = Boolean(transform);
+      const hasContext = Boolean(effectiveContext);
+      const hasAttachments = Boolean(attachments);
+      const promptOptions = (hasTransform || hasContext || hasAttachments)
+        ? {
+            ...(hasTransform ? { instruction: transform.instruction, label: transform.name } : {}),
+            ...(hasContext ? { conversationContext: effectiveContext } : {}),
+            ...(hasAttachments ? { attachments } : {})
+          }
         : undefined;
 
       console.log(`${logPrefix.info} ROUTING PROMPT`, logStyle.info, {
         provider,
-        transform: transform?.id || 'default'
+        transform: transform?.id || 'default',
+        contextAware: Boolean(effectiveContext),
+        attachmentsCount: attachments?.length || 0,
+        privacyMode: isPrivacyEnabled,
+        redactedTokens: Object.keys(tokenMap).length
       });
 
       let result;
       if (provider === 'auto') {
-        result = await enhanceWithAuto(prompt, config, promptOptions);
+        result = await enhanceWithAuto(effectivePrompt, config, promptOptions);
       } else {
-        result = await callProvider(provider, prompt, config, promptOptions);
+        result = await callProvider(provider, effectivePrompt, config, promptOptions);
+      }
+
+      if (isPrivacyEnabled && privacy && Object.keys(tokenMap).length > 0) {
+        const autoRestore = options?.autoRestore !== undefined
+          ? Boolean(options.autoRestore)
+          : (config?.privacyAutoRestore !== false);
+
+        if (autoRestore) {
+          result = privacy.restorePrompt(result, tokenMap);
+        }
       }
 
       const duration = Date.now() - startTime;
@@ -280,13 +548,17 @@
         }
       }
     } else {
-      if (provider !== 'ollama' && !settings?.apiKeys?.[provider]) {
+      if (provider !== 'ollama' && provider !== 'custom' && !provider.startsWith('custom-') && !settings?.apiKeys?.[provider]) {
         port.postMessage({ type: 'error', message: `Missing API key for provider ${provider}` });
         return;
       }
     }
 
-    const providerFn = providers[provider];
+    let providerFn = providers[provider];
+    if (!providerFn && (provider === 'custom' || provider.startsWith('custom-'))) {
+      providerFn = providers.custom;
+    }
+
     if (typeof providerFn !== 'function') {
       port.postMessage({ type: 'error', message: `Unsupported provider: ${provider}` });
       return;
@@ -297,8 +569,18 @@
       return;
     }
 
+    let suggestionText = text;
+    const privacy = globalScope.ZeusPrivacy || null;
+    if (settings?.privacyModeEnabled && privacy) {
+      const red = privacy.redactPrompt(text, {
+        categories: settings?.privacyCategories,
+        customPatterns: settings?.privacyCustomPatterns
+      });
+      suggestionText = red.redactedText;
+    }
+
     try {
-      await providerFn.suggest(text, settings, port, abortSignal);
+      await providerFn.suggest(suggestionText, settings, port, abortSignal);
     } catch (err) {
       if (abortSignal?.aborted) return;
       // Provider text must be redacted before it reaches the page.
@@ -312,8 +594,13 @@
   globalScope.ZeusRouter = Object.freeze({
     enhancePrompt,
     detectPromptIntent,
+    analyzePrompt,
     autoRouteForIntent,
     buildAutoRouteCandidates,
+    buildSmartRouteCandidates,
+    recordProviderFailure,
+    isProviderCoolingDown,
+    clearProviderCooldown,
     streamSuggest
   });
 })(typeof globalThis !== 'undefined' ? globalThis : this);

@@ -11,6 +11,31 @@ function keyEvent(key, modifiers) {
   };
 }
 
+/**
+ * A keydown carrying BOTH `key` and `code`, exactly as Chrome dispatches it.
+ *
+ * `key` is the character the layout actually produced — with Shift held on a US
+ * layout, Ctrl+Shift+1 reports key === "!" while code === "Digit1". Tests that
+ * omit `code` cannot see that difference and will pass while the feature is dead.
+ */
+function physicalKeyEvent(key, code, modifiers) {
+  return Object.assign(keyEvent(key, modifiers), { code });
+}
+
+/** The real US-layout keydown for the shipped defaults. */
+const DIGIT_ROW = Object.freeze({
+  1: { key: '!', code: 'Digit1' },
+  2: { key: '@', code: 'Digit2' },
+  4: { key: '$', code: 'Digit4' },
+  5: { key: '%', code: 'Digit5' },
+  9: { key: '(', code: 'Digit9' }
+});
+
+function digitEvent(digit, modifiers) {
+  const physical = DIGIT_ROW[digit];
+  return physicalKeyEvent(physical.key, physical.code, modifiers);
+}
+
 describe('ZeusShortcuts', () => {
   beforeEach(() => {
     clearZeusGlobals();
@@ -132,5 +157,113 @@ describe('ZeusShortcuts', () => {
     expect(shortcuts.findDuplicateShortcut(transforms, 'Ctrl+Shift+1', 'polish')).toBeNull();
     expect(shortcuts.findDuplicateShortcut(transforms, 'Ctrl+Shift+9', 'polish')).toBeNull();
     expect(shortcuts.findDuplicateShortcut(transforms, '', 'polish')).toBeNull();
+  });
+
+  describe('real browser keydown events (event.code, not event.key)', () => {
+    it('matches Ctrl+Shift+1 even though event.key is "!"', () => {
+      const shortcuts = globalThis.ZeusShortcuts;
+      const event = physicalKeyEvent('!', 'Digit1', { ctrl: true, shift: true });
+
+      // Document the trap explicitly: event.key alone is not the digit.
+      expect(event.key).toBe('!');
+      expect(shortcuts.matchesEvent(event, 'Ctrl+Shift+1')).toBe(true);
+    });
+
+    it('canonicalizes a physically-pressed digit back to the unshifted key', () => {
+      const shortcuts = globalThis.ZeusShortcuts;
+
+      expect(shortcuts.comboFromEvent(physicalKeyEvent('!', 'Digit1', { ctrl: true, shift: true })))
+        .toBe('Ctrl+Shift+1');
+      expect(shortcuts.comboFromEvent(physicalKeyEvent('@', 'Digit2', { ctrl: true, shift: true })))
+        .toBe('Ctrl+Shift+2');
+      expect(shortcuts.comboFromEvent(physicalKeyEvent('#', 'Digit3', { ctrl: true, shift: true })))
+        .toBe('Ctrl+Shift+3');
+      // Shifted symbols that have no relation to the digit's unshifted value.
+      expect(shortcuts.comboFromEvent(physicalKeyEvent('$', 'Digit4', { ctrl: true, shift: true })))
+        .toBe('Ctrl+Shift+4');
+      expect(shortcuts.comboFromEvent(physicalKeyEvent('%', 'Digit5', { ctrl: true, shift: true })))
+        .toBe('Ctrl+Shift+5');
+    });
+
+    it('resolves the shipped default transforms from real keydown events', () => {
+      const shortcuts = globalThis.ZeusShortcuts;
+
+      const transforms = [
+        { id: 'builtin-polish', name: 'Polish', enabled: true, shortcut: 'Ctrl+Shift+1' },
+        { id: 'builtin-prompt-engineer', name: 'Prompt Engineer', enabled: true, shortcut: 'Ctrl+Shift+2' }
+      ];
+
+      expect(shortcuts.findTransformForEvent(digitEvent(1, { ctrl: true, shift: true }), transforms)?.id)
+        .toBe('builtin-polish');
+      expect(shortcuts.findTransformForEvent(digitEvent(2, { ctrl: true, shift: true }), transforms)?.id)
+        .toBe('builtin-prompt-engineer');
+      // An unbound digit row key stays unbound.
+      expect(shortcuts.findTransformForEvent(digitEvent(9, { ctrl: true, shift: true }), transforms))
+        .toBeNull();
+    });
+
+    it('binds the physical key, so a different layout still triggers the shortcut', () => {
+      const shortcuts = globalThis.ZeusShortcuts;
+      // On AZERTY, physical Digit1 emits "&" rather than "1"/"!".
+      const azerty = physicalKeyEvent('&', 'Digit1', { ctrl: true, shift: true });
+
+      expect(shortcuts.comboFromEvent(azerty)).toBe('Ctrl+Shift+1');
+      expect(shortcuts.matchesEvent(azerty, 'Ctrl+Shift+1')).toBe(true);
+    });
+
+    it('still distinguishes the Shift state on the digit row', () => {
+      const shortcuts = globalThis.ZeusShortcuts;
+
+      expect(shortcuts.matchesEvent(physicalKeyEvent('1', 'Digit1', { ctrl: true }), 'Ctrl+Shift+1'))
+        .toBe(false);
+      expect(shortcuts.matchesEvent(physicalKeyEvent('!', 'Digit1', { ctrl: true, shift: true, alt: true }), 'Ctrl+Shift+1'))
+        .toBe(false);
+    });
+
+    it('leaves labelled keys and modifier-only presses alone', () => {
+      const shortcuts = globalThis.ZeusShortcuts;
+
+      // A letter reports its unshifted value through code just as before.
+      expect(shortcuts.comboFromEvent(physicalKeyEvent('P', 'KeyP', { ctrl: true, shift: true })))
+        .toBe('Ctrl+Shift+P');
+      expect(shortcuts.comboFromEvent(physicalKeyEvent('Escape', 'Escape', { ctrl: true })))
+        .toBe('Ctrl+Escape');
+      // Bare Shift produces no combo at all.
+      expect(shortcuts.comboFromEvent(physicalKeyEvent('Shift', 'ShiftLeft', { shift: true }))).toBe('');
+      // Caps Lock is a real key, not a modifier, but binding it alone is refused so
+      // toggling the lock while typing can never fire a transform.
+      expect(shortcuts.isValidCombo('CapsLock')).toBe(false);
+      expect(shortcuts.validateCombo('CapsLock').reason).toMatch(/add a modifier/i);
+      expect(shortcuts.isValidCombo('NumLock')).toBe(false);
+      expect(shortcuts.isValidCombo('ScrollLock')).toBe(false);
+      // With a modifier it is an ordinary binding.
+      expect(shortcuts.comboFromEvent(physicalKeyEvent('CapsLock', 'CapsLock', { shift: true }))).toBe('Shift+CapsLock');
+      expect(shortcuts.isValidCombo('Ctrl+CapsLock')).toBe(true);
+    });
+
+    it('rejects free-form text and modifier-only combos', () => {
+      const shortcuts = globalThis.ZeusShortcuts;
+
+      expect(shortcuts.parseCombo('not-a-combo')).toBeNull();
+      expect(shortcuts.canonicalizeCombo('not-a-combo')).toBe('');
+      expect(shortcuts.isValidCombo('not-a-combo')).toBe(false);
+      expect(shortcuts.validateCombo('Shift').valid).toBe(false);
+      expect(shortcuts.validateCombo('Control+Alt').valid).toBe(false);
+      expect(shortcuts.validateCombo('Ctrl').reason).toMatch(/modifier keys alone/i);
+    });
+
+    it('round-trips a recorded combo so the recorder and the matcher agree', () => {
+      const shortcuts = globalThis.ZeusShortcuts;
+
+      // What the recorder stores when the user presses Ctrl+Shift+1.
+      const recorded = shortcuts.comboFromEvent(digitEvent(1, { ctrl: true, shift: true }));
+      const validation = shortcuts.validateCombo(recorded);
+
+      expect(validation.valid).toBe(true);
+      expect(validation.canonical).toBe('Ctrl+Shift+1');
+      // The stored value is exactly what the matcher accepts back.
+      expect(shortcuts.matchesEvent(digitEvent(1, { ctrl: true, shift: true }), recorded)).toBe(true);
+      expect(shortcuts.formatCombo(recorded)).toBe('Ctrl + Shift + 1');
+    });
   });
 });

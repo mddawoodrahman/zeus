@@ -641,82 +641,126 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     popupTransforms.forEach((transform, index) => {
-      const row = document.createElement('div');
-      row.className = 'transform-row';
-      row.style.cssText = 'border: 1px solid rgba(255,255,255,0.12); padding: 8px; display: flex; flex-direction: column; gap: 6px;';
+      const card = document.createElement('div');
+      card.className = 'transform-card';
+      card.style.cssText = 'border: 1px solid rgba(255,255,255,0.12); background: rgba(255,255,255,0.02); padding: 10px; display: flex; flex-direction: column; gap: 8px; border-radius: 4px;';
 
       const header = document.createElement('div');
       header.style.cssText = 'display: flex; align-items: center; justify-content: space-between; gap: 8px;';
+
+      const titleWrap = document.createElement('div');
+      titleWrap.style.cssText = 'display: flex; align-items: center; gap: 6px; flex: 1;';
 
       const nameInput = document.createElement('input');
       nameInput.type = 'text';
       nameInput.className = 'zeus-input';
       nameInput.value = transform.name || '';
-      nameInput.placeholder = 'Name';
+      nameInput.placeholder = 'Transform Name';
+      nameInput.style.cssText = 'font-weight: 600; font-family: Orbitron, sans-serif; font-size: 11px; flex: 1;';
       nameInput.addEventListener('input', () => {
         popupTransforms[index].name = nameInput.value;
       });
 
+      titleWrap.appendChild(nameInput);
+
+      if (transform.builtin) {
+        const builtinBadge = document.createElement('span');
+        builtinBadge.textContent = 'BUILTIN';
+        builtinBadge.style.cssText = 'font-size: 8px; padding: 1px 4px; border-radius: 2px; background: rgba(0,255,255,0.15); color: var(--net-cyan); font-family: monospace; letter-spacing: 0.5px;';
+        titleWrap.appendChild(builtinBadge);
+      }
+
       const enabledLabel = document.createElement('label');
-      enabledLabel.style.cssText = 'display: flex; align-items: center; gap: 6px; font-size: 10px; cursor: pointer; white-space: nowrap;';
+      enabledLabel.style.cssText = 'display: flex; align-items: center; gap: 4px; font-size: 10px; cursor: pointer; white-space: nowrap; font-family: monospace;';
 
       const enabledInput = document.createElement('input');
       enabledInput.type = 'checkbox';
       enabledInput.checked = transform.enabled !== false;
+      enabledInput.setAttribute('aria-label', `Enable ${transform.name || 'transform'}`);
       enabledInput.addEventListener('change', () => {
         popupTransforms[index].enabled = enabledInput.checked;
+        enabledText.textContent = enabledInput.checked ? 'ON' : 'OFF';
+        enabledText.style.color = enabledInput.checked ? 'var(--acid-green)' : 'var(--text-muted)';
       });
 
       const enabledText = document.createElement('span');
-      enabledText.textContent = 'ON';
+      enabledText.textContent = transform.enabled !== false ? 'ON' : 'OFF';
+      enabledText.style.color = transform.enabled !== false ? 'var(--acid-green)' : 'var(--text-muted)';
       enabledLabel.appendChild(enabledInput);
       enabledLabel.appendChild(enabledText);
 
-      header.appendChild(nameInput);
+      const removeBtn = document.createElement('button');
+      removeBtn.type = 'button';
+      removeBtn.className = 'zeus-btn zeus-btn-ghost';
+      removeBtn.style.cssText = 'padding: 2px 6px; font-size: 11px; color: var(--arasaka-red); min-width: 24px; text-align: center;';
+      removeBtn.textContent = '✕';
+      removeBtn.title = transform.builtin ? 'Built-in transforms cannot be deleted' : 'Delete transform';
+      if (transform.builtin) {
+        removeBtn.disabled = true;
+        removeBtn.style.opacity = '0.3';
+        removeBtn.style.cursor = 'not-allowed';
+      } else {
+        removeBtn.addEventListener('click', () => {
+          if (confirm(`Delete transform "${transform.name || 'Untitled'}"?`)) {
+            popupTransforms.splice(index, 1);
+            renderTransforms();
+            setTransformsStatus('TRANSFORM REMOVED — CLICK SAVE TO COMMIT', 'warning');
+          }
+        });
+      }
+
+      header.appendChild(titleWrap);
       header.appendChild(enabledLabel);
+      header.appendChild(removeBtn);
 
       const instructionLabel = document.createElement('label');
       instructionLabel.className = 'zeus-label';
-      instructionLabel.textContent = 'REWRITE INSTRUCTION';
+      instructionLabel.style.cssText = 'font-size: 9px; color: var(--text-muted); margin: 0;';
+      instructionLabel.textContent = '/// REWRITE INSTRUCTION';
 
       const instructionInput = document.createElement('textarea');
       instructionInput.className = 'zeus-input';
-      instructionInput.rows = 3;
+      instructionInput.rows = 2;
       instructionInput.value = transform.instruction || '';
       instructionInput.placeholder = 'How should this transform rewrite the prompt?';
+      instructionInput.style.cssText = 'font-family: monospace; font-size: 11px; resize: vertical; min-height: 48px;';
       instructionInput.addEventListener('input', () => {
         popupTransforms[index].instruction = instructionInput.value;
       });
 
       const shortcutRow = document.createElement('div');
-      shortcutRow.style.cssText = 'display: flex; align-items: center; justify-content: space-between; gap: 8px;';
+      shortcutRow.style.cssText = 'display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 2px;';
+
+      const shortcutLeft = document.createElement('div');
+      shortcutLeft.style.cssText = 'display: flex; align-items: center; gap: 6px;';
 
       const shortcutLabel = document.createElement('span');
       shortcutLabel.className = 'zeus-label';
-      shortcutLabel.textContent = 'SHORTCUT';
+      shortcutLabel.style.cssText = 'font-size: 9px; color: var(--text-muted); margin: 0;';
+      shortcutLabel.textContent = 'SHORTCUT:';
 
       const shortcutField = document.createElement('div');
       shortcutField.className = 'zeus-input';
-      shortcutField.style.cssText = 'cursor: pointer; text-align: center; min-width: 120px; font-size: 11px;';
+      shortcutField.style.cssText = 'cursor: pointer; text-align: center; min-width: 110px; font-size: 10px; font-family: monospace; padding: 3px 6px; background: rgba(0,0,0,0.3);';
 
-      shortcutRow.appendChild(shortcutLabel);
-      shortcutRow.appendChild(shortcutField);
+      shortcutLeft.appendChild(shortcutLabel);
+      shortcutLeft.appendChild(shortcutField);
 
-      const removeBtn = document.createElement('button');
-      removeBtn.type = 'button';
-      removeBtn.className = 'zeus-btn zeus-btn-ghost';
-      removeBtn.textContent = 'DELETE';
-      removeBtn.addEventListener('click', () => {
-        popupTransforms.splice(index, 1);
-        renderTransforms();
-      });
+      const clearShortcutBtn = document.createElement('button');
+      clearShortcutBtn.type = 'button';
+      clearShortcutBtn.className = 'zeus-btn zeus-btn-ghost';
+      clearShortcutBtn.style.cssText = 'padding: 2px 6px; font-size: 9px; color: var(--text-secondary); text-decoration: none;';
+      clearShortcutBtn.textContent = 'CLEAR';
+      clearShortcutBtn.title = 'Clear shortcut';
 
-      row.appendChild(header);
-      row.appendChild(instructionLabel);
-      row.appendChild(instructionInput);
-      row.appendChild(shortcutRow);
-      row.appendChild(removeBtn);
-      transformsList.appendChild(row);
+      shortcutRow.appendChild(shortcutLeft);
+      shortcutRow.appendChild(clearShortcutBtn);
+
+      card.appendChild(header);
+      card.appendChild(instructionLabel);
+      card.appendChild(instructionInput);
+      card.appendChild(shortcutRow);
+      transformsList.appendChild(card);
 
       const recorder = shortcuts.createRecorder(shortcutField, {
         onCommit(combo) {
@@ -735,6 +779,10 @@ document.addEventListener('DOMContentLoaded', () => {
           setTransformsStatus(String(reason || 'THAT COMBINATION CANNOT BE USED').toUpperCase(), 'error');
           recorder.setCombo(popupTransforms[index].shortcut || '');
         }
+      });
+
+      clearShortcutBtn.addEventListener('click', () => {
+        recorder.clear();
       });
 
       recorder.setCombo(transform.shortcut || '');

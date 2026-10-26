@@ -7,6 +7,7 @@ const ZEUS_GLOBAL_KEYS = [
   'ZeusSettings',
   'ZeusRetry',
   'ZeusPrompts',
+  'ZeusPromptLibrary',
   'ZeusErrors',
   'ZeusProviderUtils',
   'ZeusProviders',
@@ -16,6 +17,10 @@ const ZEUS_GLOBAL_KEYS = [
   'ZeusFloatingPosition',
   'ZeusInjector',
   'ZeusObserver',
+  'ZeusGhostText',
+  'ZeusCopilot',
+  'ZeusShortcuts',
+  'ZeusTransforms',
   'ZeusContentAdapters',
   'ZeusContentRuntime',
   'ZeusOllamaMeta'

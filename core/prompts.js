@@ -79,6 +79,27 @@
     return DEFAULT_FRAMEWORK.slice();
   }
 
+  function formatConversationContext(contextInput) {
+    if (!contextInput) return '';
+    if (typeof contextInput === 'string') {
+      return contextInput.trim();
+    }
+    if (!Array.isArray(contextInput) || contextInput.length === 0) {
+      return '';
+    }
+
+    const lines = [];
+    for (const turn of contextInput) {
+      const roleLabel = (turn.role === 'assistant' || turn.role === 'model') ? '[Assistant]' : '[User]';
+      const text = String(turn.text || '').trim();
+      if (text) {
+        lines.push(`${roleLabel}: ${text}`);
+      }
+    }
+
+    return lines.join('\n');
+  }
+
   function buildEnhancePrompt(input, options) {
     const cleanInput = String(input || '').trim();
     if (!cleanInput) {
@@ -86,6 +107,25 @@
     }
 
     const framework = buildFrameworkSection(options);
+    const contextText = formatConversationContext(options?.conversationContext);
+    const contextSection = contextText ? [
+      'CONVERSATION CONTEXT (RECENT TURNS):',
+      contextText,
+      '',
+      'CONTEXT RESOLUTION RULES:',
+      '   - Resolve ambiguous references, pronouns (it, that, this, the previous one) using context.',
+      '   - Ensure the enhanced prompt is completely self-contained for the LLM while maintaining thread intent.',
+      ''
+    ] : [];
+
+    const multimodalMod = globalScope.ZeusMultimodal;
+    const multimodalDirectives = (options?.attachments || options?.multimodal) && multimodalMod
+      ? multimodalMod.formatMultimodalDirectives(options.attachments || options.multimodal, options)
+      : '';
+    const multimodalSection = multimodalDirectives ? [
+      multimodalDirectives,
+      ''
+    ] : [];
 
     const sections = [
       'You are an elite AI prompt architect with deep expertise in cognitive task design,',
@@ -99,6 +139,8 @@
       '',
       ...SAFETY_RULES,
       '',
+      ...contextSection,
+      ...multimodalSection,
       'ORIGINAL PROMPT:',
       cleanInput,
       '',
@@ -124,6 +166,7 @@
   globalScope.ZeusPrompts = Object.freeze({
     buildEnhancePrompt,
     getRewriteSystemInstruction,
+    formatConversationContext,
     DEFAULT_OBJECTIVE,
     DEFAULT_FRAMEWORK
   });

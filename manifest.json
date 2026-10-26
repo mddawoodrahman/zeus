@@ -60,6 +60,7 @@
         "adapters/deepseek.js",
         "adapters/openrouter.js",
         "adapters/generic.js",
+        "core/multimodal.js",
         "content.js"
       ],
       "run_at": "document_end"

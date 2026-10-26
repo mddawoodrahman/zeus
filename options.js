@@ -31,11 +31,56 @@ document.addEventListener('DOMContentLoaded', () => {
   const copilotProviderSelect = document.getElementById('copilotProvider');
   const copilotModeSelect = document.getElementById('copilotMode');
   const copilotMaxTokensInput = document.getElementById('copilotMaxTokens');
+  const contextAwareEnabledCheckbox = document.getElementById('contextAwareEnabled');
+  const contextMaxTurnsSelect = document.getElementById('contextMaxTurns');
+  const smartRouterSettingsDiv = document.getElementById('smart-router-settings');
+  const smartRouterProfileSelect = document.getElementById('smartRouterProfile');
+  const multimodalEnabledCheckbox = document.getElementById('multimodalEnabled');
+  const visionOptimizationPresetSelect = document.getElementById('visionOptimizationPreset');
+  const multimodalConfigsDiv = document.getElementById('multimodal-configs');
+  const privacyModeEnabledCheckbox = document.getElementById('privacyModeEnabled');
+  const privacyConfigsDiv = document.getElementById('privacy-configs');
+  const privacyCatEmail = document.getElementById('privacy_cat_email');
+  const privacyCatPhone = document.getElementById('privacy_cat_phone');
+  const privacyCatCreditCard = document.getElementById('privacy_cat_creditCard');
+  const privacyCatSsn = document.getElementById('privacy_cat_ssn');
+  const privacyCatIp = document.getElementById('privacy_cat_ip');
+  const privacyCatApiKey = document.getElementById('privacy_cat_apiKey');
+  const privacyCatCustom = document.getElementById('privacy_cat_custom');
+  const privacyAutoRestoreCheckbox = document.getElementById('privacyAutoRestore');
+  const privacyCustomPatternsInput = document.getElementById('privacyCustomPatterns');
+  const privacyTotalProtectedEl = document.getElementById('privacyTotalProtected');
+  const btnResetPrivacyStats = document.getElementById('btn-reset-privacy-stats');
+  const commandPaletteEnabledCheckbox = document.getElementById('commandPaletteEnabled');
+  const commandPaletteShortcutInput = document.getElementById('commandPaletteShortcut');
+  const keyboardShortcutsEnabledCheckbox = document.getElementById('keyboardShortcutsEnabled');
 
   copilotEnabledCheckbox?.addEventListener('change', () => {
     if (copilotConfigsDiv) {
       copilotConfigsDiv.style.display = copilotEnabledCheckbox.checked ? 'flex' : 'none';
     }
+  });
+
+  multimodalEnabledCheckbox?.addEventListener('change', () => {
+    if (multimodalConfigsDiv) {
+      multimodalConfigsDiv.style.display = multimodalEnabledCheckbox.checked ? 'flex' : 'none';
+    }
+  });
+
+  privacyModeEnabledCheckbox?.addEventListener('change', () => {
+    if (privacyConfigsDiv) {
+      privacyConfigsDiv.style.display = privacyModeEnabledCheckbox.checked ? 'flex' : 'none';
+    }
+  });
+
+  btnResetPrivacyStats?.addEventListener('click', async () => {
+    try {
+      await new Promise((resolve) => {
+        chrome.runtime.sendMessage({ action: 'privacy:resetStats' }, resolve);
+      });
+      if (privacyTotalProtectedEl) privacyTotalProtectedEl.textContent = '0';
+      writeToConsole('PRIVACY AUDIT STATS RESET.');
+    } catch (_) {}
   });
 
   // Sidebar navigation toggling
@@ -56,6 +101,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
       if (targetId === 'telemetry-section') {
         loadTelemetryData();
+      } else if (targetId === 'presets-section') {
+        loadAbExperiments();
       }
     });
   });
@@ -194,6 +241,10 @@ document.addEventListener('DOMContentLoaded', () => {
       autoRoutingCard.style.display = selectedProvider === 'auto' ? 'block' : 'none';
     }
 
+    if (smartRouterSettingsDiv) {
+      smartRouterSettingsDiv.style.display = selectedProvider === 'auto' ? 'block' : 'none';
+    }
+
     if (providerHelpText) {
       providerHelpText.textContent = registry?.getProviderHelper?.(selectedProvider) || '';
     }
@@ -203,8 +254,176 @@ document.addEventListener('DOMContentLoaded', () => {
       ollamaSuggestions.textContent = suggestions.length
         ? `Suggested local models: ${suggestions.join(', ')}`
         : '';
+    } else if (selectedProvider?.startsWith('custom') && providerHelpText) {
+      providerHelpText.textContent = 'OpenAI-compatible custom endpoint runtime.';
     }
   }
+
+  const customProvidersList = document.getElementById('custom-providers-list');
+  const btnAddCustomProvider = document.getElementById('btnAddCustomProvider');
+  const customProviderForm = document.getElementById('custom-provider-form');
+  const customProviderId = document.getElementById('customProviderId');
+  const customProviderName = document.getElementById('customProviderName');
+  const customProviderModel = document.getElementById('customProviderModel');
+  const customProviderBaseUrl = document.getElementById('customProviderBaseUrl');
+  const customProviderApiKey = document.getElementById('customProviderApiKey');
+  const btnSaveCustomProvider = document.getElementById('btnSaveCustomProvider');
+  const btnCancelCustomProvider = document.getElementById('btnCancelCustomProvider');
+
+  function syncCustomProviderSelectOptions() {
+    if (!aiProviderSelect) return;
+    const existing = aiProviderSelect.querySelectorAll('option[data-custom="true"]');
+    existing.forEach(opt => opt.remove());
+
+    const list = currentSettings.customProviders || [];
+    list.forEach(cp => {
+      const opt = document.createElement('option');
+      opt.value = `custom-${cp.id}`;
+      opt.textContent = `${cp.name} (Custom)`;
+      opt.dataset.custom = 'true';
+      aiProviderSelect.appendChild(opt);
+    });
+  }
+
+  function renderCustomProvidersList() {
+    if (!customProvidersList) return;
+    customProvidersList.innerHTML = '';
+    const list = currentSettings.customProviders || [];
+
+    if (list.length === 0) {
+      const emptyDiv = document.createElement('div');
+      emptyDiv.style.color = 'var(--text-muted)';
+      emptyDiv.style.fontSize = '11px';
+      emptyDiv.style.padding = '8px 0';
+      emptyDiv.textContent = 'NO CUSTOM RUNTIMES CONFIGURED. CLICK + ADD PROVIDER TO CONFIGURE.';
+      customProvidersList.appendChild(emptyDiv);
+      return;
+    }
+
+    list.forEach(cp => {
+      const item = document.createElement('div');
+      item.className = 'custom-provider-item';
+      item.style.cssText = 'display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); padding: 8px 12px; border-radius: 4px;';
+
+      const info = document.createElement('div');
+      info.style.cssText = 'display: flex; flex-direction: column; gap: 2px;';
+      
+      const title = document.createElement('span');
+      title.style.cssText = 'font-weight: 600; font-size: 12px; color: var(--electric-cyan);';
+      title.textContent = cp.name;
+
+      const meta = document.createElement('span');
+      meta.style.cssText = 'font-size: 10px; color: var(--text-muted); font-family: monospace;';
+      meta.textContent = `${cp.baseUrl || cp.endpoint} | Model: ${cp.defaultModel || cp.model || 'auto'}`;
+
+      info.appendChild(title);
+      info.appendChild(meta);
+
+      const actions = document.createElement('div');
+      actions.style.cssText = 'display: flex; gap: 6px;';
+
+      const editBtn = document.createElement('button');
+      editBtn.type = 'button';
+      editBtn.className = 'zeus-btn zeus-btn-ghost';
+      editBtn.style.cssText = 'padding: 3px 8px; font-size: 10px;';
+      editBtn.textContent = 'EDIT';
+      editBtn.addEventListener('click', () => {
+        openCustomProviderForm(cp);
+      });
+
+      const delBtn = document.createElement('button');
+      delBtn.type = 'button';
+      delBtn.className = 'zeus-btn zeus-btn-ghost';
+      delBtn.style.cssText = 'padding: 3px 8px; font-size: 10px; color: var(--arasaka-red);';
+      delBtn.textContent = 'DELETE';
+      delBtn.addEventListener('click', async () => {
+        if (confirm(`Remove custom runtime "${cp.name}"?`)) {
+          const filtered = (currentSettings.customProviders || []).filter(item => item.id !== cp.id);
+          currentSettings.customProviders = filtered;
+          if (currentSettings.provider === `custom-${cp.id}` || currentSettings.provider === cp.id) {
+            currentSettings.provider = 'gemini';
+          }
+          await saveSettings();
+          renderCustomProvidersList();
+          syncCustomProviderSelectOptions();
+        }
+      });
+
+      actions.appendChild(editBtn);
+      actions.appendChild(delBtn);
+
+      item.appendChild(info);
+      item.appendChild(actions);
+      customProvidersList.appendChild(item);
+    });
+  }
+
+  function openCustomProviderForm(cp = null) {
+    if (!customProviderForm) return;
+    customProviderForm.style.display = 'block';
+    if (cp) {
+      if (customProviderId) customProviderId.value = cp.id;
+      if (customProviderName) customProviderName.value = cp.name;
+      if (customProviderModel) customProviderModel.value = cp.defaultModel || cp.model || '';
+      if (customProviderBaseUrl) customProviderBaseUrl.value = cp.baseUrl || cp.endpoint || '';
+      if (customProviderApiKey) customProviderApiKey.value = cp.apiKey || '';
+    } else {
+      if (customProviderId) customProviderId.value = '';
+      if (customProviderName) customProviderName.value = '';
+      if (customProviderModel) customProviderModel.value = '';
+      if (customProviderBaseUrl) customProviderBaseUrl.value = 'http://localhost:1234/v1';
+      if (customProviderApiKey) customProviderApiKey.value = '';
+    }
+  }
+
+  function closeCustomProviderForm() {
+    if (customProviderForm) {
+      customProviderForm.style.display = 'none';
+    }
+  }
+
+  btnAddCustomProvider?.addEventListener('click', () => {
+    openCustomProviderForm();
+  });
+
+  btnCancelCustomProvider?.addEventListener('click', () => {
+    closeCustomProviderForm();
+  });
+
+  btnSaveCustomProvider?.addEventListener('click', async () => {
+    const id = customProviderId?.value.trim() || `custom_${Date.now()}`;
+    const name = customProviderName?.value.trim() || 'Custom Provider';
+    const baseUrl = customProviderBaseUrl?.value.trim();
+    const model = customProviderModel?.value.trim() || 'default';
+    const apiKey = customProviderApiKey?.value.trim() || '';
+
+    if (!baseUrl) {
+      alert('Base URL is required.');
+      return;
+    }
+
+    const providerObj = {
+      id,
+      name,
+      baseUrl,
+      defaultModel: model,
+      apiKey
+    };
+
+    const list = [...(currentSettings.customProviders || [])];
+    const existingIndex = list.findIndex(p => p.id === id);
+    if (existingIndex >= 0) {
+      list[existingIndex] = providerObj;
+    } else {
+      list.push(providerObj);
+    }
+    currentSettings.customProviders = list;
+
+    closeCustomProviderForm();
+    await saveSettings();
+    renderCustomProvidersList();
+    syncCustomProviderSelectOptions();
+  });
 
   function supportsModelSelection(provider) {
     return Boolean(registry?.supportsModelSelection?.(provider));
@@ -407,6 +626,9 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function applySettingsToUI() {
+    syncCustomProviderSelectOptions();
+    renderCustomProvidersList();
+
     const provider = currentSettings.provider;
     aiProviderSelect.value = provider;
 
@@ -438,10 +660,70 @@ document.addEventListener('DOMContentLoaded', () => {
     if (copilotMaxTokensInput) {
       copilotMaxTokensInput.value = currentSettings.copilotMaxTokens || 60;
     }
+    if (contextAwareEnabledCheckbox) {
+      contextAwareEnabledCheckbox.checked = Boolean(currentSettings.contextAwareEnabled);
+    }
+    if (contextMaxTurnsSelect) {
+      contextMaxTurnsSelect.value = String(currentSettings.contextMaxTurns || 4);
+    }
+    if (smartRouterProfileSelect) {
+      smartRouterProfileSelect.value = currentSettings.smartRouterProfile || 'balanced';
+    }
+    if (multimodalEnabledCheckbox) {
+      multimodalEnabledCheckbox.checked = currentSettings.multimodalEnabled !== false;
+    }
+    if (multimodalConfigsDiv) {
+      multimodalConfigsDiv.style.display = currentSettings.multimodalEnabled !== false ? 'flex' : 'none';
+    }
+    if (visionOptimizationPresetSelect) {
+      visionOptimizationPresetSelect.value = currentSettings.visionOptimizationPreset || 'auto';
+    }
+
+    if (privacyModeEnabledCheckbox) {
+      privacyModeEnabledCheckbox.checked = Boolean(currentSettings.privacyModeEnabled);
+    }
+    if (privacyConfigsDiv) {
+      privacyConfigsDiv.style.display = currentSettings.privacyModeEnabled ? 'flex' : 'none';
+    }
+    const cats = currentSettings.privacyCategories || {};
+    if (privacyCatEmail) privacyCatEmail.checked = cats.email !== false;
+    if (privacyCatPhone) privacyCatPhone.checked = cats.phone !== false;
+    if (privacyCatCreditCard) privacyCatCreditCard.checked = cats.creditCard !== false;
+    if (privacyCatSsn) privacyCatSsn.checked = cats.ssn !== false;
+    if (privacyCatIp) privacyCatIp.checked = cats.ip !== false;
+    if (privacyCatApiKey) privacyCatApiKey.checked = cats.apiKey !== false;
+    if (privacyCatCustom) privacyCatCustom.checked = cats.custom !== false;
+    if (privacyAutoRestoreCheckbox) {
+      privacyAutoRestoreCheckbox.checked = currentSettings.privacyAutoRestore !== false;
+    }
+    if (privacyCustomPatternsInput) {
+      privacyCustomPatternsInput.value = Array.isArray(currentSettings.privacyCustomPatterns)
+        ? currentSettings.privacyCustomPatterns.join('\n')
+        : '';
+    }
+    if (commandPaletteEnabledCheckbox) {
+      commandPaletteEnabledCheckbox.checked = currentSettings.commandPaletteEnabled !== false;
+    }
+    if (commandPaletteShortcutInput) {
+      commandPaletteShortcutInput.value = currentSettings.commandPaletteShortcut || 'Ctrl+K';
+    }
+    if (keyboardShortcutsEnabledCheckbox) {
+      keyboardShortcutsEnabledCheckbox.checked = currentSettings.keyboardShortcutsEnabled !== false;
+    }
+    loadPrivacyStats();
 
     toggleProviderPanels(provider);
     syncModelSelector(provider, currentSettings.models?.[provider]);
     updateHealthIndicators();
+  }
+
+  function loadPrivacyStats() {
+    chrome.runtime.sendMessage({ action: 'privacy:getStats' }, (response) => {
+      if (privacyTotalProtectedEl) {
+        const count = response?.stats?.totalRedacted || 0;
+        privacyTotalProtectedEl.textContent = String(count);
+      }
+    });
   }
 
   async function loadSettings() {
@@ -468,6 +750,29 @@ document.addEventListener('DOMContentLoaded', () => {
         copilotProvider: copilotProviderSelect ? copilotProviderSelect.value : currentSettings.copilotProvider,
         copilotMode: copilotModeSelect ? copilotModeSelect.value : currentSettings.copilotMode,
         copilotMaxTokens: copilotMaxTokensInput ? (Number(copilotMaxTokensInput.value) || 60) : currentSettings.copilotMaxTokens,
+        contextAwareEnabled: contextAwareEnabledCheckbox ? contextAwareEnabledCheckbox.checked : currentSettings.contextAwareEnabled,
+        contextMaxTurns: contextMaxTurnsSelect ? (Number(contextMaxTurnsSelect.value) || 4) : currentSettings.contextMaxTurns,
+        smartRouterProfile: smartRouterProfileSelect ? smartRouterProfileSelect.value : currentSettings.smartRouterProfile,
+        multimodalEnabled: multimodalEnabledCheckbox ? multimodalEnabledCheckbox.checked : currentSettings.multimodalEnabled,
+        visionOptimizationPreset: visionOptimizationPresetSelect ? visionOptimizationPresetSelect.value : currentSettings.visionOptimizationPreset,
+        privacyModeEnabled: privacyModeEnabledCheckbox ? privacyModeEnabledCheckbox.checked : currentSettings.privacyModeEnabled,
+        privacyCategories: {
+          email: privacyCatEmail ? privacyCatEmail.checked : true,
+          phone: privacyCatPhone ? privacyCatPhone.checked : true,
+          creditCard: privacyCatCreditCard ? privacyCatCreditCard.checked : true,
+          ssn: privacyCatSsn ? privacyCatSsn.checked : true,
+          ip: privacyCatIp ? privacyCatIp.checked : true,
+          apiKey: privacyCatApiKey ? privacyCatApiKey.checked : true,
+          custom: privacyCatCustom ? privacyCatCustom.checked : true
+        },
+        privacyAutoRestore: privacyAutoRestoreCheckbox ? privacyAutoRestoreCheckbox.checked : true,
+        privacyCustomPatterns: privacyCustomPatternsInput
+          ? privacyCustomPatternsInput.value.split('\n').map((s) => s.trim()).filter(Boolean)
+          : currentSettings.privacyCustomPatterns,
+        privacyAuditLogEnabled: currentSettings.privacyAuditLogEnabled !== false,
+        commandPaletteEnabled: commandPaletteEnabledCheckbox ? commandPaletteEnabledCheckbox.checked : currentSettings.commandPaletteEnabled,
+        commandPaletteShortcut: commandPaletteShortcutInput ? commandPaletteShortcutInput.value.trim() : currentSettings.commandPaletteShortcut,
+        keyboardShortcutsEnabled: keyboardShortcutsEnabledCheckbox ? keyboardShortcutsEnabledCheckbox.checked : currentSettings.keyboardShortcutsEnabled,
         apiKeys: {
           gemini: settingsMap.gemini.apiKeyInput?.value.trim() || '',
           openai: settingsMap.openai.apiKeyInput?.value.trim() || '',
@@ -650,6 +955,391 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
+  // Preset Bundle Export and Import
+  const exportPresetName = document.getElementById('exportPresetName');
+  const exportPresetAuthor = document.getElementById('exportPresetAuthor');
+  const exportPresetDesc = document.getElementById('exportPresetDesc');
+  const btnExportPresetDownload = document.getElementById('btnExportPresetDownload');
+  const btnExportPresetCopy = document.getElementById('btnExportPresetCopy');
+  const presetFileInput = document.getElementById('presetFileInput');
+  const presetJsonInput = document.getElementById('presetJsonInput');
+  const btnImportPresetExecute = document.getElementById('btnImportPresetExecute');
+  const presetImportFeedback = document.getElementById('presetImportFeedback');
+
+  function getExportMetadata() {
+    return {
+      name: exportPresetName?.value.trim() || 'Team Presets',
+      author: exportPresetAuthor?.value.trim() || 'Zeus Team',
+      description: exportPresetDesc?.value.trim() || ''
+    };
+  }
+
+  btnExportPresetDownload?.addEventListener('click', () => {
+    chrome.runtime.sendMessage({ action: 'presets:export', meta: getExportMetadata() }, (res) => {
+      if (!res?.success || !res?.bundle) {
+        showStatus('EXPORT FAILED', 'error');
+        return;
+      }
+      const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(res.bundle, null, 2));
+      const downloadAnchor = document.createElement('a');
+      const filename = (res.bundle.meta?.name || 'zeus-presets').toLowerCase().replace(/[^a-z0-9_-]/g, '-') + '.json';
+      downloadAnchor.setAttribute('href', dataStr);
+      downloadAnchor.setAttribute('download', filename);
+      document.body.appendChild(downloadAnchor);
+      downloadAnchor.click();
+      downloadAnchor.remove();
+      writeToConsole(`PRESET BUNDLE EXPORTED: ${filename}`);
+      showStatus('BUNDLE EXPORTED', 'success');
+    });
+  });
+
+  btnExportPresetCopy?.addEventListener('click', () => {
+    chrome.runtime.sendMessage({ action: 'presets:export', meta: getExportMetadata() }, (res) => {
+      if (!res?.success || !res?.bundle) {
+        showStatus('EXPORT FAILED', 'error');
+        return;
+      }
+      const jsonText = JSON.stringify(res.bundle, null, 2);
+      if (navigator.clipboard) {
+        navigator.clipboard.writeText(jsonText).then(() => {
+          showStatus('COPIED TO CLIPBOARD', 'success');
+          writeToConsole('PRESET BUNDLE COPIED TO CLIPBOARD.');
+        });
+      }
+    });
+  });
+
+  presetFileInput?.addEventListener('change', (evt) => {
+    const file = evt.target?.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      if (presetJsonInput) {
+        presetJsonInput.value = e.target?.result || '';
+      }
+    };
+    reader.readAsText(file);
+  });
+
+  btnImportPresetExecute?.addEventListener('click', () => {
+    const rawJson = presetJsonInput?.value.trim();
+    if (!rawJson) {
+      if (presetImportFeedback) {
+        presetImportFeedback.style.color = 'var(--arasaka-red)';
+        presetImportFeedback.textContent = 'NO JSON PAYLOAD DETECTED.';
+      }
+      return;
+    }
+
+    let parsedBundle;
+    try {
+      parsedBundle = JSON.parse(rawJson);
+    } catch (e) {
+      if (presetImportFeedback) {
+        presetImportFeedback.style.color = 'var(--arasaka-red)';
+        presetImportFeedback.textContent = `INVALID JSON: ${e.message}`;
+      }
+      return;
+    }
+
+    const mode = document.querySelector('input[name="importMergeMode"]:checked')?.value || 'merge';
+
+    if (presetImportFeedback) {
+      presetImportFeedback.style.color = 'var(--net-cyan)';
+      presetImportFeedback.textContent = 'APPLYING PRESET PACK...';
+    }
+
+    chrome.runtime.sendMessage({ action: 'presets:import', bundle: parsedBundle, options: { mode } }, (res) => {
+      if (res?.success) {
+        const stats = res.stats || {};
+        if (presetImportFeedback) {
+          presetImportFeedback.style.color = 'var(--acid-green)';
+          presetImportFeedback.textContent = `SUCCESS: Imported ${stats.transformsCount || 0} transforms, ${stats.promptsCount || 0} prompts, ${stats.customProvidersCount || 0} providers.`;
+        }
+        showStatus('PRESETS APPLIED', 'success');
+        writeToConsole(`PRESET PACK IMPORTED (${mode.toUpperCase()})`);
+        loadSettings();
+      } else {
+        if (presetImportFeedback) {
+          presetImportFeedback.style.color = 'var(--arasaka-red)';
+          presetImportFeedback.textContent = `ERROR: ${res?.error || 'Failed to apply presets.'}`;
+        }
+        showStatus('IMPORT FAILED', 'error');
+      }
+    });
+  });
+
+  // A/B Experiment History in Options
+  const abExperimentsList = document.getElementById('ab-experiments-list');
+  const btnClearExperimentsBtn = document.getElementById('btnClearExperimentsBtn');
+
+  function loadAbExperiments() {
+    if (!abExperimentsList) return;
+    chrome.runtime.sendMessage({ action: 'ab:getExperiments' }, (res) => {
+      const list = res?.experiments || [];
+      abExperimentsList.innerHTML = '';
+      if (list.length === 0) {
+        const emptyDiv = document.createElement('div');
+        emptyDiv.style.color = 'var(--text-muted)';
+        emptyDiv.style.fontSize = '11px';
+        emptyDiv.style.padding = '8px 0';
+        emptyDiv.textContent = 'NO A/B EXPERIMENTS RECORDED YET. RUN A/B COMPARISON IN SIDE PANEL.';
+        abExperimentsList.appendChild(emptyDiv);
+        return;
+      }
+
+      list.slice(0, 10).forEach((exp) => {
+        const item = document.createElement('div');
+        item.style.cssText = 'background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); padding: 8px 12px; border-radius: 4px; display: flex; justify-content: space-between; align-items: center;';
+        
+        const info = document.createElement('div');
+        info.style.cssText = 'display: flex; flex-direction: column; gap: 2px;';
+        
+        const title = document.createElement('span');
+        title.style.cssText = 'font-weight: 600; font-size: 12px; color: var(--net-cyan);';
+        title.textContent = exp.title || 'Comparison Run';
+
+        const stats = document.createElement('span');
+        stats.style.cssText = 'font-size: 10px; color: var(--text-muted); font-family: monospace;';
+        const delta = exp.comparison?.delta || 0;
+        const sign = delta > 0 ? '+' : '';
+        stats.textContent = `Delta: ${sign}${delta} pts | Winner: Variant ${exp.userWinner || exp.comparison?.winner || 'N/A'}`;
+
+        info.appendChild(title);
+        info.appendChild(stats);
+
+        const delBtn = document.createElement('button');
+        delBtn.type = 'button';
+        delBtn.className = 'zeus-btn zeus-btn-ghost';
+        delBtn.style.cssText = 'padding: 2px 6px; font-size: 10px; color: var(--arasaka-red);';
+        delBtn.textContent = '✕';
+        delBtn.addEventListener('click', () => {
+          chrome.runtime.sendMessage({ action: 'ab:deleteExperiment', id: exp.id }, () => {
+            loadAbExperiments();
+          });
+        });
+
+        item.appendChild(info);
+        item.appendChild(delBtn);
+        abExperimentsList.appendChild(item);
+      });
+    });
+  }
+
+  btnClearExperimentsBtn?.addEventListener('click', () => {
+    if (confirm('Clear all A/B experiment history logs?')) {
+      chrome.storage.local.set({ zeus_ab_experiments: [] }, () => {
+        loadAbExperiments();
+        writeToConsole('A/B EXPERIMENT HISTORY PURGED.');
+      });
+    }
+  });
+
+  // ---------------------------------------------------------------------------
+  // Transforms HUD Management in Options
+  // ---------------------------------------------------------------------------
+  const transformsModule = globalThis.ZeusTransforms || null;
+  const shortcutsModule = globalThis.ZeusShortcuts || null;
+  const optionsTransformsList = document.getElementById('options-transforms-list');
+  const btnOptionsAddTransform = document.getElementById('btnOptionsAddTransform');
+  const btnOptionsSaveTransforms = document.getElementById('btnOptionsSaveTransforms');
+  const optionsTransformsFeedback = document.getElementById('optionsTransformsFeedback');
+
+  let optionsTransforms = [];
+  let optionsRecorders = [];
+
+  function setOptionsTransformsFeedback(text, color) {
+    if (!optionsTransformsFeedback) return;
+    optionsTransformsFeedback.textContent = text || '';
+    optionsTransformsFeedback.style.color = color || 'var(--cyber-yellow)';
+  }
+
+  function renderOptionsTransforms() {
+    if (!optionsTransformsList || !transformsModule || !shortcutsModule) return;
+
+    optionsRecorders.forEach(entry => entry.destroy());
+    optionsRecorders = [];
+    optionsTransformsList.innerHTML = '';
+
+    if (optionsTransforms.length === 0) {
+      const empty = document.createElement('p');
+      empty.className = 'helper-text';
+      empty.textContent = 'No transforms configured. Click NEW TRANSFORM to create one.';
+      optionsTransformsList.appendChild(empty);
+      return;
+    }
+
+    optionsTransforms.forEach((transform, index) => {
+      const card = document.createElement('div');
+      card.className = 'transform-card';
+      card.style.cssText = 'background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); padding: 12px; border-radius: 4px; display: flex; flex-direction: column; gap: 8px;';
+
+      const topRow = document.createElement('div');
+      topRow.style.cssText = 'display: flex; justify-content: space-between; align-items: center; gap: 10px;';
+
+      const titleWrap = document.createElement('div');
+      titleWrap.style.cssText = 'display: flex; align-items: center; gap: 8px; flex: 1;';
+
+      const nameInput = document.createElement('input');
+      nameInput.type = 'text';
+      nameInput.className = 'zeus-input';
+      nameInput.value = transform.name || '';
+      nameInput.placeholder = 'Transform Name';
+      nameInput.style.cssText = 'font-weight: 600; font-family: Orbitron, sans-serif; font-size: 11px; max-width: 200px;';
+      nameInput.addEventListener('input', (e) => {
+        optionsTransforms[index].name = e.target.value.trim();
+      });
+
+      const builtinBadge = document.createElement('span');
+      if (transform.builtin) {
+        builtinBadge.textContent = 'BUILTIN';
+        builtinBadge.style.cssText = 'font-size: 9px; padding: 1px 6px; border-radius: 2px; background: rgba(0,255,255,0.15); color: var(--net-cyan); font-family: monospace;';
+      }
+
+      titleWrap.appendChild(nameInput);
+      if (transform.builtin) titleWrap.appendChild(builtinBadge);
+
+      const shortcutWrap = document.createElement('div');
+      shortcutWrap.style.cssText = 'display: flex; align-items: center; gap: 6px;';
+
+      const shortcutLabel = document.createElement('span');
+      shortcutLabel.textContent = 'KEY:';
+      shortcutLabel.style.cssText = 'font-size: 10px; color: var(--text-muted); font-family: monospace;';
+
+      const shortcutBox = document.createElement('div');
+      shortcutBox.className = 'zeus-input';
+      shortcutBox.style.cssText = 'cursor: pointer; text-align: center; font-size: 11px; font-family: monospace; min-width: 140px; padding: 4px 8px;';
+
+      const recorder = shortcutsModule.createRecorder(shortcutBox, {
+        onCommit: (combo) => {
+          optionsTransforms[index].shortcut = combo;
+          const duplicate = shortcutsModule.findDuplicateShortcut(optionsTransforms, combo, transform.id);
+          if (duplicate) {
+            setOptionsTransformsFeedback(`Warning: "${combo}" collides with "${duplicate.name}". Duplicate will be unbound on save.`, 'var(--arasaka-red)');
+          } else {
+            setOptionsTransformsFeedback(`Shortcut set: ${shortcutsModule.formatCombo(combo) || 'None'}`, 'var(--acid-green)');
+          }
+        },
+        onReject: (reason) => {
+          setOptionsTransformsFeedback(reason, 'var(--arasaka-red)');
+        }
+      });
+      recorder.setCombo(transform.shortcut || '');
+      optionsRecorders.push(recorder);
+
+      const clearShortcutBtn = document.createElement('button');
+      clearShortcutBtn.type = 'button';
+      clearShortcutBtn.className = 'zeus-btn zeus-btn-ghost';
+      clearShortcutBtn.style.cssText = 'padding: 2px 6px; font-size: 10px; color: var(--text-muted);';
+      clearShortcutBtn.textContent = 'CLR';
+      clearShortcutBtn.title = 'Clear shortcut';
+      clearShortcutBtn.addEventListener('click', () => {
+        recorder.setCombo('');
+        optionsTransforms[index].shortcut = '';
+        setOptionsTransformsFeedback('Shortcut cleared. Remember to save.', 'var(--cyber-yellow)');
+      });
+
+      shortcutWrap.appendChild(shortcutLabel);
+      shortcutWrap.appendChild(shortcutBox);
+      shortcutWrap.appendChild(clearShortcutBtn);
+
+      const enabledLabel = document.createElement('label');
+      enabledLabel.style.cssText = 'font-size: 10px; font-family: monospace; display: flex; align-items: center; gap: 4px; cursor: pointer;';
+      const enabledCheckbox = document.createElement('input');
+      enabledCheckbox.type = 'checkbox';
+      enabledCheckbox.checked = transform.enabled !== false;
+      enabledCheckbox.addEventListener('change', (e) => {
+        optionsTransforms[index].enabled = e.target.checked;
+      });
+      enabledLabel.appendChild(enabledCheckbox);
+      enabledLabel.appendChild(document.createTextNode('ACTIVE'));
+
+      const delBtn = document.createElement('button');
+      delBtn.type = 'button';
+      delBtn.className = 'zeus-btn zeus-btn-ghost';
+      delBtn.style.cssText = 'padding: 2px 8px; font-size: 11px; color: var(--arasaka-red);';
+      delBtn.textContent = '✕';
+      delBtn.title = transform.builtin ? 'Built-in transforms cannot be deleted' : 'Delete transform';
+      if (transform.builtin) {
+        delBtn.disabled = true;
+        delBtn.style.opacity = '0.3';
+      } else {
+        delBtn.addEventListener('click', () => {
+          optionsTransforms.splice(index, 1);
+          renderOptionsTransforms();
+          setOptionsTransformsFeedback('Transform removed. Remember to save.', 'var(--cyber-yellow)');
+        });
+      }
+
+      topRow.appendChild(titleWrap);
+      topRow.appendChild(shortcutWrap);
+      topRow.appendChild(enabledLabel);
+      topRow.appendChild(delBtn);
+
+      const instructionArea = document.createElement('textarea');
+      instructionArea.className = 'zeus-input';
+      instructionArea.rows = 2;
+      instructionArea.placeholder = 'System instructions for prompt rewriting...';
+      instructionArea.value = transform.instruction || '';
+      instructionArea.style.cssText = 'font-family: monospace; font-size: 11px; resize: vertical;';
+      instructionArea.addEventListener('input', (e) => {
+        optionsTransforms[index].instruction = e.target.value;
+      });
+
+      card.appendChild(topRow);
+      card.appendChild(instructionArea);
+      optionsTransformsList.appendChild(card);
+    });
+  }
+
+  async function loadOptionsTransforms() {
+    if (!transformsModule) return;
+    try {
+      optionsTransforms = await transformsModule.loadTransforms();
+      renderOptionsTransforms();
+    } catch (err) {
+      setOptionsTransformsFeedback('Failed to load transforms.', 'var(--arasaka-red)');
+    }
+  }
+
+  btnOptionsAddTransform?.addEventListener('click', () => {
+    if (!transformsModule) return;
+    const newId = transformsModule.createTransformId('Custom');
+    optionsTransforms.push({
+      id: newId,
+      name: 'Custom Transform',
+      description: '',
+      instruction: 'Rewrite this prompt to be clear, precise, and structured.',
+      template: '',
+      variables: [],
+      shortcut: '',
+      enabled: true,
+      builtin: false
+    });
+    renderOptionsTransforms();
+    setOptionsTransformsFeedback('New transform added. Configure and click SAVE.', 'var(--cyber-yellow)');
+  });
+
+  btnOptionsSaveTransforms?.addEventListener('click', async () => {
+    if (!transformsModule) return;
+    try {
+      optionsTransforms = await transformsModule.saveTransforms(optionsTransforms);
+      renderOptionsTransforms();
+      setOptionsTransformsFeedback('TRANSFORMS SAVED SUCCESSFULLY', 'var(--acid-green)');
+      writeToConsole('TRANSFORMS STORE SYNCHRONIZED.');
+    } catch (err) {
+      setOptionsTransformsFeedback(err.message || 'Failed to save transforms.', 'var(--arasaka-red)');
+    }
+  });
+
+  chrome.storage?.onChanged?.addListener((changes, area) => {
+    if (area === 'sync' && changes.zeus_transforms) {
+      loadOptionsTransforms();
+    }
+  });
+
   loadSettings();
+  loadAbExperiments();
+  loadOptionsTransforms();
   writeToConsole('NEURAL CONTROL LINK ESTABLISHED.');
 });
