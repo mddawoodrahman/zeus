@@ -88,6 +88,15 @@ function createChromeMock(options = {}) {
           if (typeof callback === 'function') {
             callback();
           }
+        },
+        remove(keys, callback) {
+          const list = Array.isArray(keys) ? keys : [keys];
+          for (const k of list) {
+            delete syncStore[k];
+          }
+          if (typeof callback === 'function') {
+            callback();
+          }
         }
       },
       local: {
@@ -96,6 +105,15 @@ function createChromeMock(options = {}) {
         },
         set(payload, callback) {
           Object.assign(localStore, payload || {});
+          if (typeof callback === 'function') {
+            callback();
+          }
+        },
+        remove(keys, callback) {
+          const list = Array.isArray(keys) ? keys : [keys];
+          for (const k of list) {
+            delete localStore[k];
+          }
           if (typeof callback === 'function') {
             callback();
           }
@@ -193,6 +211,7 @@ async function runSettingsMigrationSmoke() {
   };
 
   const migrated = globalThis.ZeusSettings.migrateSettings(legacyPayload);
+  assert(migrated.schemaVersion === 3, 'Expected migrated schemaVersion to be 3.');
   assert(migrated.provider === 'openrouter', 'Expected legacy provider to migrate to openrouter.');
   assert(migrated.apiKeys.openrouter === 'legacy-openrouter-key', 'Expected legacy OpenRouter API key migration.');
   assert(migrated.models.openrouter === 'google/gemini-3-pro', 'Expected legacy OpenRouter model migration.');
@@ -204,20 +223,92 @@ async function runSettingsMigrationSmoke() {
   });
 
   assert(saveResult.settings.provider === 'claude', 'Expected saved provider to normalize as claude.');
-  assert(env.syncStore.provider === 'claude', 'Expected canonical provider key to be persisted.');
-  assert(env.syncStore.zeus_selected_provider === 'claude', 'Expected legacy provider key to be persisted.');
+  assert(saveResult.settings.apiKeys.claude === 'claude-test-key', 'Expected normalized settings to contain claude key.');
+  assert(env.syncStore.provider === 'claude', 'Expected canonical provider key to be persisted in syncStore.');
+  assert(env.syncStore.schemaVersion === 3, 'Expected schemaVersion 3 to be persisted in syncStore.');
+  assert(env.syncStore.zeus_selected_provider === undefined, 'Expected legacy provider key to NOT be persisted in syncStore.');
+  assert(env.syncStore.apiKeys === undefined, 'Expected apiKeys to NOT be persisted in syncStore.');
+  assert(env.localStore.apiKeys?.claude === 'claude-test-key', 'Expected apiKeys to be persisted in localStore.');
 
   const loaded = await globalThis.ZeusSettings.loadSettings();
   assert(loaded.provider === 'claude', 'Expected loadSettings to return saved provider.');
+  assert(loaded.apiKeys.claude === 'claude-test-key', 'Expected loadSettings to return saved API key from localStore.');
+
+  // Verify updating an existing key in localStore
+  const updateResult = await globalThis.ZeusSettings.saveSettings({
+    apiKeys: { claude: 'updated-claude-key' }
+  });
+  assert(updateResult.settings.apiKeys.claude === 'updated-claude-key', 'Expected updated key in settings.');
+  assert(env.localStore.apiKeys?.claude === 'updated-claude-key', 'Expected updated key in localStore.');
+
+  // Verify clearing a key in localStore
+  const clearResult = await globalThis.ZeusSettings.saveSettings({
+    apiKeys: { claude: '' }
+  });
+  assert(clearResult.settings.apiKeys.claude === '', 'Expected cleared key in settings.');
+  assert(env.localStore.apiKeys?.claude === '', 'Expected cleared key in localStore.');
+
+  // Interrupted migration recovery test with synthetic credentials
+  const interruptedEnv = createChromeMock({
+    localStore: {
+      apiKeys: {
+        openrouter: 'synth-local-openrouter'
+      }
+    },
+    syncStore: {
+      schemaVersion: 2,
+      zeus_selected_provider: 'gemini',
+      zeus_gemini_api_key: 'synth-sync-gemini',
+      zeus_openrouter_api_key: 'stale-sync-openrouter'
+    }
+  });
+  globalThis.chrome = interruptedEnv.chrome;
+  await loadScript(path.join('settings', 'settings.js'));
+
+  const recovered = await globalThis.ZeusSettings.loadSettings();
+  assert(recovered.schemaVersion === 3, 'Expected recovered schemaVersion to be 3.');
+  assert(recovered.apiKeys.openrouter === 'synth-local-openrouter', 'Expected non-empty local key to take precedence in interrupted migration.');
+  assert(recovered.apiKeys.gemini === 'synth-sync-gemini', 'Expected sync key to migrate to local.');
+  assert(interruptedEnv.localStore.apiKeys.openrouter === 'synth-local-openrouter', 'Expected local openrouter key preserved.');
+  assert(interruptedEnv.localStore.apiKeys.gemini === 'synth-sync-gemini', 'Expected local gemini key written.');
+  assert(interruptedEnv.syncStore.schemaVersion === 3, 'Expected syncStore upgraded to schemaVersion 3.');
+  assert(interruptedEnv.syncStore.zeus_gemini_api_key === undefined, 'Expected legacy sync keys purged.');
+  assert(interruptedEnv.syncStore.apiKeys === undefined, 'Expected sync.apiKeys purged.');
+
+  // Concurrent migration test with synthetic credentials
+  const concurrentEnv = createChromeMock({
+    syncStore: {
+      schemaVersion: 2,
+      zeus_selected_provider: 'claude',
+      zeus_claude_api_key: 'concurrent-synth-key'
+    }
+  });
+  globalThis.chrome = concurrentEnv.chrome;
+  await loadScript(path.join('settings', 'settings.js'));
+
+  const concurrentResults = await Promise.all([
+    globalThis.ZeusSettings.loadSettings(),
+    globalThis.ZeusSettings.loadSettings(),
+    globalThis.ZeusSettings.loadSettings()
+  ]);
+  assert(concurrentResults[0].apiKeys.claude === 'concurrent-synth-key', 'Expected concurrent result 0 to have claude key.');
+  assert(concurrentResults[1].apiKeys.claude === 'concurrent-synth-key', 'Expected concurrent result 1 to have claude key.');
+  assert(concurrentResults[2].apiKeys.claude === 'concurrent-synth-key', 'Expected concurrent result 2 to have claude key.');
+  assert(concurrentEnv.syncStore.schemaVersion === 3, 'Expected concurrent migration to finish with schemaVersion 3.');
+  assert(concurrentEnv.syncStore.zeus_claude_api_key === undefined, 'Expected legacy keys purged in concurrent run.');
+  assert(concurrentEnv.localStore.apiKeys.claude === 'concurrent-synth-key', 'Expected local credentials written.');
 }
 
 async function runMessageActionSmoke() {
   const env = createChromeMock({
     syncStore: {
+      schemaVersion: 3,
       provider: 'gemini',
-      apiKeys: { gemini: 'g-key' },
       models: { gemini: 'gemini-3-flash' },
       ollama: { model: '' }
+    },
+    localStore: {
+      apiKeys: { gemini: 'g-key', openai: '', claude: '', openrouter: '' }
     }
   });
 
@@ -274,6 +365,9 @@ async function runMessageActionSmoke() {
 
   const settingsResponse = await invokeMessage(messageListener, { action: 'getSettings' });
   assert(settingsResponse?.settings?.provider === 'gemini', 'Expected getSettings to return provider from storage.');
+  assert(settingsResponse?.settings?.apiKeys === undefined, 'Expected getSettings to NEVER expose raw apiKeys to content scripts.');
+  assert(settingsResponse?.settings?.zeus_gemini_api_key === undefined, 'Expected getSettings to NEVER expose legacy api keys.');
+  assert(settingsResponse?.settings?.hasApiKey?.gemini === true, 'Expected getSettings to return hasApiKey boolean.');
 
   const enhanced = await invokeMessage(messageListener, { action: 'enhancePrompt', prompt: '  hello  ' });
   assert(enhanced?.success === true, 'Expected enhancePrompt to succeed.');
@@ -285,8 +379,8 @@ async function runMessageActionSmoke() {
   });
   assert(updateAck?.success === true, 'Expected settingsUpdated acknowledgment.');
   assert(
-    env.calls.tabsSendMessage.some((entry) => entry?.message?.action === 'settingsUpdated'),
-    'Expected settingsUpdated to notify active tab.'
+    env.calls.tabsSendMessage.some((entry) => entry?.message?.action === 'settingsUpdated' && entry?.message?.settings?.apiKeys === undefined),
+    'Expected settingsUpdated to notify active tab with sanitized settings.'
   );
 
   const forceInject = await invokeMessage(

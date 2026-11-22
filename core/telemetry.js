@@ -63,6 +63,23 @@
     });
   }
 
+  function sanitizeTelemetryPayload(input) {
+    if (!input || typeof input !== 'object') {
+      return {};
+    }
+    const clean = { ...input };
+    // Keep mappings, prompts, and restored sensitive values out of telemetry
+    delete clean.secretMap;
+    delete clean.map;
+    delete clean.mappings;
+    delete clean.apiKeys;
+    delete clean.apiKey;
+    delete clean.prompt;
+    delete clean.rawPrompt;
+    delete clean.enhancedPrompt;
+    return clean;
+  }
+
   function track(eventType, payload) {
     const type = safeString(eventType);
     if (!type) {
@@ -72,7 +89,7 @@
     const event = {
       type,
       at: nowIso(),
-      payload: payload && typeof payload === 'object' ? { ...payload } : {}
+      payload: sanitizeTelemetryPayload(payload)
     };
 
     readEvents((events) => {

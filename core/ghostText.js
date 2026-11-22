@@ -2,6 +2,7 @@
   let overlay = null;
   let currentTarget = null;
   let mirrorDiv = null;
+  let pausedIndicator = null;
 
   function createMirrorDiv() {
     if (mirrorDiv) return;
@@ -147,12 +148,74 @@
     currentTarget = null;
   }
 
+  function showPausedIndicator(inputElement, text) {
+    hidePausedIndicator();
+    if (!inputElement) return;
+
+    pausedIndicator = document.createElement('div');
+    pausedIndicator.className = 'zeus-copilot-paused zeus-copilot-indicator';
+    pausedIndicator.setAttribute('data-zeus-copilot-status', 'paused');
+    pausedIndicator.setAttribute('role', 'status');
+    pausedIndicator.setAttribute('aria-live', 'polite');
+    pausedIndicator.textContent = text || 'Copilot paused (sensitive data)';
+
+    pausedIndicator.style.position = 'absolute';
+    pausedIndicator.style.pointerEvents = 'none';
+    pausedIndicator.style.userSelect = 'none';
+    pausedIndicator.style.webkitUserSelect = 'none';
+    pausedIndicator.style.zIndex = '2147483647';
+    pausedIndicator.style.fontFamily = 'system-ui, -apple-system, sans-serif';
+    pausedIndicator.style.fontSize = '11px';
+    pausedIndicator.style.lineHeight = '14px';
+    pausedIndicator.style.fontWeight = '500';
+    pausedIndicator.style.color = '#F59E0B';
+    pausedIndicator.style.backgroundColor = 'rgba(24, 24, 27, 0.9)';
+    pausedIndicator.style.border = '1px solid rgba(245, 158, 11, 0.4)';
+    pausedIndicator.style.borderRadius = '4px';
+    pausedIndicator.style.padding = '2px 6px';
+    pausedIndicator.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.25)';
+    pausedIndicator.style.display = 'inline-flex';
+    pausedIndicator.style.alignItems = 'center';
+
+    try {
+      const rect = inputElement.getBoundingClientRect ? inputElement.getBoundingClientRect() : null;
+      if (rect && typeof rect.top === 'number' && typeof rect.left === 'number') {
+        const top = (window.scrollY || 0) + rect.bottom + 4;
+        const left = (window.scrollX || 0) + rect.left;
+        pausedIndicator.style.top = `${top}px`;
+        pausedIndicator.style.left = `${left}px`;
+      }
+    } catch (_) {}
+
+    if (inputElement.parentElement) {
+      inputElement.parentElement.appendChild(pausedIndicator);
+    } else if (document.body) {
+      document.body.appendChild(pausedIndicator);
+    }
+  }
+
+  function hidePausedIndicator() {
+    if (pausedIndicator) {
+      if (pausedIndicator.parentNode) {
+        pausedIndicator.parentNode.removeChild(pausedIndicator);
+      }
+      pausedIndicator = null;
+    }
+  }
+
+  function getPausedIndicator() {
+    return pausedIndicator;
+  }
+
   globalScope.ZeusGhostText = Object.freeze({
     createOverlay,
     setText,
     show,
     hide,
     destroy,
-    positionOverlay
+    positionOverlay,
+    showPausedIndicator,
+    hidePausedIndicator,
+    getPausedIndicator
   });
 })(typeof globalThis !== 'undefined' ? globalThis : this);

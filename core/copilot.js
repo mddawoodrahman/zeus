@@ -11,7 +11,57 @@
   let activeSuggestion = '';
   let cursorPos = 0;
   let debounceTimer = null;
+  let isSensitivePaused = false;
+  let activeAbortController = null;
   const inputCleanups = new Map();
+  let pausedInputs = new WeakSet();
+
+  function isSensitive(text) {
+    const redactor = globalScope.ZeusRedactor;
+    if (!redactor || typeof redactor.hasSensitive !== 'function') return false;
+    if (settings && settings.redactionEnabled === false) return false;
+    return redactor.hasSensitive(text, {
+      redactionEnabled: settings ? settings.redactionEnabled !== false : true,
+      customRedactionPatterns: settings?.customRedactionPatterns
+    });
+  }
+
+  function showPausedIndicator(input) {
+    if (!input) return;
+    pausedInputs.add(input);
+    if (ghostText && typeof ghostText.showPausedIndicator === 'function') {
+      ghostText.showPausedIndicator(input);
+    }
+  }
+
+  function hidePausedIndicator(input) {
+    if (input) {
+      pausedInputs.delete(input);
+    } else {
+      pausedInputs = new WeakSet();
+    }
+    if (ghostText && typeof ghostText.hidePausedIndicator === 'function') {
+      ghostText.hidePausedIndicator();
+    }
+  }
+
+  function abortStream() {
+    if (activeAbortController) {
+      try {
+        activeAbortController.abort();
+      } catch (_) {}
+      activeAbortController = null;
+    }
+    if (activePort) {
+      try {
+        activePort.postMessage({ type: 'copilot:abort' });
+      } catch (_) {}
+      try {
+        activePort.disconnect();
+      } catch (_) {}
+      activePort = null;
+    }
+  }
 
   function init(adapter, initialSettings) {
     activeAdapter = adapter;
@@ -91,6 +141,25 @@
     debounceTimer = null;
 
     const value = domUtils.getInputText(input);
+    const hasSensitiveData = isSensitive(value);
+
+    if (hasSensitiveData) {
+      isSensitivePaused = true;
+      // Immediately abort active streams and suppress in-flight chunks
+      abortStream();
+      ghostText.hide();
+      ghostText.destroy();
+      activeSuggestion = '';
+      showPausedIndicator(input);
+      return;
+    }
+
+    // Automatically clear the pause state and indicator when sensitive text is removed
+    if (isSensitivePaused || pausedInputs.has(input)) {
+      isSensitivePaused = false;
+      hidePausedIndicator(input);
+    }
+
     if (value.length < 10) {
       reject();
       return;
@@ -99,35 +168,73 @@
     const pos = input.tagName === 'TEXTAREA' ? input.selectionStart : value.length;
 
     // Reject current suggestion on typing
-    if (activeSuggestion) {
+    if (activeSuggestion || activePort) {
       reject();
     }
 
-    const delay = settings.copilotMode === 'aggressive' ? 400 : 800;
+    const delay = settings?.copilotMode === 'aggressive' ? 400 : 800;
     debounceTimer = setTimeout(() => {
       fetchSuggestion(input, value, pos);
     }, delay);
   }
 
   function fetchSuggestion(input, text, pos) {
+    const currentVal = domUtils.getInputText(input);
+    if (isSensitive(text) || isSensitive(currentVal)) {
+      isSensitivePaused = true;
+      showPausedIndicator(input);
+      reject();
+      return;
+    }
+
     reject();
 
     activeInput = input;
     cursorPos = pos;
     activeSuggestion = '';
 
+    if (activeAbortController) {
+      try {
+        activeAbortController.abort();
+      } catch (_) {}
+    }
+    activeAbortController = new AbortController();
+    const currentAbortController = activeAbortController;
+
     ghostText.createOverlay(input);
 
     try {
       activePort = chrome.runtime.connect({ name: 'copilot-stream' });
+      const currentPort = activePort;
       
       activePort.onMessage.addListener((msg) => {
-        if (!activePort || activeInput !== input) return;
+        // Suppress stale chunks if stream was aborted, port disconnected, or input changed
+        if (!activePort || activePort !== currentPort || activeInput !== input) return;
+        if (currentAbortController.signal.aborted) return;
+
+        // Verify current text in the input has not become sensitive in the interim
+        const latestVal = domUtils.getInputText(input);
+        if (isSensitive(latestVal)) {
+          isSensitivePaused = true;
+          abortStream();
+          ghostText.hide();
+          ghostText.destroy();
+          activeSuggestion = '';
+          showPausedIndicator(input);
+          return;
+        }
 
         if (msg.type === 'chunk') {
           activeSuggestion += msg.text;
           ghostText.setText(activeSuggestion);
           ghostText.show();
+        } else if (msg.type === 'paused') {
+          isSensitivePaused = true;
+          abortStream();
+          ghostText.hide();
+          ghostText.destroy();
+          activeSuggestion = '';
+          showPausedIndicator(input);
         } else if (msg.type === 'done') {
           cleanupPort();
         } else if (msg.type === 'error') {
@@ -136,7 +243,9 @@
       });
 
       activePort.onDisconnect.addListener(() => {
-        cleanupPort();
+        if (activePort === currentPort) {
+          cleanupPort();
+        }
       });
 
       activePort.postMessage({
@@ -144,9 +253,11 @@
         text: text,
         cursorPos: pos,
         settings: {
-          copilotMode: settings.copilotMode,
-          copilotProvider: settings.copilotProvider,
-          copilotMaxTokens: settings.copilotMaxTokens
+          copilotMode: settings?.copilotMode,
+          copilotProvider: settings?.copilotProvider,
+          copilotMaxTokens: settings?.copilotMaxTokens,
+          redactionEnabled: settings?.redactionEnabled,
+          customRedactionPatterns: settings?.customRedactionPatterns
         }
       });
     } catch (_) {
@@ -224,7 +335,7 @@
   function reject() {
     clearTimeout(debounceTimer);
     debounceTimer = null;
-    cleanupPort();
+    abortStream();
     ghostText.hide();
     ghostText.destroy();
     activeInput = null;
@@ -234,6 +345,9 @@
 
   function destroy() {
     reject();
+    hidePausedIndicator();
+    isSensitivePaused = false;
+    pausedInputs = new WeakSet();
     for (const cleanup of inputCleanups.values()) {
       cleanup();
     }
@@ -246,6 +360,16 @@
     init,
     reconfigure,
     refreshTargets,
-    destroy
+    destroy,
+    isPaused: (input) => input ? pausedInputs.has(input) : isSensitivePaused,
+    getPausedIndicator: () => {
+      if (ghostText && typeof ghostText.getPausedIndicator === 'function') {
+        const ind = ghostText.getPausedIndicator();
+        if (ind) return ind;
+      }
+      return document.querySelector('.zeus-copilot-paused');
+    },
+    abortStream,
+    triggerSuggestion: fetchSuggestion
   });
 })(typeof globalThis !== 'undefined' ? globalThis : this);

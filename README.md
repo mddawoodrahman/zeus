@@ -529,7 +529,12 @@ Use runtime actions `getTelemetrySummary` and `clearTelemetry` for inspection/re
 ### Ollama errors
 
 - Ensure Ollama is running on `localhost:11434`.
-- If origin is blocked, start Ollama with `OLLAMA_ORIGINS=<extension-origin>` or `OLLAMA_ORIGINS=*` and restart.
+- If the origin is blocked by Ollama's CORS policy, start Ollama with your scoped Chrome extension origin (`chrome-extension://<YOUR_EXTENSION_ID>`):
+  - **macOS / Linux**: `OLLAMA_ORIGINS="chrome-extension://<YOUR_EXTENSION_ID>" ollama serve`
+  - **macOS Ollama Desktop**: `launchctl setenv OLLAMA_ORIGINS "chrome-extension://<YOUR_EXTENSION_ID>"`
+  - **Windows PowerShell**: `$env:OLLAMA_ORIGINS="chrome-extension://<YOUR_EXTENSION_ID>"; ollama serve`
+  - **Windows Command Prompt**: `set OLLAMA_ORIGINS=chrome-extension://<YOUR_EXTENSION_ID> && ollama serve`
+- Never use wildcard origins ('*') as wildcards expose your local Ollama daemon to arbitrary web pages.
 
 ## Contributing
 

@@ -204,11 +204,39 @@ READY.</div>
           <div class="card-accent"></div>
           <h2 style="font-family: 'Orbitron', sans-serif; font-size: 13px;">/// LOCAL OLLAMA LOADOUT</h2>
           <div style="margin-top: 15px;">
-            <label class="zeus-label">LOCAL HOST URL</label>
+            <label class="zeus-label" for="ollamaHost">LOCAL HOST URL</label>
             <input type="text" class="zeus-input" id="ollamaHost" value="http://localhost:11434">
-            <label class="zeus-label" style="margin-top:12px">MODEL ID</label>
+            <label class="zeus-label" for="ollamaModel" style="margin-top:12px">MODEL ID</label>
             <input type="text" class="zeus-input" id="ollamaModel" placeholder="llama2">
             <p id="ollama-suggestions" class="helper-text" style="margin-top: 8px;"></p>
+
+            <!-- Scoped CORS Origin & Startup Commands -->
+            <div id="ollama-origins-panel" style="margin-top: 20px; border-top: 1px solid rgba(0, 240, 255, 0.2); padding-top: 15px;">
+              <label class="zeus-label">SCOPED EXTENSION ORIGIN (CORS)</label>
+              <div class="input-group" style="margin-top: 6px;">
+                <input type="text" class="zeus-input" id="ollamaExtensionOrigin" readonly style="font-family: 'JetBrains Mono', monospace; font-size: 11px; background: rgba(0, 240, 255, 0.05); color: var(--net-cyan);">
+                <button id="copyOllamaOriginBtn" type="button" class="zeus-btn zeus-btn-cyan" style="padding: 4px 12px; font-size: 10px;">Copy Origin</button>
+              </div>
+              <p class="helper-text" style="margin-top: 6px; color: var(--text-secondary); font-size: 11px;">
+                To allow Zeus to communicate with local Ollama securely without wildcard access, configure Ollama with your scoped extension origin.
+              </p>
+
+              <div style="margin-top: 14px;">
+                <label class="zeus-label">STARTUP COMMAND SNIPPETS</label>
+                <div style="display: flex; gap: 8px; margin-top: 6px; flex-wrap: wrap;">
+                  <button type="button" class="zeus-btn zeus-btn-ghost ollama-tab-btn active" data-platform="macLinux" style="padding: 3px 10px; font-size: 10px;">macOS / Linux</button>
+                  <button type="button" class="zeus-btn zeus-btn-ghost ollama-tab-btn" data-platform="macDesktop" style="padding: 3px 10px; font-size: 10px;">macOS Desktop (launchd)</button>
+                  <button type="button" class="zeus-btn zeus-btn-ghost ollama-tab-btn" data-platform="windowsPowerShell" style="padding: 3px 10px; font-size: 10px;">Windows PowerShell</button>
+                  <button type="button" class="zeus-btn zeus-btn-ghost ollama-tab-btn" data-platform="windowsCmd" style="padding: 3px 10px; font-size: 10px;">Windows CMD</button>
+                </div>
+
+                <div class="input-group" style="margin-top: 10px;">
+                  <input type="text" class="zeus-input" id="ollamaCommandInput" readonly style="font-family: 'JetBrains Mono', monospace; font-size: 11px;">
+                  <button id="copyOllamaCommandBtn" type="button" class="zeus-btn zeus-btn-yellow" style="padding: 4px 12px; font-size: 10px;">Copy Command</button>
+                </div>
+                <div id="ollamaCopyFeedback" style="display: none; margin-top: 6px; color: var(--acid-green); font-family: 'JetBrains Mono', monospace; font-size: 10px;">COMMAND COPIED TO CLIPBOARD</div>
+              </div>
+            </div>
           </div>
         </div>
 

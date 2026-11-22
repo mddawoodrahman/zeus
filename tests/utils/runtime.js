@@ -18,7 +18,12 @@ const ZEUS_GLOBAL_KEYS = [
   'ZeusObserver',
   'ZeusContentAdapters',
   'ZeusContentRuntime',
-  'ZeusOllamaMeta'
+  'ZeusOllamaMeta',
+  'ZeusRedactor',
+  'ZeusGhostText',
+  'ZeusCopilot',
+  'ZeusSafeDOM',
+  'ZeusOllamaCommands'
 ];
 
 function loadScript(relativePath) {

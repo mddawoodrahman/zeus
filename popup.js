@@ -250,8 +250,8 @@ document.addEventListener('DOMContentLoaded', () => {
   function populateModelOptions(provider, selectedModel) {
     if (!providerModelSelect || !modelOptionGroups) return;
 
-    providerModelSelect.innerHTML = '';
-    modelOptionGroups.innerHTML = '';
+    providerModelSelect.replaceChildren();
+    modelOptionGroups.replaceChildren();
     const groupedModels = registry?.getGroupedModels?.(provider) || {};
     let totalOptions = 0;
     const allModelIds = [];
@@ -320,7 +320,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!model) {
       modelMeta.style.display = 'none';
       modelHelpText.textContent = '';
-      modelTags.innerHTML = '';
+      modelTags.replaceChildren();
       return;
     }
 
@@ -332,7 +332,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const modelHint = model.bestFor?.length ? `Best for: ${model.bestFor.join(', ')}` : '';
     modelHelpText.textContent = [providerHint, modelHint].filter(Boolean).join(' ');
 
-    modelTags.innerHTML = '';
+    modelTags.replaceChildren();
     const tags = [
       `Speed: ${model.speed || 'n/a'}`,
       `Cost: ${model.cost || 'n/a'}`,
@@ -470,7 +470,10 @@ document.addEventListener('DOMContentLoaded', () => {
       currentSettings = normalizedSettings;
 
       showStatus('INJECTION COMPLETE', 'success');
-      chrome.runtime.sendMessage({ action: 'settingsUpdated', settings: payload });
+      const publicSettings = settingsModule?.getPublicSettings
+        ? settingsModule.getPublicSettings(normalizedSettings)
+        : payload;
+      chrome.runtime.sendMessage({ action: 'settingsUpdated', settings: publicSettings });
       applySettingsToUI();
     } catch (error) {
       showStatus('LINK FAILURE', 'error');
@@ -547,11 +550,14 @@ document.addEventListener('DOMContentLoaded', () => {
     if (confirm('Are you sure you want to PURGE all access tokens and restore default configuration?')) {
       try {
         const defaults = settingsModule.createDefaultSettings();
-        await settingsModule.saveSettings(defaults);
-        currentSettings = defaults;
+        const { settings: savedDefaults, payload } = await settingsModule.saveSettings(defaults);
+        currentSettings = savedDefaults;
         applySettingsToUI();
         showStatus('DATA PURGED', 'success');
-        chrome.runtime.sendMessage({ action: 'settingsUpdated', settings: defaults });
+        const publicSettings = settingsModule?.getPublicSettings
+          ? settingsModule.getPublicSettings(savedDefaults)
+          : payload;
+        chrome.runtime.sendMessage({ action: 'settingsUpdated', settings: publicSettings });
       } catch (error) {
         showStatus('PURGE FAILED', 'error');
       }

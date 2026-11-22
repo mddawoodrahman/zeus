@@ -10,6 +10,7 @@
     'core/injector.js',
     'core/observer.js',
     'core/ghostText.js',
+    'core/redactor.js',
     'core/copilot.js',
     'adapters/chatgpt.js',
     'adapters/claude.js',
@@ -38,12 +39,16 @@
   }
 
   function notifyTabsOfUpdate(settingsPayload) {
+    const publicSettings = settingsModule?.getPublicSettings
+      ? settingsModule.getPublicSettings(settingsPayload)
+      : (settingsModule?.serializeSettings ? settingsModule.serializeSettings(settingsPayload) : settingsPayload);
+
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
       if (chrome.runtime.lastError) return;
       if (tabs[0]?.id) {
         chrome.tabs.sendMessage(tabs[0].id, {
           action: 'settingsUpdated',
-          settings: settingsPayload
+          settings: publicSettings
         }).catch(() => {});
       }
     });
@@ -108,7 +113,12 @@
 
   function handleGetSettings(sendResponse) {
     settingsModule.loadSettings()
-      .then((settings) => sendResponse({ settings: settingsModule.serializeSettings(settings) }))
+      .then((settings) => {
+        const publicSettings = settingsModule?.getPublicSettings
+          ? settingsModule.getPublicSettings(settings)
+          : settingsModule?.serializeSettings(settings);
+        sendResponse({ settings: publicSettings });
+      })
       .catch((error) => sendResponse({ error: String(error?.message || 'Failed to load settings.') }));
   }
 
@@ -158,8 +168,14 @@
         case 'sidePanel:saveHistory':
           chrome.storage.local.get(['zeus_prompt_history'], (data) => {
             let history = Array.isArray(data?.zeus_prompt_history) ? data.zeus_prompt_history : [];
-            if (message.entry) {
-              history.push(message.entry);
+            if (message.entry && typeof message.entry === 'object') {
+              const safeEntry = {
+                original: String(message.entry.original || ''),
+                enhanced: String(message.entry.enhanced || ''),
+                timestamp: Number(message.entry.timestamp) || Date.now(),
+                url: String(message.entry.url || '')
+              };
+              history.push(safeEntry);
               if (history.length > 100) {
                 history.shift();
               }
@@ -273,6 +289,15 @@
       }
 
       port.onMessage.addListener(async (msg) => {
+        if (msg.type === 'copilot:abort' || msg.type === 'abort') {
+          if (abortController) {
+            abortController.abort();
+            abortController = null;
+          }
+          stopKeepAlive();
+          return;
+        }
+
         if (msg.type === 'copilot:start') {
           if (abortController) {
             abortController.abort();
@@ -281,11 +306,44 @@
           startKeepAlive();
 
           try {
+            // Guard against sensitive data transmission over copilot streams
+            const redactorInstance = globalScope.ZeusRedactor;
+            const isSensitive = redactorInstance && typeof redactorInstance.hasSensitive === 'function'
+              ? redactorInstance.hasSensitive(msg.text, {
+                  redactionEnabled: msg.settings?.redactionEnabled !== false,
+                  customRedactionPatterns: msg.settings?.customRedactionPatterns
+                })
+              : false;
+
+            if (isSensitive) {
+              if (abortController) {
+                abortController.abort();
+                abortController = null;
+              }
+              stopKeepAlive();
+              try {
+                port.postMessage({ type: 'paused', reason: 'sensitive_data' });
+              } catch (_) {}
+              try {
+                port.disconnect();
+              } catch (_) {}
+              return;
+            }
+
             const config = await settingsModule.loadSettings();
             
+            // Isolate settings from untrusted content scripts:
+            // Content scripts may only customize copilot runtime preferences, never inject or overwrite credentials.
+            const safeContentSettings = {
+              copilotMode: msg.settings?.copilotMode,
+              copilotProvider: msg.settings?.copilotProvider,
+              copilotMaxTokens: msg.settings?.copilotMaxTokens
+            };
+
             const mergedSettings = {
               ...config,
-              ...msg.settings
+              ...safeContentSettings,
+              apiKeys: config.apiKeys
             };
 
             const routerInstance = globalScope.ZeusRouter;

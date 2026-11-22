@@ -25,6 +25,7 @@ importScripts(
   'providers/claude.js',
   'providers/openrouter.js',
   'providers/ollama.js',
+  'core/redactor.js',
   'core/router.js',
   'messaging/messageHandler.js'
 );

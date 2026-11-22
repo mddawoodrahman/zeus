@@ -53,13 +53,31 @@ function pickStoreValues(store, keys) {
 function createStorageArea(store) {
   return {
     get(keys, callback) {
-      callback(pickStoreValues(store, keys));
+      const result = pickStoreValues(store, keys);
+      if (typeof callback === 'function') {
+        callback(result);
+        return;
+      }
+      return Promise.resolve(result);
     },
     set(payload, callback) {
       Object.assign(store, payload || {});
       if (typeof callback === 'function') {
         callback();
+        return;
       }
+      return Promise.resolve();
+    },
+    remove(keys, callback) {
+      const toRemove = Array.isArray(keys) ? keys : [keys];
+      for (const key of toRemove) {
+        delete store[key];
+      }
+      if (typeof callback === 'function') {
+        callback();
+        return;
+      }
+      return Promise.resolve();
     },
     clear(callback) {
       for (const key of Object.keys(store)) {
@@ -67,7 +85,9 @@ function createStorageArea(store) {
       }
       if (typeof callback === 'function') {
         callback();
+        return;
       }
+      return Promise.resolve();
     }
   };
 }
@@ -78,10 +98,12 @@ function createChromeMock(options = {}) {
 
   const runtimeOnInstalled = createEvent();
   const runtimeOnMessage = createEvent();
+  const runtimeOnConnect = createEvent();
   const contextMenuOnClicked = createEvent();
 
   const calls = {
     runtimeSendMessage: [],
+    runtimeConnect: [],
     tabsQuery: [],
     tabsSendMessage: [],
     executeScript: [],
@@ -121,6 +143,66 @@ function createChromeMock(options = {}) {
         if (!responded && typeof callback === 'function') {
           callback(undefined);
         }
+      },
+      onConnect: runtimeOnConnect,
+      connect(connectInfo = {}) {
+        const name = connectInfo.name || '';
+        const clientOnMessage = createEvent();
+        const clientOnDisconnect = createEvent();
+        const serverOnMessage = createEvent();
+        const serverOnDisconnect = createEvent();
+
+        let isDisconnected = false;
+
+        const clientPort = {
+          name,
+          onMessage: clientOnMessage,
+          onDisconnect: clientOnDisconnect,
+          postMessage(msg) {
+            if (isDisconnected) return;
+            const payload = copy(msg);
+            queueMicrotask(() => {
+              serverOnMessage.listeners.forEach((fn) => fn(payload));
+            });
+          },
+          disconnect() {
+            if (isDisconnected) return;
+            isDisconnected = true;
+            queueMicrotask(() => {
+              clientOnDisconnect.listeners.forEach((fn) => fn(clientPort));
+              serverOnDisconnect.listeners.forEach((fn) => fn(serverPort));
+            });
+          }
+        };
+
+        const serverPort = {
+          name,
+          onMessage: serverOnMessage,
+          onDisconnect: serverOnDisconnect,
+          postMessage(msg) {
+            if (isDisconnected) return;
+            const payload = copy(msg);
+            queueMicrotask(() => {
+              clientOnMessage.listeners.forEach((fn) => fn(payload));
+            });
+          },
+          disconnect() {
+            if (isDisconnected) return;
+            isDisconnected = true;
+            queueMicrotask(() => {
+              serverOnDisconnect.listeners.forEach((fn) => fn(serverPort));
+              clientOnDisconnect.listeners.forEach((fn) => fn(clientPort));
+            });
+          }
+        };
+
+        calls.runtimeConnect.push({ connectInfo, clientPort, serverPort });
+
+        queueMicrotask(() => {
+          runtimeOnConnect.listeners.forEach((fn) => fn(serverPort));
+        });
+
+        return clientPort;
       }
     },
     storage: {
@@ -154,6 +236,8 @@ function createChromeMock(options = {}) {
   return {
     chrome,
     calls,
+    syncStore,
+    localStore,
     stores: {
       sync: syncStore,
       local: localStore
@@ -161,6 +245,7 @@ function createChromeMock(options = {}) {
     listeners: {
       runtimeOnInstalled,
       runtimeOnMessage,
+      runtimeOnConnect,
       contextMenuOnClicked
     }
   };

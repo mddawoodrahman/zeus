@@ -47,6 +47,7 @@
         "core/injector.js",
         "core/observer.js",
         "core/ghostText.js",
+        "core/redactor.js",
         "core/copilot.js",
         "adapters/chatgpt.js",
         "adapters/claude.js",
@@ -90,5 +91,8 @@
       },
       "description": "Toggle the Zeus Side Panel Workbench (Open/Close)"
     }
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'none'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; base-uri 'none'; frame-ancestors 'none';"
   }
 }
