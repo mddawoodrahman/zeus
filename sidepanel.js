@@ -1,4 +1,121 @@
-document.addEventListener('DOMContentLoaded', () => {
+(function initZeusSidePanel(globalScope) {
+  function diffWords(oldStr, newStr) {
+    const one = String(oldStr || '').split(/(\s+)/);
+    const other = String(newStr || '').split(/(\s+)/);
+    const n = one.length;
+    const m = other.length;
+    const dp = Array.from({ length: n + 1 }, () => Array(m + 1).fill(0));
+
+    for (let i = 1; i <= n; i++) {
+      for (let j = 1; j <= m; j++) {
+        if (one[i - 1] === other[j - 1]) {
+          dp[i][j] = dp[i - 1][j - 1] + 1;
+        } else {
+          dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
+        }
+      }
+    }
+
+    let i = n;
+    let j = m;
+    const result = [];
+
+    while (i > 0 || j > 0) {
+      if (i > 0 && j > 0 && one[i - 1] === other[j - 1]) {
+        result.unshift({ type: 'common', value: one[i - 1] });
+        i--;
+        j--;
+      } else if (j > 0 && (i === 0 || dp[i][j - 1] >= dp[i - 1][j])) {
+        result.unshift({ type: 'add', value: other[j - 1] });
+        j--;
+      } else {
+        result.unshift({ type: 'del', value: one[i - 1] });
+        i--;
+      }
+    }
+    return result;
+  }
+
+  function renderDiff(original, enhanced, targetElement) {
+    const target = targetElement || (typeof document !== 'undefined' ? document.getElementById('diff-view') : null);
+    if (!target) return;
+    target.replaceChildren();
+    const diffs = diffWords(original, enhanced);
+    const fragment = document.createDocumentFragment();
+    for (const part of diffs) {
+      if (part.type === 'add') {
+        const span = document.createElement('span');
+        span.className = 'diff-add';
+        span.textContent = part.value;
+        fragment.appendChild(span);
+      } else if (part.type === 'del') {
+        const span = document.createElement('span');
+        span.className = 'diff-del';
+        span.textContent = part.value;
+        fragment.appendChild(span);
+      } else {
+        fragment.appendChild(document.createTextNode(part.value));
+      }
+    }
+    target.appendChild(fragment);
+  }
+
+  function isSafeUrl(url) {
+    if (!url || typeof url !== 'string') return false;
+    const trimmed = url.trim();
+    return /^https?:\/\//i.test(trimmed);
+  }
+
+  function renderSafeMarkdown(container, text) {
+    if (!container) return;
+    container.replaceChildren();
+    if (!text) return;
+
+    const linkRegex = /\[([^\]]+)\]\(([^)]+)\)/g;
+    let lastIndex = 0;
+    let match;
+
+    while ((match = linkRegex.exec(text)) !== null) {
+      const matchIndex = match.index;
+      if (matchIndex > lastIndex) {
+        container.appendChild(document.createTextNode(text.slice(lastIndex, matchIndex)));
+      }
+
+      const linkText = match[1];
+      const linkUrl = match[2]?.trim();
+
+      if (isSafeUrl(linkUrl)) {
+        const a = document.createElement('a');
+        a.href = linkUrl;
+        a.textContent = linkText;
+        a.target = '_blank';
+        a.rel = 'noopener noreferrer';
+        container.appendChild(a);
+      } else {
+        // Neutralize unsafe protocols (javascript:, data:, etc.) as inert plain text
+        container.appendChild(document.createTextNode(`[${linkText}](${linkUrl})`));
+      }
+
+      lastIndex = linkRegex.lastIndex;
+    }
+
+    if (lastIndex < text.length) {
+      container.appendChild(document.createTextNode(text.slice(lastIndex)));
+    }
+  }
+
+  globalScope.ZeusSafeDOM = Object.freeze({
+    isSafeUrl,
+    renderSafeMarkdown,
+    renderDiff,
+    diffWords
+  });
+
+  if (typeof document === 'undefined') {
+    return;
+  }
+
+  document.addEventListener('DOMContentLoaded', () => {
   // Tab Elements
   const tabButtons = document.querySelectorAll('.tab-btn');
   const tabSections = document.querySelectorAll('.tab-section');
@@ -97,166 +214,139 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // Capture input from page
-  btnCapture.addEventListener('click', () => {
-    btnCapture.disabled = true;
-    showToast('CAPTURING COMPOSER INPUT...', 'info', 1500);
+  if (btnCapture) {
+    btnCapture.addEventListener('click', () => {
+      btnCapture.disabled = true;
+      showToast('CAPTURING COMPOSER INPUT...', 'info', 1500);
 
-    chrome.runtime.sendMessage({ type: 'sidePanel:getCurrentInput' }, (response) => {
-      btnCapture.disabled = false;
-      if (response && response.value !== undefined) {
-        originalInput.value = response.value;
-        if (response.value) {
-          showToast('INPUT RETRIEVED SUCCESSFULLY', 'success', 2000);
+      chrome.runtime.sendMessage({ type: 'sidePanel:getCurrentInput' }, (response) => {
+        btnCapture.disabled = false;
+        if (response && response.value !== undefined) {
+          if (originalInput) originalInput.value = response.value;
+          if (response.value) {
+            showToast('INPUT RETRIEVED SUCCESSFULLY', 'success', 2000);
+          } else {
+            showToast('COMPOSER IS EMPTY', 'error', 2500);
+          }
         } else {
-          showToast('COMPOSER IS EMPTY', 'error', 2500);
+          showToast('NO ACTIVE COMPOSER DETECTED', 'error', 2500);
         }
-      } else {
-        showToast('NO ACTIVE COMPOSER DETECTED', 'error', 2500);
-      }
+      });
     });
-  });
+  }
 
   // Enhance prompt
-  btnEnhance.addEventListener('click', () => {
-    const text = originalInput.value.trim();
-    if (!text) {
-      showToast('INPUT DETECTED AS VOID', 'error', 2000);
-      return;
-    }
-
-    btnEnhance.disabled = true;
-    btnEnhance.textContent = 'ESTABLISHING NEURAL LINK...';
-    showToast('ROUTING TO COGNITIVE LOADOUT...', 'info', 0);
-
-    chrome.runtime.sendMessage({ action: 'enhancePrompt', prompt: text }, (response) => {
-      btnEnhance.disabled = false;
-      btnEnhance.textContent = 'OPTIMIZE PROMPT';
-
-      // Clear the "routing" toast by appending a success or error one
-      if (response && response.success) {
-        showToast('INJECTION COMPLETE', 'success', 2000);
-        enhancedOutput.value = response.enhancedPrompt;
-        
-        // Show and render diff
-        diffCard.style.display = 'block';
-        renderDiff(text, response.enhancedPrompt);
-
-        // Save to history
-        saveCurrentToHistory(text, response.enhancedPrompt);
-      } else {
-        showToast('LINK FAILURE', 'error', 3000);
-        if (response && response.error) {
-          console.error('Enhance failed:', response.error);
-        }
+  if (btnEnhance) {
+    btnEnhance.addEventListener('click', () => {
+      const text = originalInput?.value?.trim() || '';
+      if (!text) {
+        showToast('INPUT DETECTED AS VOID', 'error', 2000);
+        return;
       }
+
+      btnEnhance.disabled = true;
+      btnEnhance.textContent = 'ESTABLISHING NEURAL LINK...';
+      showToast('ROUTING TO COGNITIVE LOADOUT...', 'info', 0);
+
+      // Ticket 3: Redact sensitive tokens before provider dispatch
+      const redactor = window.ZeusRedactor || globalThis.ZeusRedactor || null;
+      const scrubResult = redactor?.scrub
+        ? redactor.scrub(text)
+        : { text, secretMap: {}, hasRedactions: false };
+
+      chrome.runtime.sendMessage({ action: 'enhancePrompt', prompt: scrubResult.text }, (response) => {
+        btnEnhance.disabled = false;
+        btnEnhance.textContent = 'OPTIMIZE PROMPT';
+
+        // Clear the "routing" toast by appending a success or error one
+        if (response && response.success) {
+          showToast('INJECTION COMPLETE', 'success', 2000);
+
+          // Ticket 3: Rehydrate locally before rendering in editor and diff
+          let finalEnhanced = response.enhancedPrompt;
+          if (scrubResult.hasRedactions && redactor?.hydrate) {
+            const hydration = redactor.hydrateWithDetails
+              ? redactor.hydrateWithDetails(finalEnhanced, scrubResult.secretMap)
+              : { text: redactor.hydrate(finalEnhanced, scrubResult.secretMap), droppedPlaceholders: [] };
+            finalEnhanced = hydration.text;
+
+            if (hydration.droppedPlaceholders?.length > 0) {
+              showToast('WARNING: SOME SENSITIVE TOKENS WERE OMITTED BY AI', 'warning', 4000);
+            }
+          }
+
+          if (enhancedOutput) enhancedOutput.value = finalEnhanced;
+          
+          // Show and render diff with rehydrated output
+          if (diffCard) diffCard.style.display = 'block';
+          renderDiff(text, finalEnhanced);
+
+          // Ticket 3: Keep mappings and restored sensitive values OUT of persistent history
+          // Persist only scrubbed text with placeholders if redactions were present
+          const historyOriginal = scrubResult.hasRedactions ? scrubResult.text : text;
+          const historyEnhanced = scrubResult.hasRedactions ? response.enhancedPrompt : finalEnhanced;
+          saveCurrentToHistory(historyOriginal, historyEnhanced);
+        } else {
+          showToast('LINK FAILURE', 'error', 3000);
+          if (response && response.error) {
+            console.error('Enhance failed:', response.error);
+          }
+        }
+      });
     });
-  });
+  }
 
   // Insert into Chat
-  btnInsert.addEventListener('click', () => {
-    const text = enhancedOutput.value.trim();
-    if (!text) {
-      showToast('NO OPTIMIZED LOADOUT YET', 'error', 2000);
-      return;
-    }
-
-    btnInsert.disabled = true;
-    chrome.runtime.sendMessage({ type: 'sidePanel:setInputValue', value: text }, (response) => {
-      btnInsert.disabled = false;
-      if (response && response.success) {
-        showToast('INJECTED INTO ACTIVE SESSION', 'success', 2000);
-      } else {
-        showToast('INJECTION FAILED. COMPOSER OUT OF FOCUS.', 'error', 3000);
+  if (btnInsert) {
+    btnInsert.addEventListener('click', () => {
+      const text = enhancedOutput?.value?.trim() || '';
+      if (!text) {
+        showToast('NO OPTIMIZED LOADOUT YET', 'error', 2000);
+        return;
       }
+
+      btnInsert.disabled = true;
+      chrome.runtime.sendMessage({ type: 'sidePanel:setInputValue', value: text }, (response) => {
+        btnInsert.disabled = false;
+        if (response && response.success) {
+          showToast('INJECTED INTO ACTIVE SESSION', 'success', 2000);
+        } else {
+          showToast('INJECTION FAILED. COMPOSER OUT OF FOCUS.', 'error', 3000);
+        }
+      });
     });
-  });
+  }
 
   // Copy to Clipboard
-  btnCopy.addEventListener('click', () => {
-    const text = enhancedOutput.value.trim();
-    if (!text) {
-      showToast('NO OUTPUT TO COPY', 'error', 2000);
-      return;
-    }
+  if (btnCopy) {
+    btnCopy.addEventListener('click', () => {
+      const text = enhancedOutput?.value?.trim() || '';
+      if (!text) {
+        showToast('NO OUTPUT TO COPY', 'error', 2000);
+        return;
+      }
 
-    navigator.clipboard.writeText(text).then(() => {
-      showToast('COPIED TO MEMORY BUFFER', 'success', 2000);
-    }).catch(() => {
-      showToast('CLIPBOARD ACCESS DENIED', 'error', 2500);
+      navigator.clipboard.writeText(text).then(() => {
+        showToast('COPIED TO MEMORY BUFFER', 'success', 2000);
+      }).catch(() => {
+        showToast('CLIPBOARD ACCESS DENIED', 'error', 2500);
+      });
     });
-  });
-
-  // Dynamic Word Diff implementation
-  function escapeHtml(str) {
-    return str
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#039;');
-  }
-
-  function diffWords(oldStr, newStr) {
-    const one = oldStr.split(/(\s+)/);
-    const other = newStr.split(/(\s+)/);
-    const n = one.length;
-    const m = other.length;
-    const dp = Array.from({ length: n + 1 }, () => Array(m + 1).fill(0));
-
-    for (let i = 1; i <= n; i++) {
-      for (let j = 1; j <= m; j++) {
-        if (one[i - 1] === other[j - 1]) {
-          dp[i][j] = dp[i - 1][j - 1] + 1;
-        } else {
-          dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
-        }
-      }
-    }
-
-    let i = n;
-    let j = m;
-    const result = [];
-
-    while (i > 0 || j > 0) {
-      if (i > 0 && j > 0 && one[i - 1] === other[j - 1]) {
-        result.unshift({ type: 'common', value: one[i - 1] });
-        i--;
-        j--;
-      } else if (j > 0 && (i === 0 || dp[i][j - 1] >= dp[i - 1][j])) {
-        result.unshift({ type: 'add', value: other[j - 1] });
-        j--;
-      } else {
-        result.unshift({ type: 'del', value: one[i - 1] });
-        i--;
-      }
-    }
-    return result;
-  }
-
-  function renderDiff(original, enhanced) {
-    if (!diffView) return;
-    const diffs = diffWords(original, enhanced);
-    const html = diffs.map(part => {
-      const escaped = escapeHtml(part.value);
-      if (part.type === 'add') {
-        return `<span class="diff-add">${escaped}</span>`;
-      } else if (part.type === 'del') {
-        return `<span class="diff-del">${escaped}</span>`;
-      } else {
-        return escaped;
-      }
-    }).join('');
-    diffView.innerHTML = html;
   }
 
   // History Archiving
   function loadHistory() {
     chrome.runtime.sendMessage({ type: 'sidePanel:getHistory' }, (response) => {
       const list = response?.history || [];
-      historyList.innerHTML = '';
+      historyList.replaceChildren();
 
       if (list.length === 0) {
-        historyList.innerHTML = '<p style="color: var(--text-muted); text-align: center; margin-top: 20px;">ARCHIVE EMPTY.</p>';
+        const emptyMsg = document.createElement('p');
+        emptyMsg.style.color = 'var(--text-muted)';
+        emptyMsg.style.textAlign = 'center';
+        emptyMsg.style.marginTop = '20px';
+        emptyMsg.textContent = 'ARCHIVE EMPTY.';
+        historyList.appendChild(emptyMsg);
         return;
       }
 
@@ -269,8 +359,17 @@ document.addEventListener('DOMContentLoaded', () => {
         const meta = document.createElement('div');
         meta.className = 'history-meta';
         const dateStr = new Date(item.timestamp).toLocaleString();
-        const site = item.url ? new URL(item.url).hostname : 'DIRECT';
-        meta.innerHTML = `<span>${dateStr}</span><span>${site}</span>`;
+        let site = 'DIRECT';
+        try {
+          if (item.url) site = new URL(item.url).hostname;
+        } catch (_) {}
+
+        const spanDate = document.createElement('span');
+        spanDate.textContent = dateStr;
+        const spanSite = document.createElement('span');
+        spanSite.textContent = site;
+        meta.appendChild(spanDate);
+        meta.appendChild(spanSite);
 
         const preview = document.createElement('div');
         preview.className = 'history-text-preview';
@@ -329,10 +428,15 @@ document.addEventListener('DOMContentLoaded', () => {
   function loadTemplates() {
     chrome.runtime.sendMessage({ type: 'sidePanel:getTemplates' }, (response) => {
       currentTemplates = response?.templates || [];
-      templateList.innerHTML = '';
+      templateList.replaceChildren();
 
       if (currentTemplates.length === 0) {
-        templateList.innerHTML = '<p style="color: var(--text-muted); text-align: center; padding: 20px;">NO CONFIGURED PATTERNS.</p>';
+        const emptyMsg = document.createElement('p');
+        emptyMsg.style.color = 'var(--text-muted)';
+        emptyMsg.style.textAlign = 'center';
+        emptyMsg.style.padding = '20px';
+        emptyMsg.textContent = 'NO CONFIGURED PATTERNS.';
+        templateList.appendChild(emptyMsg);
         return;
       }
 
@@ -390,7 +494,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Show Fill Variables Modal
     currentFillingTemplateText = tpl.template;
-    modalVariablesInputs.innerHTML = '';
+    modalVariablesInputs.replaceChildren();
 
     variables.forEach(v => {
       const div = document.createElement('div');
@@ -414,90 +518,102 @@ document.addEventListener('DOMContentLoaded', () => {
     modalFillVariables.style.display = 'flex';
   }
 
-  btnModalFill.addEventListener('click', () => {
-    let text = currentFillingTemplateText;
-    const inputs = modalVariablesInputs.querySelectorAll('input');
-    
-    inputs.forEach(input => {
-      const variable = input.dataset.variable;
-      const value = input.value.trim();
-      const regex = new RegExp(`{{\\s*${variable}\\s*}}`, 'g');
-      text = text.replace(regex, value);
+  if (btnModalFill) {
+    btnModalFill.addEventListener('click', () => {
+      let text = currentFillingTemplateText;
+      const inputs = modalVariablesInputs?.querySelectorAll('input') || [];
+      
+      inputs.forEach(input => {
+        const variable = input.dataset.variable;
+        const value = input.value.trim();
+        const regex = new RegExp(`{{\\s*${variable}\\s*}}`, 'g');
+        text = text.replace(regex, value);
+      });
+
+      if (originalInput) originalInput.value = text;
+      if (modalFillVariables) modalFillVariables.style.display = 'none';
+      switchTab('editor');
+      showToast('PATTERN VARIABLES COMPILED & INJECTED', 'success', 2000);
     });
+  }
 
-    originalInput.value = text;
-    modalFillVariables.style.display = 'none';
-    switchTab('editor');
-    showToast('PATTERN VARIABLES COMPILED & INJECTED', 'success', 2000);
-  });
-
-  btnModalClose.addEventListener('click', () => {
-    modalFillVariables.style.display = 'none';
-  });
+  if (btnModalClose) {
+    btnModalClose.addEventListener('click', () => {
+      if (modalFillVariables) modalFillVariables.style.display = 'none';
+    });
+  }
 
   // New Template creation
-  btnNewTemplate.addEventListener('click', () => {
-    editingTemplateIndex = -1;
-    templateNameInput.value = '';
-    templateTextInput.value = '';
-    btnDeleteTemplate.style.display = 'none';
-    templatesListView.style.display = 'none';
-    templatesEditorView.style.display = 'block';
-  });
+  if (btnNewTemplate) {
+    btnNewTemplate.addEventListener('click', () => {
+      editingTemplateIndex = -1;
+      if (templateNameInput) templateNameInput.value = '';
+      if (templateTextInput) templateTextInput.value = '';
+      if (btnDeleteTemplate) btnDeleteTemplate.style.display = 'none';
+      if (templatesListView) templatesListView.style.display = 'none';
+      if (templatesEditorView) templatesEditorView.style.display = 'block';
+    });
+  }
 
   function startTemplateEdit(index) {
     const tpl = currentTemplates[index];
     editingTemplateIndex = index;
-    templateNameInput.value = tpl.name;
-    templateTextInput.value = tpl.template;
-    btnDeleteTemplate.style.display = 'inline-block';
-    templatesListView.style.display = 'none';
-    templatesEditorView.style.display = 'block';
+    if (templateNameInput) templateNameInput.value = tpl?.name || '';
+    if (templateTextInput) templateTextInput.value = tpl?.template || '';
+    if (btnDeleteTemplate) btnDeleteTemplate.style.display = 'inline-block';
+    if (templatesListView) templatesListView.style.display = 'none';
+    if (templatesEditorView) templatesEditorView.style.display = 'block';
   }
 
   function cancelTemplateEdit() {
-    templatesEditorView.style.display = 'none';
-    templatesListView.style.display = 'block';
+    if (templatesEditorView) templatesEditorView.style.display = 'none';
+    if (templatesListView) templatesListView.style.display = 'block';
   }
 
-  btnCancelTemplate.addEventListener('click', cancelTemplateEdit);
+  if (btnCancelTemplate) {
+    btnCancelTemplate.addEventListener('click', cancelTemplateEdit);
+  }
 
-  btnSaveTemplate.addEventListener('click', () => {
-    const name = templateNameInput.value.trim();
-    const template = templateTextInput.value.trim();
+  if (btnSaveTemplate) {
+    btnSaveTemplate.addEventListener('click', () => {
+      const name = templateNameInput?.value?.trim() || '';
+      const template = templateTextInput?.value?.trim() || '';
 
-    if (!name || !template) {
-      showToast('FIELDS CANNOT BE EMPTY', 'error', 2000);
-      return;
-    }
-
-    // Detect variables
-    const varsRegex = /{{\s*([\w]+)\s*}}/g;
-    const variables = [];
-    let match;
-    while ((match = varsRegex.exec(template)) !== null) {
-      if (!variables.includes(match[1])) {
-        variables.push(match[1]);
+      if (!name || !template) {
+        showToast('FIELDS CANNOT BE EMPTY', 'error', 2000);
+        return;
       }
-    }
 
-    const tplObject = { name, template, variables };
+      // Detect variables
+      const varsRegex = /{{\s*([\w]+)\s*}}/g;
+      const variables = [];
+      let match;
+      while ((match = varsRegex.exec(template)) !== null) {
+        if (!variables.includes(match[1])) {
+          variables.push(match[1]);
+        }
+      }
 
-    if (editingTemplateIndex === -1) {
-      currentTemplates.push(tplObject);
-    } else {
-      currentTemplates[editingTemplateIndex] = tplObject;
-    }
+      const tplObject = { name, template, variables };
 
-    saveTemplates();
-  });
+      if (editingTemplateIndex === -1) {
+        currentTemplates.push(tplObject);
+      } else {
+        currentTemplates[editingTemplateIndex] = tplObject;
+      }
 
-  btnDeleteTemplate.addEventListener('click', () => {
-    if (editingTemplateIndex >= 0) {
-      currentTemplates.splice(editingTemplateIndex, 1);
       saveTemplates();
-    }
-  });
+    });
+  }
+
+  if (btnDeleteTemplate) {
+    btnDeleteTemplate.addEventListener('click', () => {
+      if (editingTemplateIndex >= 0) {
+        currentTemplates.splice(editingTemplateIndex, 1);
+        saveTemplates();
+      }
+    });
+  }
 
   function saveTemplates() {
     chrome.runtime.sendMessage({
@@ -514,3 +630,4 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 });
+})(typeof globalThis !== 'undefined' ? globalThis : this);

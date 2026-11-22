@@ -12,9 +12,25 @@
   const OLLAMA_NOT_RUNNING_MESSAGE = 'Ollama not running. Start with: ollama run qwen3:8b';
   const OLLAMA_NO_MODEL_MESSAGE = 'No local Ollama model detected. Start one with: ollama run qwen3:8b';
 
-  function buildOllamaOriginBlockedMessage() {
-    const extensionOrigin = `chrome-extension://${chrome.runtime.id}`;
-    return `Ollama blocked extension origin '${extensionOrigin}'. Start Ollama with OLLAMA_ORIGINS=${extensionOrigin} (or OLLAMA_ORIGINS=*) and restart Ollama.`;
+  function getOllamaOrigin(customId) {
+    const id = customId || (typeof chrome !== 'undefined' && chrome?.runtime?.id) || '<YOUR_EXTENSION_ID>';
+    return `chrome-extension://${id}`;
+  }
+
+  function buildOllamaCommands(customId) {
+    const origin = getOllamaOrigin(customId);
+    return {
+      origin,
+      macLinux: `OLLAMA_ORIGINS="${origin}" ollama serve`,
+      macDesktop: `launchctl setenv OLLAMA_ORIGINS "${origin}"`,
+      windowsPowerShell: `$env:OLLAMA_ORIGINS="${origin}"; ollama serve`,
+      windowsCmd: `set OLLAMA_ORIGINS=${origin} && ollama serve`
+    };
+  }
+
+  function buildOllamaOriginBlockedMessage(customId) {
+    const origin = getOllamaOrigin(customId);
+    return `Ollama blocked extension origin '${origin}'. Start Ollama with OLLAMA_ORIGINS="${origin}" (or run 'launchctl setenv OLLAMA_ORIGINS "${origin}"' for macOS Ollama Desktop) and restart Ollama.`;
   }
 
   async function fetchModels(url) {
@@ -152,6 +168,8 @@
   globalScope.ZeusOllamaMeta = Object.freeze({
     OLLAMA_NOT_RUNNING_MESSAGE,
     OLLAMA_NO_MODEL_MESSAGE,
+    getOllamaOrigin,
+    buildOllamaCommands,
     buildOllamaOriginBlockedMessage
   });
 

@@ -1,7 +1,7 @@
 (function initZeusSettings(globalScope) {
   const registry = globalScope.ZeusModelRegistry || null;
 
-  const SCHEMA_VERSION = 2;
+  const SCHEMA_VERSION = 3;
   const SUPPORTED_PROVIDERS = Object.freeze(['gemini', 'openai', 'claude', 'openrouter', 'ollama', 'auto']);
   const MODEL_PROVIDERS = Object.freeze(['gemini', 'openai', 'claude', 'openrouter']);
   const API_KEY_PROVIDERS = Object.freeze(['gemini', 'openai', 'claude', 'openrouter']);
@@ -9,6 +9,13 @@
   const SETTINGS_SCHEMA = Object.freeze({
     schemaVersion: 'number',
     provider: `enum:${SUPPORTED_PROVIDERS.join('|')}`,
+    sidePanelEnabled: 'boolean',
+    copilotEnabled: 'boolean',
+    copilotMode: 'string',
+    copilotProvider: 'string',
+    copilotMaxTokens: 'number',
+    redactionEnabled: 'boolean',
+    customRedactionPatterns: 'array',
     apiKeys: Object.freeze({
       gemini: 'string',
       openai: 'string',
@@ -26,10 +33,9 @@
     })
   });
 
-  const STORAGE_KEYS = Object.freeze([
+  const SYNC_STORAGE_KEYS = Object.freeze([
     'schemaVersion',
     'provider',
-    'apiKeys',
     'models',
     'ollama',
     'sidePanelEnabled',
@@ -37,6 +43,15 @@
     'copilotMode',
     'copilotProvider',
     'copilotMaxTokens',
+    'redactionEnabled',
+    'customRedactionPatterns'
+  ]);
+
+  const LOCAL_STORAGE_KEYS = Object.freeze([
+    'apiKeys'
+  ]);
+
+  const LEGACY_STORAGE_KEYS = Object.freeze([
     'zeus_selected_provider',
     'zeus_gemini_api_key',
     'zeus_gemini_model',
@@ -47,7 +62,13 @@
     'zeus_openrouter_api_key',
     'zeus_openrouter_model',
     'zeus_ollama_model',
-    'zeus_provider_configs'
+    'zeus_provider_configs',
+    'apiKeys'
+  ]);
+
+  const STORAGE_KEYS = Object.freeze([
+    ...SYNC_STORAGE_KEYS,
+    ...LEGACY_STORAGE_KEYS
   ]);
 
   function readRegistryDefault(provider) {
@@ -69,6 +90,8 @@
       copilotMode: 'conservative',
       copilotProvider: 'auto',
       copilotMaxTokens: 60,
+      redactionEnabled: true,
+      customRedactionPatterns: [],
       apiKeys: {
         gemini: '',
         openai: '',
@@ -99,7 +122,7 @@
     return fallbackProvider;
   }
 
-  function normalizeSettings(stored) {
+  function normalizeSettings(stored, localStored) {
     const defaults = createDefaultSettings();
     const legacyConfigs = (stored && stored.zeus_provider_configs) || {};
 
@@ -108,14 +131,28 @@
       defaults.provider
     );
 
+    const rawLocalKeys = (localStored && localStored.apiKeys) || {};
+    const rawStoredKeys = (stored && stored.apiKeys) || {};
+
+    // Local precedence: non-empty local keys take precedence over sync/legacy keys
     const apiKeys = {
-      ...defaults.apiKeys,
-      ...(stored?.apiKeys || {}),
-      gemini: sanitizeString(stored?.apiKeys?.gemini ?? stored?.zeus_gemini_api_key ?? defaults.apiKeys.gemini),
-      openai: sanitizeString(stored?.apiKeys?.openai ?? stored?.zeus_openai_api_key ?? defaults.apiKeys.openai),
-      claude: sanitizeString(stored?.apiKeys?.claude ?? stored?.zeus_claude_api_key ?? defaults.apiKeys.claude),
-      openrouter: sanitizeString(
-        stored?.apiKeys?.openrouter ??
+      gemini: sanitizeString(rawLocalKeys.gemini) || sanitizeString(
+        rawStoredKeys.gemini ??
+        stored?.zeus_gemini_api_key ??
+        defaults.apiKeys.gemini
+      ),
+      openai: sanitizeString(rawLocalKeys.openai) || sanitizeString(
+        rawStoredKeys.openai ??
+        stored?.zeus_openai_api_key ??
+        defaults.apiKeys.openai
+      ),
+      claude: sanitizeString(rawLocalKeys.claude) || sanitizeString(
+        rawStoredKeys.claude ??
+        stored?.zeus_claude_api_key ??
+        defaults.apiKeys.claude
+      ),
+      openrouter: sanitizeString(rawLocalKeys.openrouter) || sanitizeString(
+        rawStoredKeys.openrouter ??
         stored?.zeus_openrouter_api_key ??
         legacyConfigs?.openrouter?.apiKey ??
         defaults.apiKeys.openrouter
@@ -145,6 +182,10 @@
     const copilotMode = stored?.copilotMode !== undefined ? sanitizeString(stored.copilotMode) : defaults.copilotMode;
     const copilotProvider = stored?.copilotProvider !== undefined ? sanitizeString(stored.copilotProvider) : defaults.copilotProvider;
     const copilotMaxTokens = stored?.copilotMaxTokens !== undefined ? Number(stored.copilotMaxTokens) : defaults.copilotMaxTokens;
+    const redactionEnabled = stored?.redactionEnabled !== undefined ? Boolean(stored.redactionEnabled) : defaults.redactionEnabled;
+    const customRedactionPatterns = Array.isArray(stored?.customRedactionPatterns)
+      ? stored.customRedactionPatterns.map(sanitizeString).filter(Boolean)
+      : defaults.customRedactionPatterns;
 
     return {
       schemaVersion: SCHEMA_VERSION,
@@ -154,19 +195,23 @@
       copilotMode,
       copilotProvider,
       copilotMaxTokens,
+      redactionEnabled,
+      customRedactionPatterns,
       apiKeys,
       models,
       ollama
     };
   }
 
-  function migrateSettings(stored) {
-    return normalizeSettings(stored || {});
+  function migrateSettings(stored, localStored) {
+    return normalizeSettings(stored || {}, localStored || {});
   }
 
   function serializeSettings(settingsInput) {
     const settings = normalizeSettings(settingsInput || {});
 
+    // Purely non-sensitive preferences for chrome.storage.sync.
+    // Legacy dual-writing and API keys are strictly halted.
     return {
       schemaVersion: SCHEMA_VERSION,
       provider: settings.provider,
@@ -175,57 +220,255 @@
       copilotMode: settings.copilotMode,
       copilotProvider: settings.copilotProvider,
       copilotMaxTokens: settings.copilotMaxTokens,
-      apiKeys: { ...settings.apiKeys },
+      redactionEnabled: settings.redactionEnabled,
+      customRedactionPatterns: [...settings.customRedactionPatterns],
       models: { ...settings.models },
-      ollama: { ...settings.ollama },
+      ollama: { ...settings.ollama }
+    };
+  }
 
-      // Legacy compatibility keys for existing extension versions.
-      zeus_selected_provider: settings.provider,
-      zeus_gemini_api_key: settings.apiKeys.gemini,
-      zeus_gemini_model: settings.models.gemini,
-      zeus_openai_api_key: settings.apiKeys.openai,
-      zeus_openai_model: settings.models.openai,
-      zeus_claude_api_key: settings.apiKeys.claude,
-      zeus_claude_model: settings.models.claude,
-      zeus_openrouter_api_key: settings.apiKeys.openrouter,
-      zeus_openrouter_model: settings.models.openrouter,
-      zeus_ollama_model: settings.ollama.model,
-      zeus_provider_configs: {
-        openrouter: {
-          apiKey: settings.apiKeys.openrouter,
-          model: settings.models.openrouter
-        }
+  function getPublicSettings(settingsInput) {
+    const settings = normalizeSettings(settingsInput || {});
+    const existingHasKey = settingsInput?.hasApiKey;
+    return {
+      ...serializeSettings(settings),
+      hasApiKey: {
+        gemini: existingHasKey?.gemini !== undefined ? Boolean(existingHasKey.gemini) : Boolean(settings.apiKeys?.gemini),
+        openai: existingHasKey?.openai !== undefined ? Boolean(existingHasKey.openai) : Boolean(settings.apiKeys?.openai),
+        claude: existingHasKey?.claude !== undefined ? Boolean(existingHasKey.claude) : Boolean(settings.apiKeys?.claude),
+        openrouter: existingHasKey?.openrouter !== undefined ? Boolean(existingHasKey.openrouter) : Boolean(settings.apiKeys?.openrouter)
       }
     };
   }
 
-  function loadSettings() {
+  function storageGet(area, keys) {
     return new Promise((resolve, reject) => {
-      chrome.storage.sync.get(STORAGE_KEYS, (stored) => {
-        if (chrome.runtime.lastError) {
-          reject(new Error(chrome.runtime.lastError.message || 'Failed to read settings.'));
+      if (!area || typeof area.get !== 'function') {
+        resolve({});
+        return;
+      }
+      area.get(keys, (items) => {
+        if (globalScope?.chrome?.runtime?.lastError) {
+          const err = new Error(globalScope.chrome.runtime.lastError.message || 'Failed to read from storage.');
+          globalScope.chrome.runtime.lastError = null;
+          reject(err);
           return;
         }
-
-        resolve(migrateSettings(stored || {}));
+        resolve(items || {});
       });
     });
   }
 
-  function saveSettings(settingsInput) {
-    const normalized = normalizeSettings(settingsInput || {});
-    const payload = serializeSettings(normalized);
-
+  function storageSet(area, payload) {
     return new Promise((resolve, reject) => {
-      chrome.storage.sync.set(payload, () => {
-        if (chrome.runtime.lastError) {
-          reject(new Error(chrome.runtime.lastError.message || 'Failed to save settings.'));
+      if (!area || typeof area.set !== 'function') {
+        resolve();
+        return;
+      }
+      area.set(payload, () => {
+        if (globalScope?.chrome?.runtime?.lastError) {
+          const err = new Error(globalScope.chrome.runtime.lastError.message || 'Failed to write to storage.');
+          globalScope.chrome.runtime.lastError = null;
+          reject(err);
           return;
         }
-
-        resolve({ settings: normalized, payload });
+        resolve();
       });
     });
+  }
+
+  function storageRemove(area, keys) {
+    return new Promise((resolve, reject) => {
+      if (!area || typeof area.remove !== 'function') {
+        resolve();
+        return;
+      }
+      area.remove(keys, () => {
+        if (globalScope?.chrome?.runtime?.lastError) {
+          const err = new Error(globalScope.chrome.runtime.lastError.message || 'Failed to remove from storage.');
+          globalScope.chrome.runtime.lastError = null;
+          reject(err);
+          return;
+        }
+        resolve();
+      });
+    });
+  }
+
+  function installStorageSyncGuard() {
+    const syncArea = globalScope?.chrome?.storage?.sync;
+    if (!syncArea || syncArea.__zeus_sync_guard_installed) {
+      return;
+    }
+
+    const originalSet = syncArea.set;
+    syncArea.set = function guardedSyncSet(items, callback) {
+      if (items && typeof items === 'object') {
+        const keys = Object.keys(items);
+        const hasSensitiveKey = keys.some((k) => {
+          if (k === 'apiKeys') return true;
+          if (/api[_-]?key/i.test(k)) return true;
+          if (k === 'zeus_provider_configs') {
+            return Boolean(items[k]?.openrouter?.apiKey);
+          }
+          return false;
+        });
+
+        if (hasSensitiveKey) {
+          const error = new Error('Security Violation: API keys cannot be stored in chrome.storage.sync.');
+          if (globalScope?.chrome?.runtime) {
+            globalScope.chrome.runtime.lastError = error;
+          }
+          if (typeof callback === 'function') {
+            callback();
+            return;
+          }
+          return Promise.reject(error);
+        }
+      }
+
+      return originalSet.call(syncArea, items, callback);
+    };
+
+    syncArea.__zeus_sync_guard_installed = true;
+  }
+
+  let migrationPromise = null;
+
+  async function executeLoadSettings() {
+    const syncArea = globalScope?.chrome?.storage?.sync;
+    const localArea = globalScope?.chrome?.storage?.local;
+
+    // 1. Read both chrome.storage.sync and chrome.storage.local
+    const [syncStored, localStored] = await Promise.all([
+      storageGet(syncArea, null),
+      storageGet(localArea, null)
+    ]);
+
+    // Check if migration is needed:
+    // Migration is needed if syncStored has schemaVersion !== 3 or contains any legacy sync keys or sync.apiKeys
+    const legacyKeysFound = Object.keys(syncStored || {}).filter(
+      (k) => LEGACY_STORAGE_KEYS.includes(k) || /^zeus_.*_(?:api_key|model)$/.test(k)
+    );
+    const hasLegacyKey = legacyKeysFound.length > 0;
+    const needsMigration = syncStored?.schemaVersion !== SCHEMA_VERSION || hasLegacyKey;
+
+    if (!needsMigration) {
+      return normalizeSettings(syncStored, localStored);
+    }
+
+    // 2. Perform idempotent merge with local precedence
+    const normalized = normalizeSettings(syncStored, localStored);
+    const mergedApiKeys = { ...normalized.apiKeys };
+
+    // 3. Write-before-delete ordering:
+    // chrome.storage.local.set() MUST resolve successfully before removing sync.apiKeys and legacy keys from sync
+    await storageSet(localArea, { apiKeys: mergedApiKeys });
+
+    // 4. Purge ALL legacy keys and sync.apiKeys from chrome.storage.sync
+    const keysToRemove = Array.from(new Set([...LEGACY_STORAGE_KEYS, ...legacyKeysFound]));
+    await storageRemove(syncArea, keysToRemove);
+
+    // 5. Persist normalized sync preferences with schemaVersion: 3
+    const syncPayload = serializeSettings(normalized);
+    await storageSet(syncArea, syncPayload);
+
+    return normalized;
+  }
+
+  function loadSettings() {
+    installStorageSyncGuard();
+
+    if (migrationPromise) {
+      return migrationPromise;
+    }
+
+    migrationPromise = (async () => {
+      try {
+        return await executeLoadSettings();
+      } finally {
+        migrationPromise = null;
+      }
+    })();
+
+    return migrationPromise;
+  }
+
+  async function saveSettings(settingsInput) {
+    installStorageSyncGuard();
+
+    if (migrationPromise) {
+      await migrationPromise.catch(() => {});
+    }
+
+    const syncArea = globalScope?.chrome?.storage?.sync;
+    const localArea = globalScope?.chrome?.storage?.local;
+
+    // Read current state from both sync and local to support partial updates without data loss
+    const [currentSync, currentLocal] = await Promise.all([
+      storageGet(syncArea, null),
+      storageGet(localArea, ['apiKeys'])
+    ]);
+
+    const existingLocalKeys = currentLocal?.apiKeys || {};
+    const inputKeys = settingsInput?.apiKeys;
+
+    // Merge API keys:
+    // If input explicitly specifies apiKeys (even empty string for purging/clearing), input takes precedence.
+    // If input does not specify apiKeys or an individual provider, preserve from existing local keys.
+    const mergedApiKeys = {
+      gemini: inputKeys && ('gemini' in inputKeys) ? sanitizeString(inputKeys.gemini) : sanitizeString(existingLocalKeys.gemini),
+      openai: inputKeys && ('openai' in inputKeys) ? sanitizeString(inputKeys.openai) : sanitizeString(existingLocalKeys.openai),
+      claude: inputKeys && ('claude' in inputKeys) ? sanitizeString(inputKeys.claude) : sanitizeString(existingLocalKeys.claude),
+      openrouter: inputKeys && ('openrouter' in inputKeys) ? sanitizeString(inputKeys.openrouter) : sanitizeString(existingLocalKeys.openrouter)
+    };
+
+    // Merge preferences onto existing sync preferences so partial updates do not wipe other settings
+    const mergedPreferences = {
+      ...currentSync,
+      ...(settingsInput || {})
+    };
+
+    if (settingsInput?.models) {
+      mergedPreferences.models = {
+        ...(currentSync?.models || {}),
+        ...settingsInput.models
+      };
+    }
+
+    if (settingsInput?.ollama) {
+      mergedPreferences.ollama = {
+        ...(currentSync?.ollama || {}),
+        ...settingsInput.ollama
+      };
+    }
+
+    // Do not allow legacy sync keys or sync.apiKeys in merged preferences
+    for (const legacyKey of LEGACY_STORAGE_KEYS) {
+      delete mergedPreferences[legacyKey];
+    }
+
+    const normalized = normalizeSettings({
+      ...mergedPreferences,
+      apiKeys: mergedApiKeys
+    });
+
+    const syncPayload = serializeSettings(normalized);
+    const localPayload = { apiKeys: { ...normalized.apiKeys } };
+
+    // Write-before-delete ordering: local first, then cleanup and write sync
+    await storageSet(localArea, localPayload);
+
+    // Ensure all legacy keys are purged from sync
+    const keysToRemove = Array.from(new Set([
+      ...LEGACY_STORAGE_KEYS,
+      ...Object.keys(currentSync || {}).filter(k => /^zeus_.*_(?:api_key|model)$/.test(k))
+    ]));
+    await storageRemove(syncArea, keysToRemove);
+
+    await storageSet(syncArea, syncPayload);
+
+    return { settings: normalized, payload: syncPayload };
   }
 
   function getModelForProvider(settingsInput, provider) {
@@ -248,15 +491,23 @@
     return sanitizeString(settings.apiKeys?.[providerId]);
   }
 
+  // Install guard eagerly if chrome.storage is already available on load
+  installStorageSyncGuard();
+
   globalScope.ZeusSettings = Object.freeze({
     SCHEMA_VERSION,
     SUPPORTED_PROVIDERS,
     SETTINGS_SCHEMA,
     STORAGE_KEYS,
+    SYNC_STORAGE_KEYS,
+    LOCAL_STORAGE_KEYS,
+    LEGACY_STORAGE_KEYS,
     createDefaultSettings,
     migrateSettings,
     normalizeSettings,
     serializeSettings,
+    getPublicSettings,
+    installStorageSyncGuard,
     loadSettings,
     saveSettings,
     getModelForProvider,

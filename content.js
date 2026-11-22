@@ -136,6 +136,16 @@
     ).trim();
   }
 
+  function hasKeyForProvider(provider) {
+    if (settings?.hasApiKey && typeof settings.hasApiKey[provider] === 'boolean') {
+      return settings.hasApiKey[provider];
+    }
+    if (settings?.apiKeys) {
+      return Boolean(readApiKeyForProvider(provider));
+    }
+    return true; // Defer validation to background service worker
+  }
+
   async function fetchSettingsIfNeeded() {
     if (settings?.provider || settings?.zeus_selected_provider) {
       return;
@@ -155,9 +165,9 @@
     await fetchSettingsIfNeeded();
 
     const provider = readProviderFromSettings();
-    const apiKey = readApiKeyForProvider(provider);
+    const hasKey = hasKeyForProvider(provider);
 
-    if (provider !== 'ollama' && provider !== 'auto' && !apiKey) {
+    if (provider !== 'ollama' && provider !== 'auto' && !hasKey) {
       if (injector && typeof injector.showToast === 'function') {
         injector.showToast('MISSING ACCESS TOKEN', 'error', 4000);
       } else {
@@ -188,16 +198,38 @@
     try {
       await sendMessageWithTimeout({ action: 'ping' }, 3000).catch(() => null);
 
+      // Ticket 3: Redact sensitive tokens before provider dispatch
+      const redactor = globalScope.ZeusRedactor || null;
+      const scrubResult = redactor?.scrub
+        ? redactor.scrub(originalPrompt, {
+            redactionEnabled: settings?.redactionEnabled,
+            customRedactionPatterns: settings?.customRedactionPatterns
+          })
+        : { text: originalPrompt, secretMap: {}, hasRedactions: false };
+
       const response = await sendMessageWithTimeout({
         action: 'enhancePrompt',
-        prompt: originalPrompt
+        prompt: scrubResult.text
       }, MESSAGE_TIMEOUT_MS);
 
       if (!response?.success) {
         throw new Error(String(response?.error || 'Unknown response from extension'));
       }
 
-      domUtils.setInputText(inputElement, response.enhancedPrompt);
+      // Ticket 3: Rehydrate locally before injecting into DOM
+      let finalEnhanced = response.enhancedPrompt;
+      if (scrubResult.hasRedactions && redactor?.hydrate) {
+        const hydration = redactor.hydrateWithDetails
+          ? redactor.hydrateWithDetails(finalEnhanced, scrubResult.secretMap)
+          : { text: redactor.hydrate(finalEnhanced, scrubResult.secretMap), droppedPlaceholders: [] };
+        finalEnhanced = hydration.text;
+
+        if (hydration.droppedPlaceholders?.length > 0 && injector && typeof injector.showToast === 'function') {
+          injector.showToast('WARNING: SENSITIVE PLACEHOLDER OMITTED BY AI', 'warning', 4000);
+        }
+      }
+
+      domUtils.setInputText(inputElement, finalEnhanced);
       
       buttonElement.classList.remove('processing');
       if (injector && typeof injector.showToast === 'function') {
@@ -310,7 +342,19 @@
         }
 
         const tempButton = document.createElement('button');
-        tempButton.innerHTML = LIGHTNING_SVG;
+        const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        svg.setAttribute('width', '14');
+        svg.setAttribute('height', '14');
+        svg.setAttribute('viewBox', '0 0 24 24');
+        svg.setAttribute('fill', 'none');
+        svg.setAttribute('stroke', 'currentColor');
+        svg.setAttribute('stroke-width', '2');
+        svg.setAttribute('stroke-linecap', 'round');
+        svg.setAttribute('stroke-linejoin', 'round');
+        const polygon = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+        polygon.setAttribute('points', '13 2 3 14 12 14 11 22 21 10 12 10 13 2');
+        svg.appendChild(polygon);
+        tempButton.appendChild(svg);
 
         handleEnhanceClickForInput(targetInput, tempButton)
           .then(() => sendResponse({ status: 'enhanced' }))
@@ -359,7 +403,8 @@
   }
 
   globalScope.ZeusContentRuntime = Object.freeze({
-    refresh: scheduleRefresh
+    refresh: scheduleRefresh,
+    enhanceInput: handleEnhanceClickForInput
   });
 
   if (document.readyState === 'loading') {

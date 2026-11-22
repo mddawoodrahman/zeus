@@ -1,4 +1,27 @@
-document.addEventListener('DOMContentLoaded', () => {
+(function initOptions(globalScope) {
+  function getOllamaOrigin(customId) {
+    const id = customId || (typeof chrome !== 'undefined' && chrome?.runtime?.id) || '<YOUR_EXTENSION_ID>';
+    return `chrome-extension://${id}`;
+  }
+
+  function buildOllamaCommands(customId) {
+    const origin = getOllamaOrigin(customId);
+    return {
+      origin,
+      macLinux: `OLLAMA_ORIGINS="${origin}" ollama serve`,
+      macDesktop: `launchctl setenv OLLAMA_ORIGINS "${origin}"`,
+      windowsPowerShell: `$env:OLLAMA_ORIGINS="${origin}"; ollama serve`,
+      windowsCmd: `set OLLAMA_ORIGINS=${origin} && ollama serve`
+    };
+  }
+
+  globalScope.ZeusOllamaCommands = Object.freeze({
+    getOllamaOrigin,
+    buildOllamaCommands
+  });
+
+  if (typeof document !== 'undefined') {
+    document.addEventListener('DOMContentLoaded', () => {
   const registry = globalThis.ZeusModelRegistry || null;
   const settingsModule = globalThis.ZeusSettings;
 
@@ -268,8 +291,8 @@ document.addEventListener('DOMContentLoaded', () => {
   function populateModelOptions(provider, selectedModel) {
     if (!providerModelSelect || !modelOptionGroups) return;
 
-    providerModelSelect.innerHTML = '';
-    modelOptionGroups.innerHTML = '';
+    providerModelSelect.replaceChildren();
+    modelOptionGroups.replaceChildren();
     const groupedModels = registry?.getGroupedModels?.(provider) || {};
     let totalOptions = 0;
     const allModelIds = [];
@@ -338,7 +361,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!model) {
       modelMeta.style.display = 'none';
       modelHelpText.textContent = '';
-      modelTags.innerHTML = '';
+      modelTags.replaceChildren();
       return;
     }
 
@@ -350,7 +373,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const modelHint = model.bestFor?.length ? `Best for: ${model.bestFor.join(', ')}` : '';
     modelHelpText.textContent = [providerHint, modelHint].filter(Boolean).join(' ');
 
-    modelTags.innerHTML = '';
+    modelTags.replaceChildren();
     const tags = [
       `Speed: ${model.speed || 'n/a'}`,
       `Cost: ${model.cost || 'n/a'}`,
@@ -387,12 +410,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
   let statusTimeout = null;
   function showStatus(message, type) {
+    if (!statusEl) return;
     clearTimeout(statusTimeout);
     statusEl.textContent = message;
     statusEl.className = `status ${type || ''}`;
     statusTimeout = setTimeout(() => {
-      statusEl.textContent = '';
-      statusEl.className = 'status';
+      if (statusEl) {
+        statusEl.textContent = '';
+        statusEl.className = 'status';
+      }
     }, 4000);
   }
 
@@ -493,7 +519,10 @@ document.addEventListener('DOMContentLoaded', () => {
       currentSettings = normalizedSettings;
 
       showStatus('INJECTION COMPLETE', 'success');
-      chrome.runtime.sendMessage({ action: 'settingsUpdated', settings: payload });
+      const publicSettings = settingsModule?.getPublicSettings
+        ? settingsModule.getPublicSettings(normalizedSettings)
+        : payload;
+      chrome.runtime.sendMessage({ action: 'settingsUpdated', settings: publicSettings });
       applySettingsToUI();
       writeToConsole('CONFIG SUCCESFULLY UPDATED. SETTINGS COMMITTED TO LOCAL SYNC.');
     } catch (error) {
@@ -531,7 +560,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
       const listEl = document.getElementById('telemetryEventList');
       if (listEl) {
-        listEl.innerHTML = '';
+        listEl.replaceChildren();
         const recentEvents = summary.recent || [];
 
         if (recentEvents.length === 0) {
@@ -627,12 +656,15 @@ document.addEventListener('DOMContentLoaded', () => {
     if (confirm('Are you sure you want to PURGE all access tokens and restore default configuration?')) {
       try {
         const defaults = settingsModule.createDefaultSettings();
-        await settingsModule.saveSettings(defaults);
-        currentSettings = defaults;
+        const { settings: savedDefaults, payload } = await settingsModule.saveSettings(defaults);
+        currentSettings = savedDefaults;
         applySettingsToUI();
         showStatus('DATA PURGED', 'success');
         writeToConsole('SYSTEM RESET INITIATED. CONFIG CLEANED.');
-        chrome.runtime.sendMessage({ action: 'settingsUpdated', settings: defaults });
+        const publicSettings = settingsModule?.getPublicSettings
+          ? settingsModule.getPublicSettings(savedDefaults)
+          : payload;
+        chrome.runtime.sendMessage({ action: 'settingsUpdated', settings: publicSettings });
       } catch (error) {
         showStatus('PURGE FAILED', 'error');
       }
@@ -650,6 +682,68 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  loadSettings();
-  writeToConsole('NEURAL CONTROL LINK ESTABLISHED.');
-});
+  function initOllamaPanel() {
+    const originInput = document.getElementById('ollamaExtensionOrigin');
+    const commandInput = document.getElementById('ollamaCommandInput');
+    const copyOriginBtn = document.getElementById('copyOllamaOriginBtn');
+    const copyCommandBtn = document.getElementById('copyOllamaCommandBtn');
+    const tabBtns = document.querySelectorAll('.ollama-tab-btn');
+    const feedback = document.getElementById('ollamaCopyFeedback');
+
+    if (!originInput || !commandInput) return;
+
+    const commands = buildOllamaCommands();
+    originInput.value = commands.origin;
+
+    let activePlatform = 'macLinux';
+    commandInput.value = commands[activePlatform] || commands.macLinux;
+
+    tabBtns.forEach((btn) => {
+      btn.addEventListener('click', () => {
+        tabBtns.forEach((b) => b.classList.remove('active'));
+        btn.classList.add('active');
+        activePlatform = btn.dataset.platform || 'macLinux';
+        commandInput.value = commands[activePlatform] || commands.macLinux;
+        if (feedback) feedback.style.display = 'none';
+      });
+    });
+
+    const copyText = async (text, btn, successLabel) => {
+      try {
+        if (navigator?.clipboard?.writeText) {
+          await navigator.clipboard.writeText(text);
+        } else {
+          const textarea = document.createElement('textarea');
+          textarea.value = text;
+          document.body.appendChild(textarea);
+          textarea.select();
+          document.execCommand('copy');
+          document.body.removeChild(textarea);
+        }
+        if (btn) {
+          const origText = btn.textContent;
+          btn.textContent = successLabel || 'Copied!';
+          setTimeout(() => { btn.textContent = origText; }, 1500);
+        }
+        if (feedback) {
+          feedback.style.display = 'block';
+          setTimeout(() => { feedback.style.display = 'none'; }, 2000);
+        }
+      } catch (_) {}
+    };
+
+    copyOriginBtn?.addEventListener('click', () => {
+      copyText(originInput.value, copyOriginBtn, 'Copied Origin!');
+    });
+
+    copyCommandBtn?.addEventListener('click', () => {
+      copyText(commandInput.value, copyCommandBtn, 'Copied Command!');
+    });
+  }
+
+    initOllamaPanel();
+    loadSettings();
+    writeToConsole('NEURAL CONTROL LINK ESTABLISHED.');
+    });
+  }
+})(typeof globalThis !== 'undefined' ? globalThis : this);

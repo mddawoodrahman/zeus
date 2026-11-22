@@ -53,6 +53,8 @@
       '   - Do NOT add preambles like "Here is the enhanced prompt:".',
       '   - Do NOT alter the original intent in any way.',
       '   - Preserve all domain-specific terminology from the original.',
+      '   - Preserve all [[ZEUS_*]] placeholder tokens (e.g., [[ZEUS_SECRET_1]], [[ZEUS_EMAIL_1]]) EXACTLY as written.',
+      '   - Do NOT translate, modify, expand, or remove any [[ZEUS_*]] placeholder tags.',
       '',
       'ORIGINAL PROMPT:',
       cleanInput,
@@ -64,7 +66,7 @@
   }
 
   function getRewriteSystemInstruction() {
-    return 'You improve prompts for LLM usage. Keep intent intact and return only the rewritten prompt text.';
+    return 'You improve prompts for LLM usage. Keep intent intact, preserve all [[ZEUS_*]] placeholder tokens verbatim, and return only the rewritten prompt text.';
   }
 
   globalScope.ZeusPrompts = Object.freeze({
