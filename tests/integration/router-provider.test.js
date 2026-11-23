@@ -92,4 +92,46 @@ describe('Router and provider integration', () => {
       })
     );
   });
+
+  it('routes streamSuggest to configured provider suggest method', async () => {
+    clearZeusGlobals();
+    loadScript('model-registry.js');
+
+    const mockSuggest = vi.fn().mockImplementation(async (text, settings, port, signal) => {
+      port.postMessage({ type: 'chunk', text: 'suggested' });
+    });
+
+    const providers = {
+      claude: Object.assign(vi.fn(), { suggest: mockSuggest })
+    };
+
+    globalThis.ZeusSettings = {
+      createDefaultSettings() {
+        return { provider: 'claude' };
+      },
+      loadSettings: vi.fn().mockResolvedValue({
+        copilotProvider: 'claude',
+        apiKeys: { claude: 'claude-key' }
+      })
+    };
+
+    globalThis.ZeusProviders = providers;
+    loadScript('core/router.js');
+
+    const port = { postMessage: vi.fn() };
+    const abortController = new AbortController();
+
+    await globalThis.ZeusRouter.streamSuggest('Write a python script', {
+      copilotProvider: 'claude',
+      apiKeys: { claude: 'claude-key' }
+    }, port, abortController.signal);
+
+    expect(mockSuggest).toHaveBeenCalledWith(
+      'Write a python script',
+      expect.objectContaining({ copilotProvider: 'claude' }),
+      port,
+      abortController.signal
+    );
+    expect(port.postMessage).toHaveBeenCalledWith({ type: 'chunk', text: 'suggested' });
+  });
 });

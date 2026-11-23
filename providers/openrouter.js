@@ -3,6 +3,18 @@
   const prompts = globalScope.ZeusPrompts;
   const errors = globalScope.ZeusErrors;
   const providerUtils = globalScope.ZeusProviderUtils;
+  const transport = globalScope.ZeusProviderTransport || (typeof require !== 'undefined' ? (function() {
+    try {
+      const path = require('node:path');
+      return require(path.resolve(process.cwd(), 'core/providerTransport.js'));
+    } catch (_) {
+      try {
+        return require('../core/providerTransport.js');
+      } catch (_2) {
+        return null;
+      }
+    }
+  })() : null);
   const providers = providerUtils.ensureProviderBag();
 
   const OPENROUTER_API_URL = 'https://openrouter.ai/api/v1/chat/completions';
@@ -67,6 +79,33 @@
     }
 
     try {
+      if (transport && typeof transport.execute === 'function') {
+        const result = await transport.execute({
+          url: OPENROUTER_MODELS_URL,
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${apiKey}`,
+            'HTTP-Referer': OPENROUTER_APP_REFERER,
+            'X-Title': OPENROUTER_APP_TITLE
+          },
+          timeoutMs: 8000,
+          maxRetries: 1,
+          provider: 'openrouter'
+        });
+
+        if (!result.ok) {
+          return [];
+        }
+
+        const models = extractModelIds(result.data);
+        catalogCache = {
+          expiresAt: now + OPENROUTER_CATALOG_TTL_MS,
+          models
+        };
+
+        return models;
+      }
+
       const response = await retry.fetchWithTimeout(OPENROUTER_MODELS_URL, {
         method: 'GET',
         headers: {
@@ -122,7 +161,8 @@
           ...providerUtils.buildChatTokenLimit(tokenParam, 2048)
         };
 
-        const response = await retry.fetchWithTimeout(OPENROUTER_API_URL, {
+        const result = await (transport ? transport.execute({
+          url: OPENROUTER_API_URL,
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -130,20 +170,34 @@
             'HTTP-Referer': OPENROUTER_APP_REFERER,
             'X-Title': OPENROUTER_APP_TITLE
           },
-          body: JSON.stringify(body)
-        });
-
-        if (response.ok) {
+          body,
+          maxRetries: 1,
+          provider: 'openrouter'
+        }) : (async () => {
+          const response = await retry.fetchWithTimeout(OPENROUTER_API_URL, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${apiKey}`,
+              'HTTP-Referer': OPENROUTER_APP_REFERER,
+              'X-Title': OPENROUTER_APP_TITLE
+            },
+            body: JSON.stringify(body)
+          });
           const data = await providerUtils.readJsonSafe(response);
-          const enhancedText = data?.choices?.[0]?.message?.content;
+          return { ok: response.ok, status: response.status, data };
+        })());
+
+        if (result.ok) {
+          const enhancedText = result.data?.choices?.[0]?.message?.content;
           if (!enhancedText) throw new Error('Provider responded without enhanced text.');
           return String(enhancedText).trim();
         }
 
-        const errData = await providerUtils.readJsonSafe(response);
-        lastError = new errors.ProviderHttpError('openrouter', response.status, errData, currentModel);
+        const errData = result.data || {};
+        lastError = new errors.ProviderHttpError('openrouter', result.status, errData, currentModel);
 
-        if (response.status === 400 && providerUtils.isUnsupportedTokenParameterError(errData, tokenParam)) {
+        if (result.status === 400 && providerUtils.isUnsupportedTokenParameterError(errData, tokenParam)) {
           const alternateParam = providerUtils.getAlternateChatTokenParam(tokenParam);
           if (alternateParam) {
             tokenParam = alternateParam;
@@ -151,19 +205,19 @@
           }
         }
 
-        if (modelIndex < modelCandidates.length - 1 && shouldFallback(response.status, errData)) {
+        if (modelIndex < modelCandidates.length - 1 && shouldFallback(result.status, errData)) {
           providerUtils.trackFallbackEvent({
             provider: 'openrouter',
             fromModel: currentModel,
             toModel: modelCandidates[modelIndex + 1],
-            reasonCode: response.status,
+            reasonCode: result.status,
             reason: extractSignal(errData),
             stage: 'model-candidate'
           });
           break;
         }
 
-        const canRetry = attempt < OPENROUTER_MAX_RETRIES - 1 && isRetryable(response.status, errData);
+        const canRetry = attempt < OPENROUTER_MAX_RETRIES - 1 && isRetryable(result.status, errData);
         if (canRetry) {
           await retry.waitWithBackoff(attempt);
           continue;
@@ -189,30 +243,57 @@
         { role: 'user', content: `Prompt: ${text}` }
       ],
       temperature: 0.3,
-      max_tokens: settings.copilotMaxTokens || 60
+      max_tokens: settings.copilotMaxTokens || 60,
+      stream: true
     };
 
-    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`,
-        'HTTP-Referer': 'https://github.com/zeus-extension',
-        'X-Title': 'Zeus Prompt Injector'
-      },
-      body: JSON.stringify(body),
-      signal
-    });
+    if (transport && typeof transport.stream === 'function') {
+      await transport.stream({
+        url: OPENROUTER_API_URL,
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`,
+          'HTTP-Referer': OPENROUTER_APP_REFERER,
+          'X-Title': OPENROUTER_APP_TITLE
+        },
+        body,
+        decoder: 'sse',
+        provider: 'openrouter',
+        signal
+      }, {
+        signal,
+        onChunk: (chunk) => {
+          const content = chunk?.choices?.[0]?.delta?.content || chunk?.choices?.[0]?.message?.content;
+          if (content && !signal?.aborted) {
+            port.postMessage({ type: 'chunk', text: content });
+          }
+        }
+      });
+    } else {
+      const response = await fetch(OPENROUTER_API_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`,
+          'HTTP-Referer': OPENROUTER_APP_REFERER,
+          'X-Title': OPENROUTER_APP_TITLE
+        },
+        body: JSON.stringify(body),
+        signal
+      });
 
-    if (!response.ok) {
-      const errData = await providerUtils.readJsonSafe(response);
-      throw new Error(errData?.error?.message || `HTTP error ${response.status}`);
-    }
+      if (!response.ok) {
+        const errData = await providerUtils.readJsonSafe(response);
+        throw new Error(errData?.error?.message || `HTTP error ${response.status}`);
+      }
 
-    const data = await providerUtils.readJsonSafe(response);
-    const content = data?.choices?.[0]?.message?.content;
-    if (content && !signal?.aborted) {
-      port.postMessage({ type: 'chunk', text: String(content).trim() });
+      await providerUtils.parseSseStream(response, (chunk) => {
+        const content = chunk?.choices?.[0]?.delta?.content || chunk?.choices?.[0]?.message?.content;
+        if (content && !signal?.aborted) {
+          port.postMessage({ type: 'chunk', text: content });
+        }
+      }, signal);
     }
 
     if (!signal?.aborted) {

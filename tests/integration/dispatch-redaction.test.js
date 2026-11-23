@@ -112,6 +112,7 @@ describe('Ticket 3: Redaction across all dispatch surfaces', () => {
       loadScript('core/injector.js');
       loadScript('core/observer.js');
       loadScript('core/redactor.js');
+      loadScript('core/promptClient.js');
       loadScript('content.js');
       await new Promise((r) => setTimeout(r, 30));
 
@@ -153,6 +154,7 @@ describe('Ticket 3: Redaction across all dispatch surfaces', () => {
       loadScript('core/injector.js');
       loadScript('core/observer.js');
       loadScript('core/redactor.js');
+      loadScript('core/promptClient.js');
       loadScript('content.js');
       await new Promise((r) => setTimeout(r, 30));
 
@@ -223,6 +225,8 @@ describe('Ticket 3: Redaction across all dispatch surfaces', () => {
       `;
 
       loadScript('core/redactor.js');
+      loadScript('core/safeDom.js');
+      loadScript('core/promptClient.js');
       loadScript('sidepanel.js');
 
       // Trigger DOMContentLoaded logic

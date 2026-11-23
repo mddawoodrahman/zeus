@@ -63,27 +63,48 @@ Zeus is designed around maintainable modules and clean runtime boundaries:
 
 ### Service Worker Composition
 
-`background.js` is intentionally thin and imports runtime modules in a fixed order:
+`background.js` is intentionally thin and imports runtime modules in a fixed, deterministic order:
 
-1. Registry and settings modules
-2. Core utilities (`retry`, `prompts`, `errors`, `telemetry`)
-3. Provider modules
-4. Routing logic
-5. Message handler
+1. Registry and settings storage modules (`model-registry.js`, `settings/settingsStore.js`, `settings/settings.js`)
+2. Core network utilities and transport engine (`core/retry.js`, `core/prompts.js`, `core/errors.js`, `core/telemetry.js`, `core/providerTransport.js`)
+3. Provider implementations (`providers/utils.js`, `providers/gemini.js`, `providers/openai.js`, `providers/claude.js`, `providers/openrouter.js`, `providers/ollama.js`)
+4. Redaction, pure route selection, and background prompt execution (`core/redactor.js`, `core/router.js`, `core/promptEngine.js`)
+5. Message handler (`messaging/messageHandler.js`)
 
-### End-to-End Prompt Flow
+### End-to-End Prompt Flow (MV3 Process-Split Architecture)
 
 1. Content script injects an enhance button for eligible input fields.
-2. User clicks enhance.
-3. `content.js` sends `enhancePrompt` to background.
-4. `messaging/messageHandler.js` delegates to `core/router.js`.
-5. `core/router.js` loads normalized settings and chooses provider (or Auto route).
-6. Provider module performs API call with retry/fallback behavior.
-7. Enhanced text returns to content script and replaces input content safely.
+2. User triggers prompt optimization (via in-page button, Side Panel Workbench, or Context Menu).
+3. **Client Seam (`core/promptClient.js`)**:
+   - Scrubs plaintext credentials locally via `ZeusRedactor.scrub()`.
+   - Dispatches scrubbed prompt over IPC via `chrome.runtime.sendMessage({ action: 'enhancePrompt', prompt: scrubbedText })`.
+   - *Security Invariant: Plaintext secrets NEVER cross the IPC boundary.*
+4. **Background Seam (`core/promptEngine.js`)**:
+   - Privileged service worker receives `enhancePrompt`.
+   - Resolves configuration via `ZeusSettingsStore` (nested section merges, dual-area cache invalidation).
+   - Calculates candidate route via pure calculator `ZeusRouter.calculateRoutePlan()`.
+   - Executes request via `ZeusProviderTransport` (`execute()` unary or `stream()` streaming with pre-first-byte retry safety).
+   - Handles auto-mode cascades on transient failure and logs telemetry via `ZeusTelemetry`.
+   - Applies defense-in-depth redaction if direct background calls bypass client scrubbing.
+   - Returns structured payload `{ enhancedText, warnings, meta }`.
+5. **Client-Side Rehydration & Presentation**:
+   - `PromptClient` receives scrubbed enhanced text.
+   - Rehydrates original secrets locally into client memory using `ZeusRedactor.hydrateWithDetails()`.
+   - Surfaces any dropped-placeholder warnings (`warnings`) as status toasts.
+   - Injects rehydrated text into the target input element or renders safe diffs via `ZeusSafeDOM`.
+
+### Deepened Core Subsystems
+
+- `core/promptClient.js`: Client-side prompt orchestration (local scrub, IPC dispatch, local rehydration, warning collection).
+- `core/promptEngine.js`: Background privileged enhancement execution, fallback retries, defense-in-depth, and latency recording.
+- `core/providerTransport.js`: Deep network transport with unary `execute()`, streaming `stream()`, SSE/NDJSON decoders, and pre-first-byte retry safety.
+- `core/safeDom.js`: Pure DOM construction for Myers diffing and Markdown rendering with `replaceChildren()` container clearing and strict URL protocol validation.
+- `settings/settingsStore.js`: Storage partitioning between sync preferences and local API keys with section-level nested merge and dual-area `onChanged` cache invalidation.
 
 ### Content Runtime Layers
 
 - `content.js`: orchestration, refresh lifecycle, and runtime message handling.
+- `core/promptClient.js`: client-side redaction, IPC enhancement dispatch, and rehydration.
 - `core/domUtils.js`: candidate discovery and input read/write helpers.
 - `core/injector.js`: single reusable button lifecycle, focus/hover visibility, and adapter-driven mounting.
 - `core/useFloatingPosition.js`: anchored/fixed positioning sync logic for resize, scroll, and focus changes.
@@ -124,9 +145,14 @@ This separation keeps site heuristics isolated and avoids intrusive DOM reparent
 |  |- ghostText.js
 |  |- injector.js
 |  |- observer.js
+|  |- promptClient.js
+|  |- promptEngine.js
 |  |- prompts.js
+|  |- providerTransport.js
+|  |- redactor.js
 |  |- retry.js
 |  |- router.js
+|  |- safeDom.js
 |  |- telemetry.js
 |  |- useFloatingPosition.js
 |- messaging/
@@ -140,9 +166,11 @@ This separation keeps site heuristics isolated and avoids intrusive DOM reparent
 |  |- utils.js
 |- settings/
 |  |- settings.js
+|  |- settingsStore.js
 |- scripts/
 |  |- build-extension.js
 |  |- check-syntax.js
+|  |- verify-browser-packaged.mjs
 |  |- zip-extension.js
 |- tests/
 |  |- dom/

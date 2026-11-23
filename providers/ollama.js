@@ -3,6 +3,18 @@
   const prompts = globalScope.ZeusPrompts;
   const errors = globalScope.ZeusErrors;
   const providerUtils = globalScope.ZeusProviderUtils;
+  const transport = globalScope.ZeusProviderTransport || (typeof require !== 'undefined' ? (function() {
+    try {
+      const path = require('node:path');
+      return require(path.resolve(process.cwd(), 'core/providerTransport.js'));
+    } catch (_) {
+      try {
+        return require('../core/providerTransport.js');
+      } catch (_2) {
+        return null;
+      }
+    }
+  })() : null);
   const providers = providerUtils.ensureProviderBag();
 
   const OLLAMA_API_URL = 'http://localhost:11434/api/generate';
@@ -34,6 +46,34 @@
   }
 
   async function fetchModels(url) {
+    if (transport && typeof transport.execute === 'function') {
+      let result;
+      try {
+        result = await transport.execute({
+          url,
+          method: 'GET',
+          timeoutMs: 5000,
+          maxRetries: 1,
+          provider: 'ollama'
+        });
+      } catch (error) {
+        return [];
+      }
+
+      if (result.status === 403) {
+        throw new Error(buildOllamaOriginBlockedMessage());
+      }
+      if (!result.ok) {
+        return [];
+      }
+
+      const data = result.data || {};
+      const list = Array.isArray(data?.models) ? data.models : [];
+      return list
+        .map((item) => String(item?.model || item?.name || '').trim())
+        .filter(Boolean);
+    }
+
     const response = await retry.fetchWithTimeout(url, { method: 'GET' }, 5000);
 
     if (response.status === 403) {
@@ -54,6 +94,24 @@
 
   async function checkHealth() {
     try {
+      if (transport && typeof transport.execute === 'function') {
+        const result = await transport.execute({
+          url: OLLAMA_HEALTH_URL,
+          method: 'GET',
+          timeoutMs: 5000,
+          maxRetries: 1,
+          provider: 'ollama'
+        });
+
+        if (result.status === 403) {
+          throw new Error(buildOllamaOriginBlockedMessage());
+        }
+        if (!result.ok) {
+          throw new Error('Ollama health check failed.');
+        }
+        return;
+      }
+
       const response = await retry.fetchWithTimeout(OLLAMA_HEALTH_URL, { method: 'GET' }, 5000);
       if (response.status === 403) {
         throw new Error(buildOllamaOriginBlockedMessage());
@@ -94,14 +152,38 @@
 
     try {
       const model = await detectModel(config);
+      const body = {
+        model,
+        prompt: prompts.buildEnhancePrompt(prompt),
+        stream: false
+      };
+
+      if (transport && typeof transport.execute === 'function') {
+        const result = await transport.execute({
+          url: OLLAMA_API_URL,
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body,
+          maxRetries: 1,
+          provider: 'ollama'
+        });
+
+        if (!result.ok) {
+          throw new errors.ProviderHttpError('ollama', result.status, result.data, model);
+        }
+
+        const enhancedText = result.data?.response;
+        if (!enhancedText) {
+          throw new Error('Ollama responded without enhanced text.');
+        }
+
+        return String(enhancedText).trim();
+      }
+
       const response = await retry.fetchWithTimeout(OLLAMA_API_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model,
-          prompt: prompts.buildEnhancePrompt(prompt),
-          stream: false
-        })
+        body: JSON.stringify(body)
       });
 
       if (!response.ok) {
@@ -134,30 +216,70 @@
     const model = await detectModel(settings);
 
     const promptText = `You are a concise prompt-completion assistant. Continue the user's incomplete prompt with at most 2 sentences. Do not repeat what they already typed. Prompt: ${text}`;
-    const response = await retry.fetchWithTimeout(OLLAMA_API_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model,
-        prompt: promptText,
-        stream: false,
-        options: {
-          temperature: 0.3,
-          num_predict: settings.copilotMaxTokens || 60
+    const body = {
+      model,
+      prompt: promptText,
+      options: {
+        temperature: 0.3,
+        num_predict: settings.copilotMaxTokens || 60
+      }
+    };
+
+    if (transport && typeof transport.stream === 'function') {
+      await transport.stream({
+        url: OLLAMA_API_URL,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: { ...body, stream: true },
+        decoder: 'ndjson',
+        provider: 'ollama',
+        signal
+      }, {
+        signal,
+        onChunk: (chunk) => {
+          const content = chunk?.response;
+          if (content && !signal?.aborted) {
+            port.postMessage({ type: 'chunk', text: content });
+          }
         }
-      }),
-      signal
-    });
+      });
+    } else if (transport && typeof transport.execute === 'function') {
+      const result = await transport.execute({
+        url: OLLAMA_API_URL,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: { ...body, stream: false },
+        signal,
+        maxRetries: 1,
+        provider: 'ollama'
+      });
 
-    if (!response.ok) {
-      const errData = await providerUtils.readJsonSafe(response);
-      throw new errors.ProviderHttpError('ollama', response.status, errData, model);
-    }
+      if (!result.ok) {
+        throw new errors.ProviderHttpError('ollama', result.status, result.data, model);
+      }
 
-    const data = await providerUtils.readJsonSafe(response);
-    const content = data?.response;
-    if (content && !signal?.aborted) {
-      port.postMessage({ type: 'chunk', text: String(content).trim() });
+      const content = result.data?.response;
+      if (content && !signal?.aborted) {
+        port.postMessage({ type: 'chunk', text: String(content).trim() });
+      }
+    } else {
+      const response = await retry.fetchWithTimeout(OLLAMA_API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...body, stream: false }),
+        signal
+      });
+
+      if (!response.ok) {
+        const errData = await providerUtils.readJsonSafe(response);
+        throw new errors.ProviderHttpError('ollama', response.status, errData, model);
+      }
+
+      const data = await providerUtils.readJsonSafe(response);
+      const content = data?.response;
+      if (content && !signal?.aborted) {
+        port.postMessage({ type: 'chunk', text: String(content).trim() });
+      }
     }
 
     if (!signal?.aborted) {

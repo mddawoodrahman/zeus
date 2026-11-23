@@ -1,6 +1,6 @@
 document.addEventListener('DOMContentLoaded', () => {
   const registry = globalThis.ZeusModelRegistry || null;
-  const settingsModule = globalThis.ZeusSettings;
+  const settingsModule = globalThis.ZeusSettingsStore || globalThis.ZeusSettings;
 
   const aiProviderSelect = document.getElementById('aiProvider');
   const modelSelectionSection = document.getElementById('model-selection');

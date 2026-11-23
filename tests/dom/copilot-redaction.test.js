@@ -479,4 +479,28 @@ describe('Background Copilot Stream Handler (Ticket 4)', () => {
 
     expect(capturedSignal.aborted).toBe(true);
   });
+
+  it('relays streamed suggestion chunks and done signal through copilot port to client', async () => {
+    streamSuggestSpy.mockImplementation(async (text, settings, port, signal) => {
+      port.postMessage({ type: 'chunk', text: ' const' });
+      port.postMessage({ type: 'chunk', text: ' result = 42;' });
+      port.postMessage({ type: 'done' });
+    });
+
+    const clientPort = globalThis.chrome.runtime.connect({ name: 'copilot-stream' });
+    const received = [];
+    clientPort.onMessage.addListener((msg) => received.push(msg));
+
+    clientPort.postMessage({
+      type: 'copilot:start',
+      text: 'Calculate the meaning of life',
+      cursorPos: 30
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    expect(received.some((m) => m.type === 'chunk' && m.text === ' const')).toBe(true);
+    expect(received.some((m) => m.type === 'chunk' && m.text === ' result = 42;')).toBe(true);
+    expect(received.some((m) => m.type === 'done')).toBe(true);
+  });
 });

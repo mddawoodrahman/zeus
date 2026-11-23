@@ -21,6 +21,7 @@ describe('OpenAI provider with mocked fetch', () => {
     loadScript('core/retry.js');
     loadScript('core/prompts.js');
     loadScript('core/errors.js');
+    loadScript('core/providerTransport.js');
     loadScript('providers/utils.js');
     loadScript('providers/openai.js');
   });

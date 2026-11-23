@@ -2,6 +2,21 @@
   const registry = globalScope.ZeusModelRegistry || null;
   const telemetry = globalScope.ZeusTelemetry || null;
 
+  function getTransport() {
+    return globalScope.ZeusProviderTransport || (typeof require !== 'undefined' ? (function() {
+      try {
+        const path = require('node:path');
+        return require(path.resolve(process.cwd(), 'core/providerTransport.js'));
+      } catch (_) {
+        try {
+          return require('../core/providerTransport.js');
+        } catch (_2) {
+          return null;
+        }
+      }
+    })() : null);
+  }
+
   function ensureProviderBag() {
     if (!globalScope.ZeusProviders) {
       globalScope.ZeusProviders = {};
@@ -24,7 +39,11 @@
   }
 
   function readJsonSafe(response) {
-    return response.json().catch(() => ({}));
+    const transport = getTransport();
+    if (transport && typeof transport.readJsonSafe === 'function') {
+      return transport.readJsonSafe(response);
+    }
+    return response?.json ? response.json().catch(() => ({})) : Promise.resolve({});
   }
 
   function getErrorSignal(errData) {
@@ -116,6 +135,15 @@
   }
 
   async function parseSseStream(response, onChunk, signal) {
+    const transport = getTransport();
+    if (transport && typeof transport.parseSseStream === 'function') {
+      return transport.parseSseStream(response, onChunk, signal);
+    }
+
+    if (!response?.body || typeof response.body.getReader !== 'function') {
+      return;
+    }
+
     const reader = response.body.getReader();
     const decoder = new TextDecoder('utf-8');
     let buffer = '';

@@ -10,6 +10,7 @@ describe('ZeusSettings', () => {
     globalThis.chrome = env.chrome;
 
     loadScript('model-registry.js');
+    loadScript('settings/settingsStore.js');
     loadScript('settings/settings.js');
   });
 
@@ -453,5 +454,155 @@ describe('ZeusSettings', () => {
     expect(env.syncStore.zeus_selected_provider).toBeUndefined();
     expect(env.syncStore.zeus_claude_api_key).toBeUndefined();
     expect(env.syncStore.apiKeys).toBeUndefined();
+  });
+
+  describe('SettingsStore Deepening: Nested Merges & Dual-Area Cache Invalidation', () => {
+    it('exposes ZeusSettingsStore with get, update, getPublic, and invalidateCache', () => {
+      const store = globalThis.ZeusSettingsStore;
+      expect(store).toBeDefined();
+      expect(typeof store.get).toBe('function');
+      expect(typeof store.update).toBe('function');
+      expect(typeof store.getPublic).toBe('function');
+      expect(typeof store.invalidateCache).toBe('function');
+      expect(globalThis.ZeusSettings).toBe(store);
+    });
+
+    it('preserves sibling apiKeys during partial nested updates and supports explicit key clearing', async () => {
+      const store = globalThis.ZeusSettingsStore;
+
+      // 1. Initial setup with multiple keys
+      await store.update({
+        apiKeys: {
+          openai: 'sk-initial-openai',
+          claude: 'sk-initial-claude',
+          gemini: 'sk-initial-gemini',
+          openrouter: 'sk-initial-openrouter'
+        }
+      });
+
+      let current = await store.get();
+      expect(current.apiKeys.openai).toBe('sk-initial-openai');
+      expect(current.apiKeys.claude).toBe('sk-initial-claude');
+      expect(current.apiKeys.gemini).toBe('sk-initial-gemini');
+      expect(current.apiKeys.openrouter).toBe('sk-initial-openrouter');
+
+      // 2. Update ONLY openai key -> sibling keys must remain intact
+      await store.update({
+        apiKeys: {
+          openai: 'sk-updated-openai'
+        }
+      });
+
+      current = await store.get();
+      expect(current.apiKeys.openai).toBe('sk-updated-openai');
+      expect(current.apiKeys.claude).toBe('sk-initial-claude');
+      expect(current.apiKeys.gemini).toBe('sk-initial-gemini');
+      expect(current.apiKeys.openrouter).toBe('sk-initial-openrouter');
+
+      // 3. Explicitly clear openai key with "" -> only openai cleared, siblings preserved
+      await store.update({
+        apiKeys: {
+          openai: ''
+        }
+      });
+
+      current = await store.get();
+      expect(current.apiKeys.openai).toBe('');
+      expect(current.apiKeys.claude).toBe('sk-initial-claude');
+      expect(current.apiKeys.gemini).toBe('sk-initial-gemini');
+      expect(current.apiKeys.openrouter).toBe('sk-initial-openrouter');
+    });
+
+    it('preserves sibling model configurations during partial models updates', async () => {
+      const store = globalThis.ZeusSettingsStore;
+
+      await store.update({
+        models: {
+          openai: 'gpt-4o',
+          claude: 'claude-3-5-sonnet',
+          gemini: 'gemini-1.5-pro'
+        }
+      });
+
+      // Update only openai model
+      await store.update({
+        models: {
+          openai: 'gpt-5-codex'
+        }
+      });
+
+      const current = await store.get();
+      expect(current.models.openai).toBe('gpt-5-codex');
+      expect(current.models.claude).toBe('claude-3-5-sonnet');
+      expect(current.models.gemini).toBe('gemini-1.5-pro');
+    });
+
+    it('invalidates in-memory cache upon chrome.storage.onChanged event in sync area', async () => {
+      const store = globalThis.ZeusSettingsStore;
+
+      // Seed initial
+      await store.update({ provider: 'gemini' });
+      const initial = await store.get();
+      expect(initial.provider).toBe('gemini');
+
+      // Directly modify sync store underlying backing without going through store.update
+      env.syncStore.provider = 'openai';
+
+      // Verify cached value is served before onChanged fires
+      const cached = await store.get();
+      expect(cached.provider).toBe('gemini');
+
+      // Trigger chrome.storage.onChanged for 'sync'
+      env.listeners.storageOnChanged.listeners.forEach((listener) => {
+        listener({ provider: { oldValue: 'gemini', newValue: 'openai' } }, 'sync');
+      });
+
+      // Next get() must fetch freshly updated value
+      const refreshed = await store.get();
+      expect(refreshed.provider).toBe('openai');
+    });
+
+    it('invalidates in-memory cache upon chrome.storage.onChanged event in local area', async () => {
+      const store = globalThis.ZeusSettingsStore;
+
+      // Seed initial
+      await store.update({ apiKeys: { claude: 'sk-old-key' } });
+      const initial = await store.get();
+      expect(initial.apiKeys.claude).toBe('sk-old-key');
+
+      // Modify local store directly
+      env.localStore.apiKeys = { ...env.localStore.apiKeys, claude: 'sk-externally-changed' };
+
+      // Verify cached before invalidation
+      const cached = await store.get();
+      expect(cached.apiKeys.claude).toBe('sk-old-key');
+
+      // Trigger chrome.storage.onChanged for 'local'
+      env.listeners.storageOnChanged.listeners.forEach((listener) => {
+        listener({ apiKeys: { oldValue: { claude: 'sk-old-key' }, newValue: { claude: 'sk-externally-changed' } } }, 'local');
+      });
+
+      // Next get() must reflect external change
+      const refreshed = await store.get();
+      expect(refreshed.apiKeys.claude).toBe('sk-externally-changed');
+    });
+
+    it('getPublic() asynchronously returns zero apiKeys and accurate hasApiKey flags', async () => {
+      const store = globalThis.ZeusSettingsStore;
+
+      await store.update({
+        provider: 'claude',
+        apiKeys: {
+          claude: 'sk-valid-claude-key',
+          openai: ''
+        }
+      });
+
+      const publicSettings = await store.getPublic();
+      expect(publicSettings.provider).toBe('claude');
+      expect(publicSettings.apiKeys).toBeUndefined();
+      expect(publicSettings.hasApiKey.claude).toBe(true);
+      expect(publicSettings.hasApiKey.openai).toBe(false);
+    });
   });
 });

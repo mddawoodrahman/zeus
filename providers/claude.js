@@ -3,6 +3,18 @@
   const prompts = globalScope.ZeusPrompts;
   const errors = globalScope.ZeusErrors;
   const providerUtils = globalScope.ZeusProviderUtils;
+  const transport = globalScope.ZeusProviderTransport || (typeof require !== 'undefined' ? (function() {
+    try {
+      const path = require('node:path');
+      return require(path.resolve(process.cwd(), 'core/providerTransport.js'));
+    } catch (_) {
+      try {
+        return require('../core/providerTransport.js');
+      } catch (_2) {
+        return null;
+      }
+    }
+  })() : null);
   const providers = providerUtils.ensureProviderBag();
 
   const CLAUDE_API_URL = 'https://api.anthropic.com/v1/messages';
@@ -66,39 +78,53 @@
           temperature: 0.4
         };
 
-        const response = await retry.fetchWithTimeout(CLAUDE_API_URL, {
+        const result = await (transport ? transport.execute({
+          url: CLAUDE_API_URL,
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             'x-api-key': apiKey,
             'anthropic-version': '2023-06-01'
           },
-          body: JSON.stringify(body)
-        });
-
-        if (response.ok) {
+          body,
+          maxRetries: 1,
+          provider: 'claude'
+        }) : (async () => {
+          const response = await retry.fetchWithTimeout(CLAUDE_API_URL, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'x-api-key': apiKey,
+              'anthropic-version': '2023-06-01'
+            },
+            body: JSON.stringify(body)
+          });
           const data = await providerUtils.readJsonSafe(response);
-          const enhancedText = data?.content?.[0]?.text;
+          return { ok: response.ok, status: response.status, data };
+        })());
+
+        if (result.ok) {
+          const enhancedText = result.data?.content?.[0]?.text;
           if (!enhancedText) throw new Error('Provider responded without enhanced text.');
           return String(enhancedText).trim();
         }
 
-        const errData = await providerUtils.readJsonSafe(response);
-        lastError = new errors.ProviderHttpError('claude', response.status, errData, currentModel);
+        const errData = result.data || {};
+        lastError = new errors.ProviderHttpError('claude', result.status, errData, currentModel);
 
-        if (modelIndex < modelCandidates.length - 1 && shouldFallback(response.status, errData)) {
+        if (modelIndex < modelCandidates.length - 1 && shouldFallback(result.status, errData)) {
           providerUtils.trackFallbackEvent({
             provider: 'claude',
             fromModel: currentModel,
             toModel: modelCandidates[modelIndex + 1],
-            reasonCode: response.status,
+            reasonCode: result.status,
             reason: extractSignal(errData),
             stage: 'model-candidate'
           });
           break;
         }
 
-        const canRetry = attempt < CLAUDE_MAX_RETRIES - 1 && isRetryable(response.status, errData);
+        const canRetry = attempt < CLAUDE_MAX_RETRIES - 1 && isRetryable(result.status, errData);
         if (canRetry) {
           await retry.waitWithBackoff(attempt);
           continue;
@@ -126,30 +152,56 @@
       stream: true
     };
 
-    const response = await fetch(CLAUDE_API_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01'
-      },
-      body: JSON.stringify(body),
-      signal
-    });
-
-    if (!response.ok) {
-      const errData = await providerUtils.readJsonSafe(response);
-      throw new Error(errData?.error?.message || `HTTP error ${response.status}`);
-    }
-
-    await providerUtils.parseSseStream(response, (chunk) => {
-      if (chunk.type === 'content_block_delta' && chunk.delta?.type === 'text_delta') {
-        const content = chunk.delta.text;
-        if (content) {
-          port.postMessage({ type: 'chunk', text: content });
+    if (transport && typeof transport.stream === 'function') {
+      await transport.stream({
+        url: CLAUDE_API_URL,
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01'
+        },
+        body,
+        decoder: 'sse',
+        provider: 'claude',
+        signal
+      }, {
+        signal,
+        onChunk: (chunk) => {
+          if (chunk.type === 'content_block_delta' && chunk.delta?.type === 'text_delta') {
+            const content = chunk.delta.text;
+            if (content && !signal?.aborted) {
+              port.postMessage({ type: 'chunk', text: content });
+            }
+          }
         }
+      });
+    } else {
+      const response = await fetch(CLAUDE_API_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01'
+        },
+        body: JSON.stringify(body),
+        signal
+      });
+
+      if (!response.ok) {
+        const errData = await providerUtils.readJsonSafe(response);
+        throw new Error(errData?.error?.message || `HTTP error ${response.status}`);
       }
-    }, signal);
+
+      await providerUtils.parseSseStream(response, (chunk) => {
+        if (chunk.type === 'content_block_delta' && chunk.delta?.type === 'text_delta') {
+          const content = chunk.delta.text;
+          if (content && !signal?.aborted) {
+            port.postMessage({ type: 'chunk', text: content });
+          }
+        }
+      }, signal);
+    }
 
     if (!signal?.aborted) {
       port.postMessage({ type: 'done' });
