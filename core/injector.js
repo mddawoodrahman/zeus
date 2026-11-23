@@ -15,11 +15,22 @@
         50% { opacity: 0.85; filter: brightness(1.15); }
       }
 
+      @keyframes zeus-toast-enter {
+        from {
+          opacity: 0;
+          transform: translateY(6px) scale(0.96);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0) scale(1);
+        }
+      }
+
       .${BUTTON_CLASS}, .zeus-toast {
         --void: #080508;
         --void-elevated: #0f0f12;
         --void-panel: #151519;
-        --void-glass: rgba(8, 5, 8, 0.92);
+        --void-glass: rgba(8, 5, 8, 0.94);
         --cyber-yellow: #FCEE0A;
         --cyber-yellow-dim: #B8A508;
         --cyber-yellow-glow: rgba(252, 238, 10, 0.6);
@@ -43,31 +54,41 @@
 
       .${BUTTON_CLASS} {
         all: initial;
-        position: absolute;
-        z-index: 2147483646;
-        width: 28px;
-        height: 28px;
-        padding: 0;
+        position: absolute !important;
+        z-index: 2147483646 !important;
+        width: 28px !important;
+        height: 28px !important;
+        min-width: 28px !important;
+        min-height: 28px !important;
+        max-width: 28px !important;
+        max-height: 28px !important;
+        margin: 0 !important;
+        padding: 0 !important;
         background: var(--void-panel, #151519) !important;
         color: var(--cyber-yellow, #FCEE0A) !important;
-        border: 1px solid var(--cyber-yellow, #FCEE0A) !important;
-        cursor: pointer;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        box-shadow: 0 0 8px var(--cyber-yellow-faint, rgba(252, 238, 10, 0.08));
-        transition: all 0.2s ease, opacity 170ms ease, transform 190ms cubic-bezier(0.2, 0.7, 0.2, 1);
-        clip-path: polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px);
+        border: 1.5px solid var(--cyber-yellow, #FCEE0A) !important;
+        border-radius: 7px !important;
+        cursor: pointer !important;
+        display: inline-flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        box-sizing: border-box !important;
+        box-shadow: 0 0 10px var(--cyber-yellow-faint, rgba(252, 238, 10, 0.12)), 0 2px 6px rgba(0, 0, 0, 0.4) !important;
+        transition: opacity 170ms ease, transform 190ms cubic-bezier(0.2, 0.7, 0.2, 1), background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease, color 0.15s ease;
         opacity: 0;
         transform: translateY(4px) scale(0.94);
         pointer-events: none;
-        box-sizing: border-box;
+        user-select: none !important;
+        -webkit-user-select: none !important;
+        outline: none !important;
+        overflow: hidden !important;
+        line-height: 1 !important;
       }
 
       @media (prefers-color-scheme: light) {
         .${BUTTON_CLASS} {
-          box-shadow: 0 0 12px rgba(252, 238, 10, 0.4), 0 2px 8px rgba(0,0,0,0.3);
-          border-width: 2px !important;
+          box-shadow: 0 0 12px rgba(252, 238, 10, 0.4), 0 2px 8px rgba(0,0,0,0.3) !important;
+          border-width: 1.5px !important;
         }
       }
 
@@ -82,74 +103,168 @@
         color: var(--cyber-yellow, #FCEE0A);
         font-size: 13px;
         line-height: 1;
-        display: inline-block;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
         filter: drop-shadow(0 0 4px var(--cyber-yellow-glow, rgba(252, 238, 10, 0.6)));
+        transition: transform 0.15s ease, filter 0.15s ease;
       }
 
       .${BUTTON_CLASS}:hover {
         background: var(--cyber-yellow, #FCEE0A) !important;
         color: var(--void, #080508) !important;
-        box-shadow: 0 0 16px var(--cyber-yellow-glow, rgba(252, 238, 10, 0.6));
-        transform: translateY(-1px);
+        box-shadow: 0 0 16px var(--cyber-yellow-glow, rgba(252, 238, 10, 0.65)), 0 2px 8px rgba(0, 0, 0, 0.5) !important;
+        transform: translateY(-1px) scale(1.05);
+      }
+
+      .${BUTTON_CLASS}:hover::before {
+        color: var(--void, #080508) !important;
+        filter: none;
       }
 
       .${BUTTON_CLASS}:active {
-        transform: translateY(0);
+        transform: translateY(0) scale(0.96);
       }
 
       .${BUTTON_CLASS}.processing {
         border-color: var(--net-cyan, #00F0FF) !important;
         color: var(--net-cyan, #00F0FF) !important;
-        pointer-events: none;
+        box-shadow: 0 0 14px var(--net-cyan-glow, rgba(0, 240, 255, 0.5)) !important;
+        pointer-events: none !important;
       }
 
       .${BUTTON_CLASS}.processing::before {
         content: '◈';
-        animation: neon-breathe 1s ease-in-out infinite;
+        font-size: 14px;
+        animation: neon-breathe 0.9s ease-in-out infinite;
         color: var(--net-cyan, #00F0FF);
       }
 
       .${BUTTON_CLASS}.error {
         border-color: var(--arasaka-red, #FF003C) !important;
         color: var(--arasaka-red, #FF003C) !important;
+        box-shadow: 0 0 14px var(--arasaka-red-glow, rgba(255, 0, 60, 0.5)) !important;
       }
 
       .${BUTTON_CLASS}.error::before {
         content: '✕';
+        font-size: 12px;
+        font-weight: 800;
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
         color: var(--arasaka-red, #FF003C);
+      }
+
+      .${BUTTON_CLASS}.error:hover {
+        background: rgba(255, 0, 60, 0.15) !important;
+        border-color: var(--arasaka-red, #FF003C) !important;
+        color: var(--arasaka-red, #FF003C) !important;
+      }
+
+      .${BUTTON_CLASS}.error:hover::before {
+        color: var(--arasaka-red, #FF003C) !important;
+      }
+
+      .${BUTTON_CLASS}.success {
+        border-color: var(--acid-green, #39FF14) !important;
+        color: var(--acid-green, #39FF14) !important;
+        box-shadow: 0 0 14px var(--acid-green-glow, rgba(57, 255, 20, 0.5)) !important;
+      }
+
+      .${BUTTON_CLASS}.success::before {
+        content: '✓';
+        font-size: 13px;
+        font-weight: 800;
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        color: var(--acid-green, #39FF14);
+      }
+
+      .${BUTTON_CLASS}.success:hover {
+        background: rgba(57, 255, 20, 0.15) !important;
+        border-color: var(--acid-green, #39FF14) !important;
+        color: var(--acid-green, #39FF14) !important;
+      }
+
+      .${BUTTON_CLASS}.success:hover::before {
+        color: var(--acid-green, #39FF14) !important;
       }
 
       /* Tooltip / Status Toast */
       .zeus-toast {
-        position: absolute;
-        z-index: 2147483646;
-        background: var(--void-glass, rgba(8, 5, 8, 0.92)) !important;
+        position: fixed !important;
+        z-index: 2147483647 !important;
+        background: var(--void-glass, rgba(8, 5, 8, 0.94)) !important;
         border: 1px solid var(--net-cyan, #00F0FF) !important;
         color: var(--text-primary, #F0F0F0) !important;
-        font-family: 'JetBrains Mono', 'Fira Code', monospace;
+        font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', Menlo, Monaco, Consolas, monospace;
         font-size: 11px;
-        padding: 8px 12px;
-        max-width: 240px;
-        backdrop-filter: blur(4px);
-        box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+        font-weight: 600;
+        letter-spacing: 0.6px;
+        line-height: 1.4;
+        padding: 6px 12px;
+        max-width: min(380px, calc(100vw - 24px));
+        white-space: nowrap;
+        text-overflow: ellipsis;
+        overflow: hidden;
+        backdrop-filter: blur(8px);
+        -webkit-backdrop-filter: blur(8px);
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.65), 0 0 10px var(--net-cyan-faint);
         pointer-events: none;
-        border-radius: 0 !important;
+        border-radius: 6px !important;
         box-sizing: border-box;
+        animation: zeus-toast-enter 180ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        transition: opacity 200ms ease, transform 200ms ease;
       }
 
       .zeus-toast::before {
         content: '> ';
-        color: var(--acid-green, #39FF14);
+        color: var(--net-cyan, #00F0FF);
+        font-weight: 700;
+      }
+
+      .zeus-toast.info {
+        border-color: var(--net-cyan, #00F0FF) !important;
+        color: var(--net-cyan, #00F0FF) !important;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.65), 0 0 12px var(--net-cyan-glow);
+      }
+
+      .zeus-toast.info::before {
+        content: '◈ ';
+        color: var(--net-cyan, #00F0FF);
+      }
+
+      .zeus-toast.warning {
+        border-color: var(--cyber-yellow, #FCEE0A) !important;
+        color: var(--cyber-yellow, #FCEE0A) !important;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.65), 0 0 12px var(--cyber-yellow-glow);
+      }
+
+      .zeus-toast.warning::before {
+        content: '▲ ';
+        color: var(--cyber-yellow, #FCEE0A);
       }
 
       .zeus-toast.error {
         border-color: var(--arasaka-red, #FF003C) !important;
-        color: var(--arasaka-red, #FF003C) !important;
+        color: #FF4D6D !important;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.65), 0 0 14px var(--arasaka-red-glow);
+      }
+
+      .zeus-toast.error::before {
+        content: '✕ ';
+        color: var(--arasaka-red, #FF003C);
+        font-weight: 700;
       }
 
       .zeus-toast.success {
         border-color: var(--acid-green, #39FF14) !important;
         color: var(--acid-green, #39FF14) !important;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.65), 0 0 12px var(--acid-green-glow);
+      }
+
+      .zeus-toast.success::before {
+        content: '✓ ';
+        color: var(--acid-green, #39FF14);
+        font-weight: 700;
       }
     `;
 
@@ -205,33 +320,97 @@
     let resolveAnchorContainer = (input) => input?.parentElement || null;
     let resolvePositionStrategy = () => ({ mode: 'anchored', right: 12, bottom: 10 });
     let toastElement = null;
+    let toastTimer = null;
+    let toastDismissTimer = null;
+    let toastViewportListening = false;
 
-    function showToast(message, type = 'info', durationMs = 3000) {
+    function handleToastViewportChange() {
+      if (toastElement && toastElement.isConnected) {
+        updateToastPosition();
+      }
+    }
+
+    function removeToastViewportListeners() {
+      if (!toastViewportListening) {
+        return;
+      }
+      toastViewportListening = false;
+      window.removeEventListener('scroll', handleToastViewportChange, true);
+      window.removeEventListener('resize', handleToastViewportChange);
+    }
+
+    function addToastViewportListeners() {
+      if (toastViewportListening) {
+        return;
+      }
+      toastViewportListening = true;
+      window.addEventListener('scroll', handleToastViewportChange, { passive: true, capture: true });
+      window.addEventListener('resize', handleToastViewportChange, { passive: true });
+    }
+
+    function clearToast() {
+      if (toastTimer) {
+        clearTimeout(toastTimer);
+        toastTimer = null;
+      }
+      if (toastDismissTimer) {
+        clearTimeout(toastDismissTimer);
+        toastDismissTimer = null;
+      }
+      removeToastViewportListeners();
       if (toastElement) {
         toastElement.remove();
         toastElement = null;
       }
+    }
+
+    function updateToastPosition() {
+      if (!toastElement || !toastElement.isConnected) {
+        return;
+      }
+      const winW = window.innerWidth || document.documentElement?.clientWidth || 1024;
+      const winH = window.innerHeight || document.documentElement?.clientHeight || 768;
+
+      if (button && button.isConnected) {
+        const btnRect = button.getBoundingClientRect();
+        if (btnRect.width > 0 || btnRect.height > 0) {
+          const right = Math.max(12, Math.min(winW - 20, Math.round(winW - btnRect.right)));
+          const bottom = Math.max(12, Math.min(winH - 20, Math.round(winH - btnRect.top + 8)));
+          toastElement.style.right = `${right}px`;
+          toastElement.style.bottom = `${bottom}px`;
+          toastElement.style.maxWidth = `${Math.min(380, Math.max(140, winW - right - 12))}px`;
+          return;
+        }
+      }
+      toastElement.style.right = '24px';
+      toastElement.style.bottom = '24px';
+      toastElement.style.maxWidth = '380px';
+    }
+
+    function showToast(message, type = 'info', durationMs = 3000) {
+      clearToast();
 
       toastElement = document.createElement('div');
       toastElement.className = `zeus-toast ${type}`;
+      toastElement.style.position = 'fixed';
+      toastElement.style.zIndex = '2147483647';
       toastElement.textContent = message;
 
-      const parent = button?.parentElement;
-      if (parent) {
-        parent.appendChild(toastElement);
-        if (button) {
-          const btnRect = button.getBoundingClientRect();
-          const parentRect = parent.getBoundingClientRect();
-          toastElement.style.right = `${parentRect.right - btnRect.right}px`;
-          toastElement.style.bottom = `${parentRect.bottom - btnRect.top + 6}px`;
-        }
+      const mountRoot = document.body || document.documentElement;
+      if (mountRoot) {
+        mountRoot.appendChild(toastElement);
+        updateToastPosition();
+        addToastViewportListeners();
       }
 
       if (durationMs > 0) {
-        setTimeout(() => {
+        toastTimer = setTimeout(() => {
           if (toastElement && toastElement.isConnected) {
-            toastElement.remove();
-            toastElement = null;
+            toastElement.style.opacity = '0';
+            toastElement.style.transform = 'translateY(-4px) scale(0.96)';
+            toastDismissTimer = setTimeout(() => {
+              clearToast();
+            }, 220);
           }
         }, durationMs);
       }
@@ -335,7 +514,7 @@
 
       activeInput = input;
       floatingController.setTarget(input, anchor);
-      floatingController.update();
+      floatingController.update(true);
     }
 
     function pickBestInput(candidates) {
@@ -366,6 +545,10 @@
 
       button.dataset.visible = visible ? '1' : '0';
       button.setAttribute('aria-hidden', visible ? 'false' : 'true');
+
+      if (!visible) {
+        clearToast();
+      }
     }
 
     function shouldBeVisible() {
@@ -543,7 +726,8 @@
       }
 
       updateVisibility();
-      floatingController?.update();
+      floatingController?.update(true);
+      updateToastPosition();
     }
 
     function updateButtonState(inputElement, updater) {
@@ -557,7 +741,9 @@
       inject,
       refresh,
       updateButtonState,
-      showToast
+      showToast,
+      clearToast,
+      hideToast: clearToast
     });
   }
 

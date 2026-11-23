@@ -79,24 +79,45 @@
       '[class*="composer-trailing"]',
       '[class*="trailing-actions"]',
       '[class*="trailingActions"]',
-      '[class*="right-controls"]'
+      '[class*="right-controls"]',
+      '[data-testid*="speech"]',
+      '[data-testid*="voice"]',
+      '[data-testid*="mic"]',
+      '[data-testid="send-button"]',
+      'button[aria-label*="Send"]',
+      'button[aria-label*="send"]',
+      'button[aria-label*="Voice"]',
+      'button[aria-label*="voice"]',
+      'button[aria-label*="Microphone"]',
+      'button[aria-label*="microphone"]',
+      'button[aria-label*="Dictate"]',
+      'button[aria-label*="dictate"]',
+      'button[aria-label*="Record"]',
+      'button[aria-label*="record"]'
     ];
 
+    let maxInset = 0;
     for (const selector of trailingSelectors) {
       try {
-        const trailing = anchor.querySelector(selector);
-        if (!trailing || !isVisible(trailing)) {
-          continue;
-        }
+        const matches = anchor.querySelectorAll(selector);
+        for (const trailing of matches) {
+          if (!trailing || !isVisible(trailing) || trailing.classList?.contains('zeus-enhance-btn') || trailing.classList?.contains('zeus-enhance-button')) {
+            continue;
+          }
 
-        const rect = trailing.getBoundingClientRect();
-        const inset = Math.round(anchorRect.right - rect.left + 8);
-        if (inset > 0) {
-          return inset;
+          const rect = trailing.getBoundingClientRect();
+          const inset = Math.round(anchorRect.right - rect.left + 8);
+          if (inset > maxInset) {
+            maxInset = inset;
+          }
         }
       } catch (_) {
         // Ignore selector errors and fall through to heuristic scan.
       }
+    }
+
+    if (maxInset > 0) {
+      return maxInset;
     }
 
     const controls = Array.from(anchor.querySelectorAll('button, [role="button"]'))
@@ -109,7 +130,7 @@
 
       return (
         centerX >= anchorRect.left + (anchorRect.width * 0.58) &&
-        centerY >= anchorRect.top + (anchorRect.height * 0.45)
+        centerY >= anchorRect.top + (anchorRect.height * 0.3)
       );
     });
 
@@ -140,7 +161,7 @@
       mode: 'anchored',
       right: Math.max(10, sendWidth + 12, controlsInset),
       bottom: 10,
-      avoidSelector: 'button[data-testid="send-button"], button[aria-label*="Send"], button[aria-label*="voice"], button[aria-label*="Voice"], button[aria-label*="microphone"], button[aria-label*="Microphone"]',
+      avoidSelector: 'button[data-testid="send-button"], [data-testid="send-button"], button[data-testid*="speech"], [data-testid*="speech"], button[data-testid*="voice"], [data-testid*="voice"], button[data-testid*="mic"], [data-testid*="mic"], button[aria-label*="Send"], button[aria-label*="send"], button[aria-label*="voice"], button[aria-label*="Voice"], button[aria-label*="microphone"], button[aria-label*="Microphone"], button[aria-label*="Dictate"], button[aria-label*="dictate"], button[aria-label*="Record"], button[aria-label*="record"]',
       zIndex: 30
     };
   }

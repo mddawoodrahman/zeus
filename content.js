@@ -162,12 +162,21 @@
   }
 
   async function handleEnhanceClickForInput(inputElement, buttonElement) {
+    if (!buttonElement || buttonElement.disabled || buttonElement.classList?.contains('processing')) {
+      return;
+    }
+
     await fetchSettingsIfNeeded();
 
     const provider = readProviderFromSettings();
     const hasKey = hasKeyForProvider(provider);
 
     if (provider !== 'ollama' && provider !== 'auto' && !hasKey) {
+      buttonElement.classList.remove('processing', 'success');
+      buttonElement.classList.add('error');
+      setTimeout(() => {
+        buttonElement.classList.remove('error');
+      }, 3000);
       if (injector && typeof injector.showToast === 'function') {
         injector.showToast('MISSING ACCESS TOKEN', 'error', 4000);
       } else {
@@ -178,6 +187,11 @@
 
     const originalPrompt = domUtils.getInputText(inputElement);
     if (!String(originalPrompt || '').trim()) {
+      buttonElement.classList.remove('processing', 'success');
+      buttonElement.classList.add('error');
+      setTimeout(() => {
+        buttonElement.classList.remove('error');
+      }, 3000);
       if (injector && typeof injector.showToast === 'function') {
         injector.showToast('PROMPT EMPTY', 'error', 3000);
       } else {
@@ -187,7 +201,7 @@
     }
 
     buttonElement.classList.add('processing');
-    buttonElement.classList.remove('error');
+    buttonElement.classList.remove('error', 'success');
     buttonElement.disabled = true;
     buttonElement.style.pointerEvents = 'none';
 
@@ -255,12 +269,16 @@
 
       domUtils.setInputText(inputElement, finalEnhanced);
       
-      buttonElement.classList.remove('processing');
+      buttonElement.classList.remove('processing', 'error');
+      buttonElement.classList.add('success');
+      setTimeout(() => {
+        buttonElement.classList.remove('success');
+      }, 2000);
       if (injector && typeof injector.showToast === 'function') {
         injector.showToast('INJECTION COMPLETE', 'success', 3000);
       }
     } catch (error) {
-      buttonElement.classList.remove('processing');
+      buttonElement.classList.remove('processing', 'success');
       buttonElement.classList.add('error');
       setTimeout(() => {
         buttonElement.classList.remove('error');
@@ -273,7 +291,7 @@
       }
     } finally {
       buttonElement.disabled = false;
-      buttonElement.style.pointerEvents = 'auto';
+      buttonElement.style.pointerEvents = '';
     }
   }
 

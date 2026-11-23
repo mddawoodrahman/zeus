@@ -13,16 +13,20 @@
     return mode === 'fixed' ? 'fixed' : 'anchored';
   }
 
-  function resolveAvoidElement(strategy, anchor) {
+  function resolveAvoidElements(strategy, anchor, button) {
     const selector = String(strategy?.avoidSelector || '').trim();
-    if (!selector || !anchor || !anchor.querySelector) {
-      return null;
+    if (!selector || !anchor || !anchor.querySelectorAll) {
+      return [];
     }
 
     try {
-      return anchor.querySelector(selector);
+      return Array.from(anchor.querySelectorAll(selector)).filter((element) => {
+        if (!element || !element.isConnected || element === button) return false;
+        const rect = element.getBoundingClientRect();
+        return (rect.width > 0 && rect.height > 0) || (typeof element.offsetWidth === 'number' && element.offsetWidth > 0);
+      });
     } catch (_) {
-      return null;
+      return [];
     }
   }
 
@@ -80,22 +84,40 @@
       let right = baseRight;
       let bottom = baseBottom;
 
-      const avoidElement = resolveAvoidElement(strategy, currentAnchor);
-      if (avoidElement && avoidElement.isConnected) {
+      const avoidElements = resolveAvoidElements(strategy, currentAnchor, button);
+      if (avoidElements.length > 0) {
         const anchorRect = currentAnchor.getBoundingClientRect();
-        const avoidRect = avoidElement.getBoundingClientRect();
+        // Sort from rightmost to leftmost so that obstacles closest to the right edge
+        // are cleared sequentially without landing on obstacles to their left.
+        const sorted = [...avoidElements].sort((a, b) => {
+          return b.getBoundingClientRect().left - a.getBoundingClientRect().left;
+        });
 
-        const buttonLeft = anchorRect.right - right - buttonSize.width;
-        const buttonRight = anchorRect.right - right;
-        const buttonTop = anchorRect.bottom - bottom - buttonSize.height;
-        const buttonBottom = anchorRect.bottom - bottom;
+        const maxPasses = Math.max(3, sorted.length + 1);
+        for (let pass = 0; pass < maxPasses; pass++) {
+          let shifted = false;
+          for (const avoidElement of sorted) {
+            const avoidRect = avoidElement.getBoundingClientRect();
 
-        const overlapsHorizontally = buttonRight > avoidRect.left && buttonLeft < avoidRect.right;
-        const overlapsVertically = buttonBottom > avoidRect.top && buttonTop < avoidRect.bottom;
+            const buttonLeft = anchorRect.right - right - buttonSize.width;
+            const buttonRight = anchorRect.right - right;
+            const buttonTop = anchorRect.bottom - bottom - buttonSize.height;
+            const buttonBottom = anchorRect.bottom - bottom;
 
-        if (overlapsHorizontally && overlapsVertically) {
-          right = Math.max(right, Math.round(anchorRect.right - avoidRect.left + 10));
-          bottom = Math.max(bottom, Math.round(anchorRect.bottom - avoidRect.top + 10));
+            const overlapsHorizontally = buttonRight > avoidRect.left && buttonLeft < avoidRect.right;
+            const overlapsVertically = buttonBottom > avoidRect.top && buttonTop < avoidRect.bottom;
+
+            if (overlapsHorizontally && overlapsVertically) {
+              const neededRight = Math.round(anchorRect.right - avoidRect.left + 8);
+              if (neededRight > right) {
+                right = neededRight;
+                shifted = true;
+              }
+            }
+          }
+          if (!shifted) {
+            break;
+          }
         }
       }
 
@@ -153,8 +175,21 @@
       }
     }
 
-    function scheduleUpdate() {
-      if (isDestroyed || rafId !== null) {
+    function scheduleUpdate(immediate = false) {
+      if (isDestroyed) {
+        return;
+      }
+
+      if (immediate) {
+        if (rafId !== null) {
+          window.cancelAnimationFrame(rafId);
+          rafId = null;
+        }
+        applyNow();
+        return;
+      }
+
+      if (rafId !== null) {
         return;
       }
 
@@ -176,11 +211,13 @@
     }
 
     return Object.freeze({
-      update: scheduleUpdate,
+      update(options) {
+        scheduleUpdate(options === true || options?.immediate === true);
+      },
       setTarget(input, anchor) {
         currentInput = input || null;
         currentAnchor = anchor || null;
-        scheduleUpdate();
+        scheduleUpdate(true);
       },
       destroy() {
         isDestroyed = true;
