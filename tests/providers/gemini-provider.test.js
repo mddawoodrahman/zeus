@@ -8,6 +8,28 @@ function makeResponse(status, data) {
   };
 }
 
+function makeStreamResponse(chunks) {
+  const encoder = new TextEncoder();
+  let index = 0;
+  return {
+    ok: true,
+    status: 200,
+    headers: new Headers({ 'content-type': 'text/event-stream' }),
+    body: {
+      getReader: () => ({
+        read: async () => {
+          if (index < chunks.length) {
+            const chunk = chunks[index++];
+            return { done: false, value: encoder.encode(chunk) };
+          }
+          return { done: true, value: undefined };
+        },
+        releaseLock: () => {}
+      })
+    }
+  };
+}
+
 describe('Gemini provider with mocked fetch', () => {
   beforeEach(() => {
     clearZeusGlobals();
@@ -21,6 +43,7 @@ describe('Gemini provider with mocked fetch', () => {
     loadScript('core/retry.js');
     loadScript('core/prompts.js');
     loadScript('core/errors.js');
+    loadScript('core/providerTransport.js');
     loadScript('providers/utils.js');
     loadScript('providers/gemini.js');
   });
@@ -66,5 +89,34 @@ describe('Gemini provider with mocked fetch', () => {
         fromModel: 'gemini-3.1-pro'
       })
     );
+  });
+
+  it('streams copilot suggestions via ProviderTransport SSE decoder', async () => {
+    const ssePayload = [
+      'data: {"candidates":[{"content":{"parts":[{"text":" continue"}]}}]}\n\n',
+      'data: {"candidates":[{"content":{"parts":[{"text":" writing prompt"}]}}]}\n\n',
+      'data: [DONE]\n\n'
+    ];
+
+    globalThis.fetch.mockResolvedValueOnce(makeStreamResponse(ssePayload));
+
+    const port = { postMessage: vi.fn() };
+    await globalThis.ZeusProviders.gemini.suggest('User prompt', {
+      apiKeys: { gemini: 'test-key' },
+      models: { gemini: 'gemini-3-flash' }
+    }, port, null);
+
+    expect(port.postMessage).toHaveBeenCalledWith({ type: 'chunk', text: ' continue' });
+    expect(port.postMessage).toHaveBeenCalledWith({ type: 'chunk', text: ' writing prompt' });
+    expect(port.postMessage).toHaveBeenCalledWith({ type: 'done' });
+  });
+
+  it('throws when missing Gemini API key', async () => {
+    await expect(
+      globalThis.ZeusProviders.gemini('test prompt', {
+        apiKeys: { gemini: '' },
+        models: { gemini: 'gemini-3-flash' }
+      })
+    ).rejects.toThrow('Missing Gemini API key.');
   });
 });

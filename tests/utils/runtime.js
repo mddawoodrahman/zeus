@@ -2,13 +2,19 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 
+if (typeof globalThis.require === 'undefined') {
+  globalThis.require = require;
+}
+
 const ZEUS_GLOBAL_KEYS = [
   'ZeusModelRegistry',
   'ZeusSettings',
+  'ZeusSettingsStore',
   'ZeusRetry',
   'ZeusPrompts',
   'ZeusErrors',
   'ZeusProviderUtils',
+  'ZeusProviderTransport',
   'ZeusProviders',
   'ZeusRouter',
   'ZeusTelemetry',

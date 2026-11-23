@@ -1,5 +1,5 @@
 (function initZeusRouter(globalScope) {
-  const settingsModule = globalScope.ZeusSettings;
+  const settingsModule = globalScope.ZeusSettingsStore || globalScope.ZeusSettings;
   const registry = globalScope.ZeusModelRegistry || null;
   const providers = globalScope.ZeusProviders || {};
   const telemetry = globalScope.ZeusTelemetry || null;
@@ -138,8 +138,12 @@
     };
   }
 
+  function getProviderFunction(provider) {
+    return (providers && providers[provider]) || globalScope.ZeusProviders?.[provider] || null;
+  }
+
   async function callProvider(provider, prompt, config) {
-    const providerFn = providers[provider];
+    const providerFn = getProviderFunction(provider);
     if (typeof providerFn !== 'function') {
       throw new Error(`Unsupported provider: ${provider}`);
     }
@@ -190,9 +194,49 @@
     throw new Error(`Auto mode failed after smart routing attempts. ${attempted.join(' | ')}`);
   }
 
+  function calculateRoutePlan(prompt, config) {
+    const provider = String(config?.provider || 'gemini').trim();
+    if (provider === 'auto') {
+      const intent = detectPromptIntent(prompt);
+      const primaryRoute = autoRouteForIntent(intent);
+      const candidates = buildAutoRouteCandidates(primaryRoute);
+      return {
+        mode: 'auto',
+        intent,
+        candidates
+      };
+    }
+    return {
+      mode: 'direct',
+      intent: 'general',
+      candidates: [{
+        provider,
+        model: String(config?.models?.[provider] || '').trim()
+      }]
+    };
+  }
+
   async function enhancePrompt(prompt) {
     if (!String(prompt || '').trim()) {
       throw new Error('Empty prompt provided.');
+    }
+
+    const engine = globalScope.ZeusPromptEngine || (typeof require !== 'undefined' ? (function() {
+      try {
+        const path = require('node:path');
+        return require(path.resolve(process.cwd(), 'core/promptEngine.js'));
+      } catch (_) {
+        try {
+          return require('./promptEngine.js');
+        } catch (_2) {
+          return null;
+        }
+      }
+    })() : null);
+
+    if (engine && typeof engine.execute === 'function') {
+      const result = await engine.execute(prompt);
+      return result.enhancedText;
     }
 
     const logPrefix = globalScope?.LOG_PREFIX || {
@@ -271,7 +315,7 @@
       }
     }
 
-    const providerFn = providers[provider];
+    const providerFn = getProviderFunction(provider);
     if (typeof providerFn !== 'function') {
       port.postMessage({ type: 'error', message: `Unsupported provider: ${provider}` });
       return;
@@ -295,6 +339,7 @@
     detectPromptIntent,
     autoRouteForIntent,
     buildAutoRouteCandidates,
+    calculateRoutePlan,
     streamSuggest
   });
 })(typeof globalThis !== 'undefined' ? globalThis : this);

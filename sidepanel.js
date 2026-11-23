@@ -1,115 +1,27 @@
 (function initZeusSidePanel(globalScope) {
-  function diffWords(oldStr, newStr) {
-    const one = String(oldStr || '').split(/(\s+)/);
-    const other = String(newStr || '').split(/(\s+)/);
-    const n = one.length;
-    const m = other.length;
-    const dp = Array.from({ length: n + 1 }, () => Array(m + 1).fill(0));
-
-    for (let i = 1; i <= n; i++) {
-      for (let j = 1; j <= m; j++) {
-        if (one[i - 1] === other[j - 1]) {
-          dp[i][j] = dp[i - 1][j - 1] + 1;
-        } else {
-          dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
-        }
+  let safeDOM = globalScope.ZeusSafeDOM;
+  if (!safeDOM && typeof require !== 'undefined') {
+    try {
+      const path = typeof require === 'function' ? require('node:path') : null;
+      if (path) {
+        safeDOM = require(path.resolve(process.cwd(), 'core/safeDom.js'));
       }
+    } catch (_) {
+      try {
+        safeDOM = require('./core/safeDom.js');
+      } catch (_2) {}
     }
-
-    let i = n;
-    let j = m;
-    const result = [];
-
-    while (i > 0 || j > 0) {
-      if (i > 0 && j > 0 && one[i - 1] === other[j - 1]) {
-        result.unshift({ type: 'common', value: one[i - 1] });
-        i--;
-        j--;
-      } else if (j > 0 && (i === 0 || dp[i][j - 1] >= dp[i - 1][j])) {
-        result.unshift({ type: 'add', value: other[j - 1] });
-        j--;
-      } else {
-        result.unshift({ type: 'del', value: one[i - 1] });
-        i--;
-      }
-    }
-    return result;
   }
 
   function renderDiff(original, enhanced, targetElement) {
-    const target = targetElement || (typeof document !== 'undefined' ? document.getElementById('diff-view') : null);
-    if (!target) return;
-    target.replaceChildren();
-    const diffs = diffWords(original, enhanced);
-    const fragment = document.createDocumentFragment();
-    for (const part of diffs) {
-      if (part.type === 'add') {
-        const span = document.createElement('span');
-        span.className = 'diff-add';
-        span.textContent = part.value;
-        fragment.appendChild(span);
-      } else if (part.type === 'del') {
-        const span = document.createElement('span');
-        span.className = 'diff-del';
-        span.textContent = part.value;
-        fragment.appendChild(span);
-      } else {
-        fragment.appendChild(document.createTextNode(part.value));
-      }
-    }
-    target.appendChild(fragment);
-  }
-
-  function isSafeUrl(url) {
-    if (!url || typeof url !== 'string') return false;
-    const trimmed = url.trim();
-    return /^https?:\/\//i.test(trimmed);
-  }
-
-  function renderSafeMarkdown(container, text) {
-    if (!container) return;
-    container.replaceChildren();
-    if (!text) return;
-
-    const linkRegex = /\[([^\]]+)\]\(([^)]+)\)/g;
-    let lastIndex = 0;
-    let match;
-
-    while ((match = linkRegex.exec(text)) !== null) {
-      const matchIndex = match.index;
-      if (matchIndex > lastIndex) {
-        container.appendChild(document.createTextNode(text.slice(lastIndex, matchIndex)));
-      }
-
-      const linkText = match[1];
-      const linkUrl = match[2]?.trim();
-
-      if (isSafeUrl(linkUrl)) {
-        const a = document.createElement('a');
-        a.href = linkUrl;
-        a.textContent = linkText;
-        a.target = '_blank';
-        a.rel = 'noopener noreferrer';
-        container.appendChild(a);
-      } else {
-        // Neutralize unsafe protocols (javascript:, data:, etc.) as inert plain text
-        container.appendChild(document.createTextNode(`[${linkText}](${linkUrl})`));
-      }
-
-      lastIndex = linkRegex.lastIndex;
-    }
-
-    if (lastIndex < text.length) {
-      container.appendChild(document.createTextNode(text.slice(lastIndex)));
+    if (safeDOM && typeof safeDOM.renderDiff === 'function') {
+      return safeDOM.renderDiff(original, enhanced, targetElement);
     }
   }
 
-  globalScope.ZeusSafeDOM = Object.freeze({
-    isSafeUrl,
-    renderSafeMarkdown,
-    renderDiff,
-    diffWords
-  });
+  if (!globalScope.ZeusSafeDOM && safeDOM) {
+    globalScope.ZeusSafeDOM = safeDOM;
+  }
 
   if (typeof document === 'undefined') {
     return;
@@ -237,7 +149,7 @@
 
   // Enhance prompt
   if (btnEnhance) {
-    btnEnhance.addEventListener('click', () => {
+    btnEnhance.addEventListener('click', async () => {
       const text = originalInput?.value?.trim() || '';
       if (!text) {
         showToast('INPUT DETECTED AS VOID', 'error', 2000);
@@ -248,51 +160,38 @@
       btnEnhance.textContent = 'ESTABLISHING NEURAL LINK...';
       showToast('ROUTING TO COGNITIVE LOADOUT...', 'info', 0);
 
-      // Ticket 3: Redact sensitive tokens before provider dispatch
-      const redactor = window.ZeusRedactor || globalThis.ZeusRedactor || null;
-      const scrubResult = redactor?.scrub
-        ? redactor.scrub(text)
-        : { text, secretMap: {}, hasRedactions: false };
+      try {
+        const promptClient = window.ZeusPromptClient || globalThis.ZeusPromptClient;
+        if (!promptClient || typeof promptClient.enhance !== 'function') {
+          throw new Error('ZeusPromptClient is not available');
+        }
 
-      chrome.runtime.sendMessage({ action: 'enhancePrompt', prompt: scrubResult.text }, (response) => {
+        const result = await promptClient.enhance(text);
+
+        showToast('INJECTION COMPLETE', 'success', 2000);
+
+        if (result.warnings && result.warnings.length > 0) {
+          showToast('WARNING: SOME SENSITIVE TOKENS WERE OMITTED BY AI', 'warning', 4000);
+        }
+
+        if (enhancedOutput) enhancedOutput.value = result.enhancedText;
+
+        // Show and render diff with rehydrated output
+        if (diffCard) diffCard.style.display = 'block';
+        renderDiff(text, result.enhancedText);
+
+        // Keep mappings and restored sensitive values OUT of persistent history
+        // Persist only scrubbed text with placeholders if redactions were present
+        const historyOriginal = result.meta?.hasRedactions ? (result.meta?.scrubbedOriginal || text) : text;
+        const historyEnhanced = result.meta?.hasRedactions ? (result.meta?.scrubbedEnhanced || result.enhancedText) : result.enhancedText;
+        saveCurrentToHistory(historyOriginal, historyEnhanced);
+      } catch (err) {
+        showToast('LINK FAILURE', 'error', 3000);
+        console.error('Enhance failed:', err);
+      } finally {
         btnEnhance.disabled = false;
         btnEnhance.textContent = 'OPTIMIZE PROMPT';
-
-        // Clear the "routing" toast by appending a success or error one
-        if (response && response.success) {
-          showToast('INJECTION COMPLETE', 'success', 2000);
-
-          // Ticket 3: Rehydrate locally before rendering in editor and diff
-          let finalEnhanced = response.enhancedPrompt;
-          if (scrubResult.hasRedactions && redactor?.hydrate) {
-            const hydration = redactor.hydrateWithDetails
-              ? redactor.hydrateWithDetails(finalEnhanced, scrubResult.secretMap)
-              : { text: redactor.hydrate(finalEnhanced, scrubResult.secretMap), droppedPlaceholders: [] };
-            finalEnhanced = hydration.text;
-
-            if (hydration.droppedPlaceholders?.length > 0) {
-              showToast('WARNING: SOME SENSITIVE TOKENS WERE OMITTED BY AI', 'warning', 4000);
-            }
-          }
-
-          if (enhancedOutput) enhancedOutput.value = finalEnhanced;
-          
-          // Show and render diff with rehydrated output
-          if (diffCard) diffCard.style.display = 'block';
-          renderDiff(text, finalEnhanced);
-
-          // Ticket 3: Keep mappings and restored sensitive values OUT of persistent history
-          // Persist only scrubbed text with placeholders if redactions were present
-          const historyOriginal = scrubResult.hasRedactions ? scrubResult.text : text;
-          const historyEnhanced = scrubResult.hasRedactions ? response.enhancedPrompt : finalEnhanced;
-          saveCurrentToHistory(historyOriginal, historyEnhanced);
-        } else {
-          showToast('LINK FAILURE', 'error', 3000);
-          if (response && response.error) {
-            console.error('Enhance failed:', response.error);
-          }
-        }
-      });
+      }
     });
   }
 

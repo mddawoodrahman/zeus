@@ -3,6 +3,18 @@
   const prompts = globalScope.ZeusPrompts;
   const errors = globalScope.ZeusErrors;
   const providerUtils = globalScope.ZeusProviderUtils;
+  const transport = globalScope.ZeusProviderTransport || (typeof require !== 'undefined' ? (function() {
+    try {
+      const path = require('node:path');
+      return require(path.resolve(process.cwd(), 'core/providerTransport.js'));
+    } catch (_) {
+      try {
+        return require('../core/providerTransport.js');
+      } catch (_2) {
+        return null;
+      }
+    }
+  })() : null);
   const providers = providerUtils.ensureProviderBag();
 
   const GEMINI_API_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/models';
@@ -69,35 +81,45 @@
       const apiUrl = `${GEMINI_API_BASE_URL}/${currentModel}:generateContent?key=${apiKey}`;
 
       for (let attempt = 0; attempt < GEMINI_MAX_RETRIES; attempt += 1) {
-        const response = await retry.fetchWithTimeout(apiUrl, {
+        const result = await (transport ? transport.execute({
+          url: apiUrl,
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body)
-        });
-
-        if (response.ok) {
+          body,
+          maxRetries: 1,
+          provider: 'gemini'
+        }) : (async () => {
+          const response = await retry.fetchWithTimeout(apiUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+          });
           const data = await providerUtils.readJsonSafe(response);
-          const enhancedText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+          return { ok: response.ok, status: response.status, data };
+        })());
+
+        if (result.ok) {
+          const enhancedText = result.data?.candidates?.[0]?.content?.parts?.[0]?.text;
           if (!enhancedText) throw new Error('Provider responded without enhanced text.');
           return String(enhancedText).trim();
         }
 
-        const errData = await providerUtils.readJsonSafe(response);
-        lastError = new errors.ProviderHttpError('gemini', response.status, errData, currentModel);
+        const errData = result.data || {};
+        lastError = new errors.ProviderHttpError('gemini', result.status, errData, currentModel);
 
-        if (modelIndex < modelCandidates.length - 1 && shouldFallback(response.status, errData)) {
+        if (modelIndex < modelCandidates.length - 1 && shouldFallback(result.status, errData)) {
           providerUtils.trackFallbackEvent({
             provider: 'gemini',
             fromModel: currentModel,
             toModel: modelCandidates[modelIndex + 1],
-            reasonCode: response.status,
+            reasonCode: result.status,
             reason: extractSignal(errData),
             stage: 'model-candidate'
           });
           break;
         }
 
-        const canRetry = attempt < GEMINI_MAX_RETRIES - 1 && isRetryable(response.status, errData);
+        const canRetry = attempt < GEMINI_MAX_RETRIES - 1 && isRetryable(result.status, errData);
         if (canRetry) {
           await retry.waitWithBackoff(attempt);
           continue;
@@ -124,24 +146,44 @@
 
     const apiUrl = `${GEMINI_API_BASE_URL}/${model}:streamGenerateContent?alt=sse&key=${apiKey}`;
 
-    const response = await fetch(apiUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-      signal
-    });
+    if (transport && typeof transport.stream === 'function') {
+      await transport.stream({
+        url: apiUrl,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body,
+        decoder: 'sse',
+        provider: 'gemini',
+        signal
+      }, {
+        signal,
+        onChunk: (chunk) => {
+          const content = chunk?.candidates?.[0]?.content?.parts?.[0]?.text;
+          if (content && !signal?.aborted) {
+            port.postMessage({ type: 'chunk', text: content });
+          }
+        }
+      });
+    } else {
+      const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal
+      });
 
-    if (!response.ok) {
-      const errData = await providerUtils.readJsonSafe(response);
-      throw new Error(errData?.error?.message || `HTTP error ${response.status}`);
-    }
-
-    await providerUtils.parseSseStream(response, (chunk) => {
-      const content = chunk?.candidates?.[0]?.content?.parts?.[0]?.text;
-      if (content) {
-        port.postMessage({ type: 'chunk', text: content });
+      if (!response.ok) {
+        const errData = await providerUtils.readJsonSafe(response);
+        throw new Error(errData?.error?.message || `HTTP error ${response.status}`);
       }
-    }, signal);
+
+      await providerUtils.parseSseStream(response, (chunk) => {
+        const content = chunk?.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (content && !signal?.aborted) {
+          port.postMessage({ type: 'chunk', text: content });
+        }
+      }, signal);
+    }
 
     if (!signal?.aborted) {
       port.postMessage({ type: 'done' });

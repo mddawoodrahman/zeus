@@ -45,8 +45,9 @@ describe('Safe DOM Rendering & Strict CSP Hardening (Ticket 5)', () => {
       }
     };
 
-    // Load redactor and sidepanel
+    // Load redactor, safeDom, and sidepanel
     loadScript('core/redactor.js');
+    loadScript('core/safeDom.js');
     loadScript('sidepanel.js');
   });
 
@@ -177,6 +178,72 @@ describe('Safe DOM Rendering & Strict CSP Hardening (Ticket 5)', () => {
       expect(links[0].textContent).toBe('Safe');
       expect(links[0].href).toBe('https://example.com/');
       expect(container.textContent).toContain('[Unsafe](javascript:void(0))');
+    });
+
+    it('rejects case-, whitespace-, and control-character-obfuscated javascript: and data: URIs', () => {
+      const obfuscatedPayloads = [
+        '\njavascript:alert(1)',
+        '\r\njavascript:alert(2)',
+        '  \t  javascript:alert(3)',
+        'JavaSCRIPT:alert(4)',
+        'jav\tascript:alert(5)',
+        'jav\r\nascript:alert(6)',
+        '\x00javascript:alert(7)',
+        '\x01javascript:alert(8)',
+        'data:text/html,<script>alert(9)</script>',
+        '  \n  data:text/html;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg==  ',
+        'DATA:text/html;base64,PHNjcmlwdD4=',
+        'vbscript:msgbox(1)',
+        'VBSCRIPT:msgbox(2)',
+        'file:///etc/shadow'
+      ];
+
+      for (const payload of obfuscatedPayloads) {
+        expect(globalThis.ZeusSafeDOM.isSafeUrl(payload)).toBe(false);
+
+        const container = document.createElement('div');
+        const text = `Click [Malicious](${payload}) payload.`;
+        globalThis.ZeusSafeDOM.renderSafeMarkdown(container, text);
+
+        expect(container.querySelector('a')).toBeNull();
+        expect(container.textContent).toContain(`[Malicious](${payload})`);
+      }
+    });
+
+    it('exposes renderMarkdown as an alias to renderSafeMarkdown and verifies rel and target attributes', () => {
+      const container = document.createElement('div');
+      const text = 'Read the [Specs](https://example.com/specs).';
+
+      expect(typeof globalThis.ZeusSafeDOM.renderMarkdown).toBe('function');
+      globalThis.ZeusSafeDOM.renderMarkdown(container, text);
+
+      const anchor = container.querySelector('a');
+      expect(anchor).not.toBeNull();
+      expect(anchor.href).toBe('https://example.com/specs');
+      expect(anchor.target).toBe('_blank');
+      expect(anchor.rel).toBe('noopener noreferrer');
+    });
+
+    it('supports renderDiff with both (container, oldText, newText) and (oldText, newText, target) signatures', () => {
+      const customContainer = document.createElement('div');
+      customContainer.innerHTML = '<span>Old Content</span>';
+
+      // Call signature 1: (container, oldText, newText)
+      globalThis.ZeusSafeDOM.renderDiff(customContainer, 'Hello world', 'Hello brave world');
+
+      expect(customContainer.querySelector('span.diff-add')).not.toBeNull();
+      expect(customContainer.textContent).toContain('brave');
+      expect(customContainer.textContent).not.toContain('Old Content');
+
+      // Call signature 2: (oldText, newText, target)
+      const anotherContainer = document.createElement('div');
+      anotherContainer.innerHTML = '<p>To be replaced</p>';
+      globalThis.ZeusSafeDOM.renderDiff('apple banana', 'apple orange', anotherContainer);
+
+      expect(anotherContainer.querySelector('span.diff-del')).not.toBeNull();
+      expect(anotherContainer.querySelector('span.diff-add')).not.toBeNull();
+      expect(anotherContainer.textContent).toContain('orange');
+      expect(anotherContainer.textContent).not.toContain('To be replaced');
     });
   });
 

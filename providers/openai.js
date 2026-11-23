@@ -3,6 +3,18 @@
   const prompts = globalScope.ZeusPrompts;
   const errors = globalScope.ZeusErrors;
   const providerUtils = globalScope.ZeusProviderUtils;
+  const transport = globalScope.ZeusProviderTransport || (typeof require !== 'undefined' ? (function() {
+    try {
+      const path = require('node:path');
+      return require(path.resolve(process.cwd(), 'core/providerTransport.js'));
+    } catch (_) {
+      try {
+        return require('../core/providerTransport.js');
+      } catch (_2) {
+        return null;
+      }
+    }
+  })() : null);
   const providers = providerUtils.ensureProviderBag();
 
   const OPENAI_API_URL = 'https://api.openai.com/v1/chat/completions';
@@ -67,26 +79,39 @@
           ...providerUtils.buildChatTokenLimit(tokenParam, 1024)
         };
 
-        const response = await retry.fetchWithTimeout(OPENAI_API_URL, {
+        const result = await (transport ? transport.execute({
+          url: OPENAI_API_URL,
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${apiKey}`
           },
-          body: JSON.stringify(body)
-        });
-
-        if (response.ok) {
+          body,
+          maxRetries: 1,
+          provider: 'openai'
+        }) : (async () => {
+          const response = await retry.fetchWithTimeout(OPENAI_API_URL, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${apiKey}`
+            },
+            body: JSON.stringify(body)
+          });
           const data = await providerUtils.readJsonSafe(response);
-          const enhancedText = data?.choices?.[0]?.message?.content;
+          return { ok: response.ok, status: response.status, data };
+        })());
+
+        if (result.ok) {
+          const enhancedText = result.data?.choices?.[0]?.message?.content;
           if (!enhancedText) throw new Error('Provider responded without enhanced text.');
           return String(enhancedText).trim();
         }
 
-        const errData = await providerUtils.readJsonSafe(response);
-        lastError = new errors.ProviderHttpError('openai', response.status, errData, currentModel);
+        const errData = result.data || {};
+        lastError = new errors.ProviderHttpError('openai', result.status, errData, currentModel);
 
-        if (response.status === 400 && providerUtils.isUnsupportedTokenParameterError(errData, tokenParam)) {
+        if (result.status === 400 && providerUtils.isUnsupportedTokenParameterError(errData, tokenParam)) {
           const alternateParam = providerUtils.getAlternateChatTokenParam(tokenParam);
           if (alternateParam) {
             tokenParam = alternateParam;
@@ -94,19 +119,19 @@
           }
         }
 
-        if (modelIndex < modelCandidates.length - 1 && shouldFallback(response.status, errData)) {
+        if (modelIndex < modelCandidates.length - 1 && shouldFallback(result.status, errData)) {
           providerUtils.trackFallbackEvent({
             provider: 'openai',
             fromModel: currentModel,
             toModel: modelCandidates[modelIndex + 1],
-            reasonCode: response.status,
+            reasonCode: result.status,
             reason: extractSignal(errData),
             stage: 'model-candidate'
           });
           break;
         }
 
-        const canRetry = attempt < OPENAI_MAX_RETRIES - 1 && isRetryable(response.status, errData);
+        const canRetry = attempt < OPENAI_MAX_RETRIES - 1 && isRetryable(result.status, errData);
         if (canRetry) {
           await retry.waitWithBackoff(attempt);
           continue;
@@ -136,27 +161,50 @@
       stream: true
     };
 
-    const response = await fetch(OPENAI_API_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`
-      },
-      body: JSON.stringify(body),
-      signal
-    });
+    if (transport && typeof transport.stream === 'function') {
+      await transport.stream({
+        url: OPENAI_API_URL,
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`
+        },
+        body,
+        decoder: 'sse',
+        provider: 'openai',
+        signal
+      }, {
+        signal,
+        onChunk: (chunk) => {
+          const content = chunk?.choices?.[0]?.delta?.content;
+          if (content && !signal?.aborted) {
+            port.postMessage({ type: 'chunk', text: content });
+          }
+        }
+      });
+    } else {
+      const response = await fetch(OPENAI_API_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`
+        },
+        body: JSON.stringify(body),
+        signal
+      });
 
-    if (!response.ok) {
-      const errData = await providerUtils.readJsonSafe(response);
-      throw new Error(errData?.error?.message || `HTTP error ${response.status}`);
-    }
-
-    await providerUtils.parseSseStream(response, (chunk) => {
-      const content = chunk?.choices?.[0]?.delta?.content;
-      if (content) {
-        port.postMessage({ type: 'chunk', text: content });
+      if (!response.ok) {
+        const errData = await providerUtils.readJsonSafe(response);
+        throw new Error(errData?.error?.message || `HTTP error ${response.status}`);
       }
-    }, signal);
+
+      await providerUtils.parseSseStream(response, (chunk) => {
+        const content = chunk?.choices?.[0]?.delta?.content;
+        if (content && !signal?.aborted) {
+          port.postMessage({ type: 'chunk', text: content });
+        }
+      }, signal);
+    }
 
     if (!signal?.aborted) {
       port.postMessage({ type: 'done' });

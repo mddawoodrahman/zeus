@@ -1,5 +1,5 @@
 (function initZeusMessageHandler(globalScope) {
-  const settingsModule = globalScope.ZeusSettings;
+  const settingsModule = globalScope.ZeusSettingsStore || globalScope.ZeusSettings;
   const router = globalScope.ZeusRouter;
   const errors = globalScope.ZeusErrors;
   const telemetry = globalScope.ZeusTelemetry || null;
@@ -11,6 +11,7 @@
     'core/observer.js',
     'core/ghostText.js',
     'core/redactor.js',
+    'core/promptClient.js',
     'core/copilot.js',
     'adapters/chatgpt.js',
     'adapters/claude.js',
@@ -33,7 +34,13 @@
 
     chrome.contextMenus.onClicked.addListener((info, tab) => {
       if (info.menuItemId === 'zeus-enhance-prompt' && tab?.id) {
-        chrome.tabs.sendMessage(tab.id, { action: 'contextEnhancePrompt' }).catch(() => {});
+        chrome.tabs.sendMessage(tab.id, { action: 'contextEnhancePrompt' }).catch(() => {
+          forceInject(tab.id, (res) => {
+            if (res?.success) {
+              chrome.tabs.sendMessage(tab.id, { action: 'contextEnhancePrompt' }).catch(() => {});
+            }
+          });
+        });
       }
     });
   }
@@ -83,8 +90,18 @@
     const prompt = String(message?.prompt || '').trim();
 
     try {
-      const enhancedPrompt = await router.enhancePrompt(prompt);
-      sendResponse({ success: true, enhancedPrompt });
+      const engine = globalScope.ZeusPromptEngine;
+      const result = engine && typeof engine.execute === 'function'
+        ? await engine.execute(prompt, message?.options)
+        : { enhancedText: await router.enhancePrompt(prompt), warnings: [], meta: {} };
+
+      sendResponse({
+        success: true,
+        enhancedPrompt: result.enhancedText,
+        enhancedText: result.enhancedText,
+        warnings: result.warnings || [],
+        meta: result.meta || {}
+      });
     } catch (error) {
       let provider = '';
       let model = '';

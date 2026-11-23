@@ -19,6 +19,9 @@ function createEvent() {
 }
 
 function copy(value) {
+  if (value === undefined) {
+    return undefined;
+  }
   return JSON.parse(JSON.stringify(value));
 }
 
@@ -50,7 +53,7 @@ function pickStoreValues(store, keys) {
   return copy(store);
 }
 
-function createStorageArea(store) {
+function createStorageArea(store, areaName, storageOnChanged) {
   return {
     get(keys, callback) {
       const result = pickStoreValues(store, keys);
@@ -61,7 +64,18 @@ function createStorageArea(store) {
       return Promise.resolve(result);
     },
     set(payload, callback) {
+      const changes = {};
+      if (payload && typeof payload === 'object') {
+        for (const [key, value] of Object.entries(payload)) {
+          changes[key] = { oldValue: copy(store[key]), newValue: copy(value) };
+        }
+      }
       Object.assign(store, payload || {});
+      if (storageOnChanged && Object.keys(changes).length > 0) {
+        storageOnChanged.listeners.forEach((fn) => {
+          try { fn(changes, areaName); } catch (_) {}
+        });
+      }
       if (typeof callback === 'function') {
         callback();
         return;
@@ -70,8 +84,17 @@ function createStorageArea(store) {
     },
     remove(keys, callback) {
       const toRemove = Array.isArray(keys) ? keys : [keys];
+      const changes = {};
       for (const key of toRemove) {
+        if (key in store) {
+          changes[key] = { oldValue: copy(store[key]), newValue: undefined };
+        }
         delete store[key];
+      }
+      if (storageOnChanged && Object.keys(changes).length > 0) {
+        storageOnChanged.listeners.forEach((fn) => {
+          try { fn(changes, areaName); } catch (_) {}
+        });
       }
       if (typeof callback === 'function') {
         callback();
@@ -80,8 +103,15 @@ function createStorageArea(store) {
       return Promise.resolve();
     },
     clear(callback) {
+      const changes = {};
       for (const key of Object.keys(store)) {
+        changes[key] = { oldValue: copy(store[key]), newValue: undefined };
         delete store[key];
+      }
+      if (storageOnChanged && Object.keys(changes).length > 0) {
+        storageOnChanged.listeners.forEach((fn) => {
+          try { fn(changes, areaName); } catch (_) {}
+        });
       }
       if (typeof callback === 'function') {
         callback();
@@ -100,6 +130,7 @@ function createChromeMock(options = {}) {
   const runtimeOnMessage = createEvent();
   const runtimeOnConnect = createEvent();
   const contextMenuOnClicked = createEvent();
+  const storageOnChanged = createEvent();
 
   const calls = {
     runtimeSendMessage: [],
@@ -206,8 +237,9 @@ function createChromeMock(options = {}) {
       }
     },
     storage: {
-      sync: createStorageArea(syncStore),
-      local: createStorageArea(localStore)
+      sync: createStorageArea(syncStore, 'sync', storageOnChanged),
+      local: createStorageArea(localStore, 'local', storageOnChanged),
+      onChanged: storageOnChanged
     },
     contextMenus: {
       create(payload) {
@@ -246,7 +278,8 @@ function createChromeMock(options = {}) {
       runtimeOnInstalled,
       runtimeOnMessage,
       runtimeOnConnect,
-      contextMenuOnClicked
+      contextMenuOnClicked,
+      storageOnChanged
     }
   };
 }

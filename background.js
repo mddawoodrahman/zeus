@@ -14,11 +14,13 @@ globalThis.LOG_STYLE = {
 
 importScripts(
   'model-registry.js',
+  'settings/settingsStore.js',
   'settings/settings.js',
   'core/retry.js',
   'core/prompts.js',
   'core/errors.js',
   'core/telemetry.js',
+  'core/providerTransport.js',
   'providers/utils.js',
   'providers/gemini.js',
   'providers/openai.js',
@@ -27,5 +29,6 @@ importScripts(
   'providers/ollama.js',
   'core/redactor.js',
   'core/router.js',
+  'core/promptEngine.js',
   'messaging/messageHandler.js'
 );

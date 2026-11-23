@@ -64,4 +64,40 @@ describe('ZeusProviderUtils', () => {
     expect(globalThis.ZeusProviderUtils.getAlternateChatTokenParam('max_tokens')).toBe('max_completion_tokens');
     expect(globalThis.ZeusProviderUtils.getAlternateChatTokenParam('max_completion_tokens')).toBe('max_tokens');
   });
+
+  it('delegates readJsonSafe and parseSseStream to ZeusProviderTransport', async () => {
+    loadScript('core/providerTransport.js');
+
+    // Test readJsonSafe delegation
+    const mockResponse = {
+      json: vi.fn().mockResolvedValue({ delegated: true })
+    };
+    const jsonResult = await globalThis.ZeusProviderUtils.readJsonSafe(mockResponse);
+    expect(jsonResult).toEqual({ delegated: true });
+
+    // Test parseSseStream delegation
+    const chunks = [];
+    const encoder = new TextEncoder();
+    let readCount = 0;
+    const sseResponse = {
+      body: {
+        getReader: () => ({
+          read: async () => {
+            if (readCount === 0) {
+              readCount += 1;
+              return { done: false, value: encoder.encode('data: {"hello":"world"}\n\n') };
+            }
+            return { done: true, value: undefined };
+          },
+          releaseLock: () => {}
+        })
+      }
+    };
+
+    await globalThis.ZeusProviderUtils.parseSseStream(sseResponse, (chunk) => {
+      chunks.push(chunk);
+    });
+
+    expect(chunks).toEqual([{ hello: 'world' }]);
+  });
 });

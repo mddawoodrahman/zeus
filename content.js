@@ -198,35 +198,59 @@
     try {
       await sendMessageWithTimeout({ action: 'ping' }, 3000).catch(() => null);
 
-      // Ticket 3: Redact sensitive tokens before provider dispatch
-      const redactor = globalScope.ZeusRedactor || null;
-      const scrubResult = redactor?.scrub
-        ? redactor.scrub(originalPrompt, {
-            redactionEnabled: settings?.redactionEnabled,
-            customRedactionPatterns: settings?.customRedactionPatterns
-          })
-        : { text: originalPrompt, secretMap: {}, hasRedactions: false };
+      const promptClient = globalScope.ZeusPromptClient || (typeof require !== 'undefined' ? (function() {
+        try {
+          const path = require('node:path');
+          return require(path.resolve(process.cwd(), 'core/promptClient.js'));
+        } catch (_) {
+          return null;
+        }
+      })() : null);
 
-      const response = await sendMessageWithTimeout({
-        action: 'enhancePrompt',
-        prompt: scrubResult.text
-      }, MESSAGE_TIMEOUT_MS);
+      let finalEnhanced = '';
+      let warnings = [];
 
-      if (!response?.success) {
-        throw new Error(String(response?.error || 'Unknown response from extension'));
+      if (promptClient && typeof promptClient.enhance === 'function') {
+        const result = await promptClient.enhance(originalPrompt, {
+          redactionEnabled: settings?.redactionEnabled,
+          customRedactionPatterns: settings?.customRedactionPatterns,
+          timeoutMs: MESSAGE_TIMEOUT_MS
+        });
+        finalEnhanced = result.enhancedText;
+        warnings = result.warnings || [];
+      } else {
+        // Fallback if PromptClient not available
+        const redactor = globalScope.ZeusRedactor || null;
+        const scrubResult = redactor?.scrub
+          ? redactor.scrub(originalPrompt, {
+              redactionEnabled: settings?.redactionEnabled,
+              customRedactionPatterns: settings?.customRedactionPatterns
+            })
+          : { text: originalPrompt, secretMap: {}, hasRedactions: false };
+
+        const response = await sendMessageWithTimeout({
+          action: 'enhancePrompt',
+          prompt: scrubResult.text
+        }, MESSAGE_TIMEOUT_MS);
+
+        if (!response?.success) {
+          throw new Error(String(response?.error || 'Unknown response from extension'));
+        }
+
+        finalEnhanced = response.enhancedPrompt;
+        if (scrubResult.hasRedactions && redactor?.hydrate) {
+          const hydration = redactor.hydrateWithDetails
+            ? redactor.hydrateWithDetails(finalEnhanced, scrubResult.secretMap)
+            : { text: redactor.hydrate(finalEnhanced, scrubResult.secretMap), droppedPlaceholders: [] };
+          finalEnhanced = hydration.text;
+          if (hydration.droppedPlaceholders?.length > 0) {
+            warnings.push('WARNING: SENSITIVE PLACEHOLDER OMITTED BY AI');
+          }
+        }
       }
 
-      // Ticket 3: Rehydrate locally before injecting into DOM
-      let finalEnhanced = response.enhancedPrompt;
-      if (scrubResult.hasRedactions && redactor?.hydrate) {
-        const hydration = redactor.hydrateWithDetails
-          ? redactor.hydrateWithDetails(finalEnhanced, scrubResult.secretMap)
-          : { text: redactor.hydrate(finalEnhanced, scrubResult.secretMap), droppedPlaceholders: [] };
-        finalEnhanced = hydration.text;
-
-        if (hydration.droppedPlaceholders?.length > 0 && injector && typeof injector.showToast === 'function') {
-          injector.showToast('WARNING: SENSITIVE PLACEHOLDER OMITTED BY AI', 'warning', 4000);
-        }
+      if (warnings.length > 0 && injector && typeof injector.showToast === 'function') {
+        injector.showToast('WARNING: SENSITIVE PLACEHOLDER OMITTED BY AI', 'warning', 4000);
       }
 
       domUtils.setInputText(inputElement, finalEnhanced);

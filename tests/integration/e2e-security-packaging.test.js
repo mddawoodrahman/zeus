@@ -49,17 +49,37 @@ describe('Ticket 7: End-to-End Security & Packaging Verification', () => {
       }
     });
 
-    it('verifies content script load order: core/redactor.js loads before copilot and content.js', () => {
+    it('verifies content script load order: core/redactor.js loads before promptClient and content.js', () => {
       const distManifest = JSON.parse(fs.readFileSync(path.join(distExtensionDir, 'manifest.json'), 'utf8'));
       const contentScripts = distManifest.content_scripts[0].js;
 
       const redactorIndex = contentScripts.indexOf('core/redactor.js');
+      const promptClientIndex = contentScripts.indexOf('core/promptClient.js');
       const copilotIndex = contentScripts.indexOf('core/copilot.js');
       const contentIndex = contentScripts.indexOf('content.js');
 
       expect(redactorIndex).toBeGreaterThan(-1);
+      expect(promptClientIndex).toBeGreaterThan(redactorIndex);
       expect(copilotIndex).toBeGreaterThan(redactorIndex);
-      expect(contentIndex).toBeGreaterThan(redactorIndex);
+      expect(contentIndex).toBeGreaterThan(promptClientIndex);
+    });
+
+    it('verifies all deepened architectural modules exist in dist/extension and dist/extension.zip', () => {
+      const deepenedModules = [
+        path.join(distExtensionDir, 'core', 'safeDom.js'),
+        path.join(distExtensionDir, 'settings', 'settingsStore.js'),
+        path.join(distExtensionDir, 'core', 'providerTransport.js'),
+        path.join(distExtensionDir, 'core', 'promptClient.js'),
+        path.join(distExtensionDir, 'core', 'promptEngine.js')
+      ];
+
+      for (const mod of deepenedModules) {
+        expect(fs.existsSync(mod), `Missing packaged module: ${path.basename(mod)}`).toBe(true);
+      }
+
+      const zipPath = path.join(projectRoot, 'dist', 'extension.zip');
+      expect(fs.existsSync(zipPath), 'Missing packaged extension.zip').toBe(true);
+      expect(fs.statSync(zipPath).size).toBeGreaterThan(1000);
     });
 
     it('verifies strict content security policy is enforced in extension pages', () => {
@@ -195,6 +215,7 @@ describe('Ticket 7: End-to-End Security & Packaging Verification', () => {
     });
 
     it('Seam 4: safe Markdown link renderer enforces strict http/https protocols and rejects javascript: URIs', () => {
+      loadScript('core/safeDom.js');
       loadScript('sidepanel.js');
 
       const safeDom = globalThis.ZeusSafeDOM;
@@ -219,6 +240,75 @@ describe('Ticket 7: End-to-End Security & Packaging Verification', () => {
       expect(cmds.macDesktop).toBe('launchctl setenv OLLAMA_ORIGINS "chrome-extension://prod-extension-id"');
       expect(cmds.windowsPowerShell).toBe('$env:OLLAMA_ORIGINS="chrome-extension://prod-extension-id"; ollama serve');
       expect(cmds.windowsCmd).toBe('set OLLAMA_ORIGINS=chrome-extension://prod-extension-id && ollama serve');
+    });
+
+    it('Seam 6: SettingsStore enforces section-level nested merge and preserves sibling API keys', async () => {
+      loadScript('settings/settingsStore.js');
+      const store = globalThis.ZeusSettingsStore;
+
+      // Mock storage local with existing keys
+      let storedLocal = {
+        apiKeys: {
+          openai: 'existing-openai',
+          claude: 'existing-claude',
+          gemini: 'existing-gemini'
+        }
+      };
+
+      globalThis.chrome = {
+        storage: {
+          local: {
+            get: vi.fn((_k, cb) => cb({ apiKeys: storedLocal.apiKeys })),
+            set: vi.fn((data, cb) => {
+              if (data.apiKeys) storedLocal.apiKeys = data.apiKeys;
+              if (cb) cb();
+            })
+          },
+          sync: {
+            get: vi.fn((_k, cb) => cb({})),
+            set: vi.fn((_data, cb) => { if (cb) cb(); })
+          },
+          onChanged: { addListener: vi.fn() }
+        }
+      };
+
+      // Updating openai must NOT wipe claude or gemini
+      await store.update({ apiKeys: { openai: 'new-openai' } });
+
+      const updated = await store.get();
+      expect(updated.apiKeys.openai).toBe('new-openai');
+      expect(updated.apiKeys.claude).toBe('existing-claude');
+      expect(updated.apiKeys.gemini).toBe('existing-gemini');
+
+      // Empty string clears an individual key
+      await store.update({ apiKeys: { gemini: '' } });
+      const cleared = await store.get();
+      expect(cleared.apiKeys.gemini).toBe('');
+      expect(cleared.apiKeys.openai).toBe('new-openai');
+      expect(cleared.apiKeys.claude).toBe('existing-claude');
+    });
+
+    it('Seam 7: SafeDOM clears containers via replaceChildren and enforces strict link attributes', () => {
+      const { JSDOM } = require('jsdom');
+      const dom = new JSDOM('<!DOCTYPE html><html><body></body></html>');
+      globalThis.window = dom.window;
+      globalThis.document = dom.window.document;
+
+      loadScript('core/safeDom.js');
+      const safeDom = globalThis.ZeusSafeDOM;
+
+      const container = dom.window.document.createElement('div');
+      const child = dom.window.document.createElement('span');
+      child.textContent = 'Existing child';
+      container.appendChild(child);
+
+      safeDom.renderMarkdown(container, '[External Secure Link](https://secure.example.com)');
+
+      const link = container.querySelector('a');
+      expect(link).not.toBeNull();
+      expect(link.getAttribute('rel')).toBe('noopener noreferrer');
+      expect(link.getAttribute('target')).toBe('_blank');
+      expect(link.href).toBe('https://secure.example.com/');
     });
   });
 });
