@@ -1,6 +1,10 @@
-# Zeus Prompt Enhancer
+# ZEUS — Prompt Enhancement System
 
-Zeus is a Manifest V3 Chrome extension that improves user prompts directly in supported chat applications. It preserves user intent while rewriting for clarity, structure, and output quality, then routes requests through cloud or local LLM providers.
+Zeus is a Manifest V3 Chrome extension that optimizes user prompts directly inside supported AI chat applications. It preserves core user intent while restructuring prompts for cognitive clarity, precision, and execution quality, then routes requests through cloud or local LLM providers.
+
+Built for mission-critical engineering and research workflows, Zeus combines a cyberpunk HUD aesthetic with enterprise-grade security boundaries: client-side secret redaction and rehydration, isolated storage partitions, SafeDOM XSS neutralization, strict Content Security Policies, and real-time Copilot inline streaming completions.
+
+---
 
 ## Table of Contents
 
@@ -8,286 +12,638 @@ Zeus is a Manifest V3 Chrome extension that improves user prompts directly in su
 - [Key Capabilities](#key-capabilities)
 - [Technology Stack](#technology-stack)
 - [Architecture](#architecture)
+  - [Service Worker Composition](#service-worker-composition)
+  - [MV3 Process Boundary and End-to-End Prompt Flow](#mv3-process-boundary-and-end-to-end-prompt-flow)
+  - [Provider Transport Engine](#provider-transport-engine)
+  - [SafeDOM Rendering and XSS Protection](#safedom-rendering-and-xss-protection)
+  - [Content Runtime Layers](#content-runtime-layers)
 - [Repository Structure](#repository-structure)
+  - [Development Source Tree](#development-source-tree)
+  - [Production Package Layout (dist/extension/)](#production-package-layout-distextension)
 - [Supported Sites and Providers](#supported-sites-and-providers)
-- [Installation](#installation)
-- [Usage](#usage)
+  - [Host Permissions and Supported Chat Surfaces](#host-permissions-and-supported-chat-surfaces)
+  - [Provider Backends and API Endpoints](#provider-backends-and-api-endpoints)
+  - [Default Models and Fallback Chains](#default-models-and-fallback-chains)
+- [Installation and Setup](#installation-and-setup)
+  - [End Users (Load Unpacked)](#end-users-load-unpacked)
+  - [Developers and Contributors](#developers-and-contributors)
+  - [Local API Key Storage Expectations](#local-api-key-storage-expectations)
+- [Usage and Interface Workflows](#usage-and-interface-workflows)
+  - [Cyberpunk HUD Popup (popup.html)](#cyberpunk-hud-popup-popuphtml)
+  - [In-Page Enhance Reticle](#in-page-enhance-reticle)
+  - [Context Menu Flow](#context-menu-flow)
+  - [Side Panel Workbench (sidepanel.html)](#side-panel-workbench-sidepanelhtml)
+  - [Copilot Inline Ghost Text Completion](#copilot-inline-ghost-text-completion)
+  - [Config Dashboard Control Center (options.html)](#config-dashboard-control-center-optionshtml)
 - [Configuration and Data Model](#configuration-and-data-model)
-- [Testing](#testing)
-- [CI/CD and Packaging](#cicd-and-packaging)
-- [Scripts Folder](#scripts-folder)
-- [Development and Production Structures](#development-and-production-structures)
+  - [Storage Partitioning Architecture](#storage-partitioning-architecture)
+  - [Canonical Schema (Schema Version 3)](#canonical-schema-schema-version-3)
+  - [SettingsStore Public API](#settingsstore-public-api)
+  - [One-Time v2 to v3 Migration and Legacy Key Purge](#one-time-v2-to-v3-migration-and-legacy-key-purge)
+  - [Public Settings Masking](#public-settings-masking)
+- [Security, Privacy, and Permissions](#security-privacy-and-permissions)
+  - [Manifest Permissions Matrix](#manifest-permissions-matrix)
+  - [Content Security Policy (CSP)](#content-security-policy-csp)
+  - [Client-Side Secret and PII Scrubbing (ZeusRedactor)](#client-side-secret-and-pii-scrubbing-zeusredactor)
+  - [Copilot Sensitive-Data Auto-Pause and Recovery](#copilot-sensitive-data-auto-pause-and-recovery)
+  - [SafeDOM Protection and Scheme Neutralization](#safedom-protection-and-scheme-neutralization)
+  - [Storage Sync Guard](#storage-sync-guard)
+- [Runtime Message API and Long-Lived Ports](#runtime-message-api-and-long-lived-ports)
+  - [Standard Message Handlers](#standard-message-handlers)
+  - [Long-Lived Connection Ports](#long-lived-connection-ports)
+- [Telemetry and Latency Monitoring](#telemetry-and-latency-monitoring)
+- [Testing, Scripts, CI/CD, and Verification](#testing-scripts-cicd-and-verification)
+  - [NPM Scripts Matrix](#npm-scripts-matrix)
+  - [Test Suites and Categories](#test-suites-and-categories)
+  - [Release Scripts (scripts/)](#release-scripts-scripts)
+  - [Packaged Browser CDP Verification Harness](#packaged-browser-cdp-verification-harness)
+  - [CI/CD Pipeline Workflow](#cicd-pipeline-workflow)
 - [Git Ignore Policy](#git-ignore-policy)
-- [Runtime Message API](#runtime-message-api)
-- [Telemetry](#telemetry)
-- [Security and Permissions](#security-and-permissions)
 - [Troubleshooting](#troubleshooting)
+  - [Ollama Setup and Scoped CORS Configuration](#ollama-setup-and-scoped-cors-configuration)
+  - [Enhance Button and Reticle Not Appearing](#enhance-button-and-reticle-not-appearing)
+  - [Copilot Paused on Sensitive Data](#copilot-paused-on-sensitive-data)
+  - [Dropped-Placeholder Warnings](#dropped-placeholder-warnings)
+  - [Provider API Errors and Quota Limits](#provider-api-errors-and-quota-limits)
 - [Contributing](#contributing)
-- [Contributor Guide](CONTRIBUTING.md)
 - [License](#license)
+
+---
 
 ## Overview
 
-Zeus is designed around maintainable modules and clean runtime boundaries:
+Zeus is architected around deep, decoupled modules with strict Manifest V3 process isolation and authoritative single sources of truth:
 
-- `model-registry.js` is the single source of truth for model metadata, defaults, and fallback lists.
-- `settings/settings.js` is the single source of truth for settings schema, defaults, migration, normalization, and storage.
-- Provider implementations are isolated by API backend.
-- Content logic is split into generic DOM utilities and site adapters.
-- Injection is non-intrusive and compatible with modern React/Vue interfaces.
+- **`model-registry.js`**: Authoritative registry for supported provider metadata, grouped model hierarchies, speed/cost badges, defaults, and multi-tier fallback chains.
+- **`settings/settingsStore.js`** (mirrored by `settings/settings.js`): Single source of truth for schema definitions (`schemaVersion: 3`), cryptographic storage partitioning, nested section merging, dual-area cache invalidation, and one-time migration.
+- **`core/promptClient.js` & `core/promptEngine.js`**: MV3 process-split architecture guaranteeing that plaintext secrets and PII never traverse extension IPC boundaries.
+- **`core/providerTransport.js`**: Unified network engine handling unary executions, streaming decoders (SSE and NDJSON), pre-first-byte exponential backoff retries, and strict post-first-byte non-retry invariants.
+- **`core/safeDom.js`**: Strict HTML sanitization, Myers word diffing, and Markdown parsing enforcing modern `replaceChildren()` container clearing and dangerous protocol blocking.
+- **Site Adapters (`adapters/`)**: Modular host decoders isolating site-specific DOM selectors from generic extension mechanics.
+
+---
 
 ## Key Capabilities
 
-- **Military-Grade Cyberpunk HUD Popup**: Designed with a Rogue AI Injector aesthetic featuring HSL neon colors (Cyber Yellow, Netrunner Cyan, Arasaka Red, Acid Green), square status dots, and CRT scanline overlay.
-- **Aggressive Angular Reticle Button**: Renamed to `.zeus-enhance-btn` with cut corners and dedicated states (`.processing` showing spinning `◈` and `.error` showing `✕`). Shortened to an icon-only layout with optimized position anchors and layout-thrashing prevention.
-- **Chrome Side Panel API Workbench**: Serves as the primary prompt workspace, history logger, and template variables injector, fully styled with the Night City cyberpunk aesthetic and containing an inline word-diff viewer.
-- **Copilot-style Inline Suggestions**: Streams low-latency completions word-by-word as ghost text overlays directly in eligible inputs, triggering on user typing idle (400ms aggressive, 800ms conservative).
-- **Real-Time Status Toast Overlays**: Injects status overlays (`ESTABLISHING NEURAL LINK...`, `INJECTION COMPLETE`, `LINK FAILURE`) directly near target inputs.
-- **Config Dashboard Control Center (`options.html`)**: Full-page settings featuring sidebar navigation, live telemetry tail log feed, and provider health indicators.
-- **Telemetry & Latency Monitoring**: Displays transaction latency and failure fallback metrics on the HUD and dashboard.
-- **Supported Providers**: Gemini, OpenAI, Claude, OpenRouter, and local Ollama.
-- **Auto Mode**: Uses prompt-intent routing and automatic provider fallback behavior.
-- **Backward Compatibility**: Preserves legacy sync settings keys.
-- **Automated Tests**: Unit, integration, provider-mocking, DOM, and smoke suites.
+- **Military-Grade Cyberpunk HUD Popup (`popup.html`)**: Rogue AI aesthetic featuring high-contrast neon accents (Cyber Yellow `#FFD500`, Netrunner Cyan `#00F0FF`, Arasaka Red `#FF003C`, Acid Green `#39FF14`), CRT scanline overlays, system telemetry monitors, and custom model search dropdowns.
+- **In-Page Angular Enhance Reticle (`.zeus-enhance-btn`)**: Angular cut-corner reticle floating cleanly beside native chat composers. Features CSS state animations (`idle`, spinning `◈` during `.processing`, and `✕` on `.error`), anchored positioning with collision avoidance, and non-intrusive mounting.
+- **Chrome Side Panel API Workbench (`sidepanel.html`)**: Comprehensive prompt workspace accessible via persistent keyboard shortcut (`Alt+Shift+Z` / `Option+Shift+Z` on macOS). Includes live composer input capturing (`CAPTURE FROM PAGE`), inline Myers word diff visualizer (`.diff-add`, `.diff-del`), reverse-chronological session history archive (storing only scrubbed text with placeholders), and a template library with dynamic variable replacement.
+- **Copilot-Style Inline Ghost Text Completion (`core/copilot.js` & `core/ghostText.js`)**: Real-time inline suggestion engine streaming completions word-by-word into textareas and `contenteditable` inputs. Keystrokes are debounced (400ms aggressive, 800ms conservative). Features single-key acceptance (`Tab`), dismissal (`Escape` or type-through), and automatic pause upon detecting sensitive credentials.
+- **Real-Time Status Toast Overlays**: In-page visual notifications (`ESTABLISHING NEURAL LINK...`, `INJECTION COMPLETE`, `LINK FAILURE`, `WARNING: SENSITIVE PLACEHOLDER OMITTED BY AI`) informing users of enhancement state without modal interruptions.
+- **Config Dashboard Control Center (`options.html`)**: Full-page options console featuring sidebar navigation, provider health status indicators, interactive model pickers with search filtering, provider token inputs, Copilot parameter tuning, live telemetry tail feed, and copy-pasteable scoped Ollama launch commands.
+- **Multi-Provider Cloud & Local Support**: Native integration with Google Gemini, OpenAI, Anthropic Claude, OpenRouter, and local Ollama daemons.
+- **Smart Auto Mode**: Intent-based semantic routing (analyzing `coding`, `long-form`, `cheap`, and `default` intent signals) with automatic fallback cascade across configured provider candidates.
+- **Split Storage & Client-Side PII Redaction**: Strict credential partitioning ensuring API keys remain device-local in `chrome.storage.local`, while 7-tier regex scrubbing replaces credentials and PII with ephemeral placeholders before prompts leave the client.
+
+---
 
 ## Technology Stack
 
-- Runtime: Plain JavaScript, Chrome Extensions Manifest V3.
-- Test runner: Vitest.
-- DOM environment for tests: jsdom.
-- File scanning utilities: glob.
-- CI/CD: GitHub Actions.
-- Node requirement for tooling/tests: Node `>=18`.
+- **Runtime Platform**: Plain ECMAScript (ES2022+), Google Chrome Manifest V3.
+- **Test Framework**: Vitest (`^2.1.8`) with V8 coverage collection (`@vitest/coverage-v8`).
+- **DOM Test Environment**: jsdom (`^24.1.3`).
+- **File System & Glob Tooling**: Node.js built-in APIs (`fs`, `path`, `child_process`, `http`) and glob (`^9.3.5`).
+- **Archive Generation**: archiver (`^7.0.1`) for deterministic zip packaging without external OS dependencies.
+- **Browser Automation Verification**: Isolated headless Google Chrome verification over Chrome DevTools Protocol (`ws` WebSocket CDP).
+- **CI/CD Platform**: GitHub Actions runner (`ubuntu-latest`, Node.js 18).
+- **Engine Requirements**: Node.js `>=18`.
+
+---
 
 ## Architecture
 
 ### Service Worker Composition
 
-`background.js` is intentionally thin and imports runtime modules in a fixed, deterministic order:
+The background service worker (`background.js`) runs in an isolated MV3 background execution environment. It establishes global telemetry styling flags and loads runtime modules in a strict, deterministic sequence:
 
-1. Registry and settings storage modules (`model-registry.js`, `settings/settingsStore.js`, `settings/settings.js`)
-2. Core network utilities and transport engine (`core/retry.js`, `core/prompts.js`, `core/errors.js`, `core/telemetry.js`, `core/providerTransport.js`)
-3. Provider implementations (`providers/utils.js`, `providers/gemini.js`, `providers/openai.js`, `providers/claude.js`, `providers/openrouter.js`, `providers/ollama.js`)
-4. Redaction, pure route selection, and background prompt execution (`core/redactor.js`, `core/router.js`, `core/promptEngine.js`)
-5. Message handler (`messaging/messageHandler.js`)
+```javascript
+importScripts(
+  'model-registry.js',           // 1. Model metadata, groups, defaults, and fallbacks
+  'settings/settingsStore.js',    // 2. Canonical settings store and migration logic
+  'settings/settings.js',         // 3. Settings compatibility bridge
+  'core/retry.js',                // 4. Exponential backoff and fetch timeout helpers
+  'core/prompts.js',              // 5. System optimization prompt templates and constraints
+  'core/errors.js',               // 6. ProviderHttpError class and error classifiers
+  'core/telemetry.js',            // 7. Event tracking and fallback metrics buffer
+  'core/providerTransport.js',    // 8. Unary execute() & streaming stream() network engine
+  'providers/utils.js',           // 9. Candidate model resolution and token param negotiators
+  'providers/gemini.js',          // 10. Gemini generateContent API integration
+  'providers/openai.js',          // 11. OpenAI chat completions API integration
+  'providers/claude.js',          // 12. Anthropic Messages API integration
+  'providers/openrouter.js',      // 13. OpenRouter multi-model router integration
+  'providers/ollama.js',          // 14. Local Ollama generate and stream API integration
+  'core/redactor.js',             // 15. Regex-based PII/secret scrubbing and hydration
+  'core/router.js',               // 16. Pure route planner and intent analyzer
+  'core/promptEngine.js',         // 17. Privileged enhancement dispatcher & fallback executor
+  'messaging/messageHandler.js'   // 18. Runtime message listeners, context menus, and ports
+);
+```
 
-### End-to-End Prompt Flow (MV3 Process-Split Architecture)
+---
 
-1. Content script injects an enhance button for eligible input fields.
-2. User triggers prompt optimization (via in-page button, Side Panel Workbench, or Context Menu).
-3. **Client Seam (`core/promptClient.js`)**:
-   - Scrubs plaintext credentials locally via `ZeusRedactor.scrub()`.
-   - Dispatches scrubbed prompt over IPC via `chrome.runtime.sendMessage({ action: 'enhancePrompt', prompt: scrubbedText })`.
-   - *Security Invariant: Plaintext secrets NEVER cross the IPC boundary.*
-4. **Background Seam (`core/promptEngine.js`)**:
-   - Privileged service worker receives `enhancePrompt`.
-   - Resolves configuration via `ZeusSettingsStore` (nested section merges, dual-area cache invalidation).
-   - Calculates candidate route via pure calculator `ZeusRouter.calculateRoutePlan()`.
-   - Executes request via `ZeusProviderTransport` (`execute()` unary or `stream()` streaming with pre-first-byte retry safety).
-   - Handles auto-mode cascades on transient failure and logs telemetry via `ZeusTelemetry`.
-   - Applies defense-in-depth redaction if direct background calls bypass client scrubbing.
-   - Returns structured payload `{ enhancedText, warnings, meta }`.
-5. **Client-Side Rehydration & Presentation**:
-   - `PromptClient` receives scrubbed enhanced text.
-   - Rehydrates original secrets locally into client memory using `ZeusRedactor.hydrateWithDetails()`.
-   - Surfaces any dropped-placeholder warnings (`warnings`) as status toasts.
-   - Injects rehydrated text into the target input element or renders safe diffs via `ZeusSafeDOM`.
+### MV3 Process Boundary and End-to-End Prompt Flow
 
-### Deepened Core Subsystems
+Zeus enforces strict separation between untrusted renderer contexts (content scripts, popups, side panels) and the privileged background service worker. Plaintext secrets and sensitive PII are **never** permitted to cross the Chrome IPC boundary.
 
-- `core/promptClient.js`: Client-side prompt orchestration (local scrub, IPC dispatch, local rehydration, warning collection).
-- `core/promptEngine.js`: Background privileged enhancement execution, fallback retries, defense-in-depth, and latency recording.
-- `core/providerTransport.js`: Deep network transport with unary `execute()`, streaming `stream()`, SSE/NDJSON decoders, and pre-first-byte retry safety.
-- `core/safeDom.js`: Pure DOM construction for Myers diffing and Markdown rendering with `replaceChildren()` container clearing and strict URL protocol validation.
-- `settings/settingsStore.js`: Storage partitioning between sync preferences and local API keys with section-level nested merge and dual-area `onChanged` cache invalidation.
+```
++-----------------------------------------------------------------------------------+
+|                        RENDERER CONTEXT (UNTRUSTED DOM)                           |
+|       [Content Script / Side Panel Workbench / In-Page Enhance Reticle]           |
+|                                                                                   |
+|  1. User initiates prompt enhancement with raw prompt text                        |
+|  2. ZeusPromptClient.enhance(rawPrompt, options)                                  |
+|       |                                                                           |
+|       v                                                                           |
+|  3. ZeusRedactor.scrub(rawPrompt, redactionOptions)                               |
+|       |--> Local in-memory secretMap: { "[[ZEUS_SECRET_1]]": "sk-ant-api03..." }  |
+|       +--> Scrubbed text with placeholders: "Review this key [[ZEUS_SECRET_1]]"   |
++-----------------------------------------------------------------------------------+
+                                         |
+                                         | IPC (chrome.runtime.sendMessage)
+                                         | Action: 'enhancePrompt'
+                                         | Prompt: scrubbedText (ZERO PLAINTEXT SECRETS)
+                                         v
++-----------------------------------------------------------------------------------+
+|                    MV3 BACKGROUND SERVICE WORKER (PRIVILEGED)                     |
+|                                                                                   |
+|  4. messaging/messageHandler.js receives 'enhancePrompt'                          |
+|  5. ZeusPromptEngine.execute(scrubbedPrompt, options)                             |
+|       |                                                                           |
+|       +--> [Defense-in-Depth]: Re-scrubs if invoked outside PromptClient          |
+|       +--> ZeusSettingsStore.loadSettings(): reads sync prefs + local apiKeys     |
+|       +--> ZeusRouter.calculateRoutePlan(): resolves provider & model candidates  |
+|       +--> ZeusProviderTransport.execute() / stream():                           |
+|       |      - Pre-first-byte exponential backoff retry                           |
+|       |      - HTTP dispatch to LLM endpoint (Gemini, OpenAI, Claude, etc.)       |
+|       +--> ZeusTelemetry.trackFallback() on candidate error                       |
+|       |                                                                           |
+|  6. Background responds with structured payload:                                   |
+|       { success: true, enhancedText, warnings, meta }                             |
++-----------------------------------------------------------------------------------+
+                                         |
+                                         | IPC Response
+                                         | Enhanced text with preserved placeholders
+                                         v
++-----------------------------------------------------------------------------------+
+|                        RENDERER CONTEXT (LOCAL REHYDRATION)                       |
+|                                                                                   |
+|  7. ZeusPromptClient receives response                                            |
+|  8. ZeusRedactor.hydrateWithDetails(enhancedText, secretMap)                      |
+|       |--> Replaces [[ZEUS_*]] tokens with original plaintext secrets in memory   |
+|       +--> Tolerant matching handles model casing/markdown formatting drift       |
+|       +--> Identifies any dropped placeholders -> populates client warnings       |
+|  9. Returns structured result: { enhancedText, originalText, warnings, meta }     |
+| 10. Injects rehydrated prompt into DOM input OR renders SafeDOM diff              |
++-----------------------------------------------------------------------------------+
+```
+
+---
+
+### Provider Transport Engine
+
+Network requests to AI backends are centralized in `core/providerTransport.js`. This module abstracts HTTP semantics, streaming decoders, and retry policies:
+
+- **Unary `execute(requestSpec)`**: Dispatches JSON requests with configurable timeouts and exponential backoff jitter.
+- **Streaming `stream(requestSpec, options)`**: Decodes streaming chunks using built-in Server-Sent Events (`parseSseStream`) or newline-delimited JSON (`parseNdjsonStream`) parsers.
+- **Pre-First-Byte Retry Invariant**: Retries on transient status codes (`408`, `429`, `500`, `502`, `503`, `504`) and network interruptions are strictly limited to the pre-first-byte phase. Once the first chunk is emitted (`hasEmittedFirstChunk = true`), retries are permanently prohibited to prevent response corruption and duplicated token generation.
+- **Cancellation**: Full support for `AbortController` signals to immediately terminate hanging connections when requests are aborted or ports disconnect.
+
+---
+
+### SafeDOM Rendering and XSS Protection
+
+The `core/safeDom.js` module provides safe DOM construction mechanisms that prevent Cross-Site Scripting (XSS) across extension interfaces:
+
+- **Myers Word-Level Diffing (`diffWords`)**: Computes Longest Common Subsequence (LCS) matrix comparisons between original and enhanced prompts, generating visual `.diff-add` and `.diff-del` spans.
+- **Safe Markdown Rendering (`renderSafeMarkdown`)**: Parses markdown links (e.g. `[label](https://example.com)`) safely using `document.createElement('a')` and `document.createTextNode()`. Sets `target="_blank"` and `rel="noopener noreferrer"`.
+- **Dangerous Scheme Neutralization (`isSafeUrl`)**: Strips control characters (`\x00-\x20`) and rejects unsafe or executable schemes (`javascript:`, `data:`, `vbscript:`, `file:`). Only URLs strictly starting with `http://` or `https://` are permitted as hyperlinks; all others are rendered as inert text.
+- **Container Replacement via `replaceChildren()`**: Containers are cleared exclusively via `target.replaceChildren()` rather than `target.innerHTML = ''`, completely eliminating DOM-based XSS vectors.
+
+---
 
 ### Content Runtime Layers
 
-- `content.js`: orchestration, refresh lifecycle, and runtime message handling.
-- `core/promptClient.js`: client-side redaction, IPC enhancement dispatch, and rehydration.
-- `core/domUtils.js`: candidate discovery and input read/write helpers.
-- `core/injector.js`: single reusable button lifecycle, focus/hover visibility, and adapter-driven mounting.
-- `core/useFloatingPosition.js`: anchored/fixed positioning sync logic for resize, scroll, and focus changes.
-- `core/observer.js`: debounced MutationObserver and SPA URL-change refresh trigger.
-- `core/ghostText.js`: mirror rendering and positioning of completion ghost text overlays for textareas and editables.
-- `core/copilot.js`: client-side inline suggestion state machine, keystroke debouncer, port messaging, and keyboard bindings.
-- `adapters/*.js`: host matching plus site-specific selectors and positioning strategy hooks.
+In-page interaction is structured into dedicated modular layers loaded in sequence:
 
-This separation keeps site heuristics isolated and avoids intrusive DOM reparenting.
+1. `core/domUtils.js`: Generic DOM discovery, input text extraction, and cursor coordinate calculation across `HTMLTextAreaElement`, `HTMLInputElement`, and rich-text `contenteditable` editors (ProseMirror, Lexical, Draft.js).
+2. `core/useFloatingPosition.js`: Dynamic positioning coordinator anchoring UI elements relative to target inputs with boundary collision detection.
+3. `core/injector.js`: Lifecycle manager for the `.zeus-enhance-btn` reticle and status toast notifications.
+4. `core/observer.js`: MutationObserver listening for dynamic SPA DOM additions, route changes, and view switching.
+5. `core/ghostText.js`: Off-screen mirror calculation and absolute positioning of completion ghost text overlays.
+6. `core/redactor.js`: Client-side PII and credential scrubbing engine.
+7. `core/promptClient.js`: Client-side IPC enhancement orchestrator.
+8. `core/copilot.js`: Inline keystroke debouncer and streaming suggestion state machine.
+9. `adapters/*.js`: Site-specific adapters tailored for ChatGPT, Claude, Gemini, DeepSeek, Grok, OpenRouter, and generic web inputs.
+10. `content.js`: Master content script coordinating injection, runtime messaging, and settings synchronization.
+
+---
 
 ## Repository Structure
 
+### Development Source Tree
+
 ```text
 .
-|- manifest.json
-|- background.js
-|- content.js
-|- popup.html
-|- popup.js
-|- styles.css
-|- model-registry.js
-|- package.json
-|- package-lock.json
-|- vitest.config.js
-|- .gitignore
-|- adapters/
-|  |- chatgpt.js
-|  |- claude.js
-|  |- deepseek.js
-|  |- gemini.js
-|  |- generic.js
-|  |- grok.js
-|  |- openrouter.js
-|- core/
-|  |- copilot.js
-|  |- domUtils.js
-|  |- errors.js
-|  |- ghostText.js
-|  |- injector.js
-|  |- observer.js
-|  |- promptClient.js
-|  |- promptEngine.js
-|  |- prompts.js
-|  |- providerTransport.js
-|  |- redactor.js
-|  |- retry.js
-|  |- router.js
-|  |- safeDom.js
-|  |- telemetry.js
-|  |- useFloatingPosition.js
-|- messaging/
-|  |- messageHandler.js
-|- providers/
-|  |- claude.js
-|  |- gemini.js
-|  |- ollama.js
-|  |- openai.js
-|  |- openrouter.js
-|  |- utils.js
-|- settings/
-|  |- settings.js
-|  |- settingsStore.js
-|- scripts/
-|  |- build-extension.js
-|  |- check-syntax.js
-|  |- verify-browser-packaged.mjs
-|  |- zip-extension.js
-|- tests/
-|  |- dom/
-|  |- integration/
-|  |- mocks/
-|  |- providers/
-|  |- smoke/
-|  |- unit/
-|  |- utils/
-|  |- harness/
-|- .github/
-|  |- workflows/
-|     |- test.yml
+├── .github/
+│   └── workflows/
+│       └── test.yml                         # CI workflow definition
+├── .gitignore                               # Root ignore rules for Git
+├── CONTRIBUTING.md                          # Contribution guidelines
+├── LICENSE                                  # ISC License
+├── README.md                                # Comprehensive documentation
+├── adapters/                                # Site-specific chat UI adapters
+│   ├── chatgpt.js                           # Adapter for chatgpt.com & chat.openai.com
+│   ├── claude.js                            # Adapter for claude.ai
+│   ├── deepseek.js                          # Adapter for deepseek.com & chat.deepseek.com
+│   ├── gemini.js                            # Adapter for gemini.google.com & bard.google.com
+│   ├── generic.js                           # Fallback adapter for standard textareas/inputs
+│   ├── grok.js                              # Adapter for grok.com
+│   └── openrouter.js                        # Adapter for openrouter.ai
+├── background.js                            # MV3 background service worker entry point
+├── content.js                               # Content script lifecycle orchestrator
+├── core/                                    # Deep functional modules
+│   ├── copilot.js                           # Inline suggestion state machine & key handlers
+│   ├── domUtils.js                          # DOM traversal, text reading, and caret calculation
+│   ├── errors.js                            # Error classification & ProviderHttpError
+│   ├── ghostText.js                         # Ghost text overlay DOM rendering & positioning
+│   ├── injector.js                          # Enhance reticle button mounting & toast UI
+│   ├── observer.js                          # MutationObserver & DOM change debouncer
+│   ├── promptClient.js                      # Client-side scrubbing, IPC dispatch & rehydration
+│   ├── promptEngine.js                      # Privileged background prompt router & executor
+│   ├── prompts.js                           # System prompt templates & placeholder rules
+│   ├── providerTransport.js                 # Unary execute & SSE/NDJSON streaming transport
+│   ├── redactor.js                          # 7-tier secret/PII regex scrubbing & rehydration
+│   ├── retry.js                             # Exponential backoff and fetch timeout utility
+│   ├── router.js                            # Pure intent classifier & route candidate builder
+│   ├── safeDom.js                           # Myers diffing, Markdown parser & XSS sanitization
+│   ├── telemetry.js                         # In-memory & storage.local telemetry buffer
+│   └── useFloatingPosition.js               # Anchored floating coordinate calculator
+├── icons/                                   # Extension icons and SVG artwork
+│   ├── icon16.png
+│   ├── icon48.png
+│   ├── icon128.png
+│   ├── lightning-flash-svgrepo-com.svg
+│   ├── zeus-16.png
+│   ├── zeus-32.png
+│   ├── zeus-48.png
+│   ├── zeus-128.png
+│   └── zeus.png
+├── manifest.json                            # Manifest V3 extension configuration
+├── messaging/
+│   └── messageHandler.js                    # Runtime message listeners, context menus, ports
+├── model-registry.js                        # Authoritative provider & model catalog
+├── options.html                             # Full-page options dashboard UI
+├── options.js                               # Options dashboard controller & Ollama generator
+├── package-lock.json                        # Locked dependency tree
+├── package.json                             # Node package configuration, scripts & engines
+├── popup.html                               # Cyberpunk HUD popup UI
+├── popup.js                                 # HUD popup controller & model selector
+├── providers/                               # Provider API implementations
+│   ├── claude.js                            # Anthropic Messages API client
+│   ├── gemini.js                            # Google Gemini generateContent API client
+│   ├── ollama.js                            # Local Ollama generate/stream client
+│   ├── openai.js                            # OpenAI Chat Completions API client
+│   ├── openrouter.js                        # OpenRouter completions & catalog client
+│   └── utils.js                             # Model fallback lists & token parameter helpers
+├── scripts/                                 # Build, verification, and packaging tools
+│   ├── build-extension.js                   # Production dist/extension builder
+│   ├── check-syntax.js                      # Node.js syntax verification script
+│   ├── verify-browser-packaged.mjs          # Headless Chrome CDP verification harness
+│   └── zip-extension.js                     # Store-ready extension.zip archiver
+├── settings/                                # Storage & settings management
+│   ├── settings.js                          # Compatibility bridge exporting settingsStore
+│   └── settingsStore.js                     # Partitioned storage, migration & merge logic
+├── sidepanel.css                            # Side Panel Workbench styling
+├── sidepanel.html                           # Side Panel Workbench UI
+├── sidepanel.js                             # Side Panel controller (diffs, history, templates)
+├── specs/                                   # Architectural specifications & audits
+│   ├── codebase-architecture-deepening.md
+│   ├── critical-risks-architectural-red-flags.md
+│   └── security-and-privacy-overhaul.md
+├── styles.css                               # Shared styles for reticle, popup & toast overlays
+├── tests/                                   # Comprehensive automated test suite
+│   ├── dom/                                 # JSDOM tests for content scripts, reticle, safeDom
+│   │   ├── content-dom.test.js
+│   │   ├── copilot-redaction.test.js
+│   │   └── safe-dom-csp.test.js
+│   ├── harness/                             # Standalone HTML mock pages for site adapters
+│   │   ├── chatgpt.html
+│   │   ├── claude.html
+│   │   ├── deepseek.html
+│   │   ├── gemini.html
+│   │   ├── generic.html
+│   │   ├── grok.html
+│   │   ├── harness.css
+│   │   └── harness.js
+│   ├── integration/                         # Cross-boundary IPC & security packaging tests
+│   │   ├── dispatch-redaction.test.js
+│   │   ├── e2e-security-packaging.test.js
+│   │   └── router-provider.test.js
+│   ├── mocks/                               # Chrome extension API mocks
+│   │   └── chrome.js
+│   ├── providers/                           # Provider client mocking & streaming tests
+│   │   ├── claude-provider.test.js
+│   │   ├── gemini-provider.test.js
+│   │   ├── ollama-provider.test.js
+│   │   ├── openai-provider.test.js
+│   │   ├── openrouter-provider.test.js
+│   │   └── provider-transport.test.js
+│   ├── smoke/                               # Node.js settings migration smoke tests
+│   │   └── settings-and-messaging.smoke.mjs
+│   ├── unit/                                # Unit tests for redactor, router, transport, etc.
+│   │   ├── ollama-origin.test.js
+│   │   ├── prompt-client-engine.test.js
+│   │   ├── provider-utils.test.js
+│   │   ├── redactor.test.js
+│   │   ├── router.test.js
+│   │   └── settings.test.js
+│   └── utils/                               # Test helpers & runtime fixtures
+│       └── runtime.js
+└── vitest.config.js                         # Vitest runner configuration
 ```
+
+---
+
+### Production Package Layout (dist/extension/)
+
+Executing `npm run build` generates a clean, production-ready directory in `dist/extension/` strictly containing runtime allowlisted assets. All tests, build scripts, development tools, markdown files, and hidden directories are excluded:
+
+```text
+dist/extension/
+├── adapters/
+│   ├── chatgpt.js
+│   ├── claude.js
+│   ├── deepseek.js
+│   ├── gemini.js
+│   ├── generic.js
+│   ├── grok.js
+│   └── openrouter.js
+├── background.js
+├── content.js
+├── core/
+│   ├── copilot.js
+│   ├── domUtils.js
+│   ├── errors.js
+│   ├── ghostText.js
+│   ├── injector.js
+│   ├── observer.js
+│   ├── promptClient.js
+│   ├── promptEngine.js
+│   ├── prompts.js
+│   ├── providerTransport.js
+│   ├── redactor.js
+│   ├── retry.js
+│   ├── router.js
+│   ├── safeDom.js
+│   ├── telemetry.js
+│   └── useFloatingPosition.js
+├── icons/
+│   ├── zeus-16.png
+│   ├── zeus-32.png
+│   ├── zeus-48.png
+│   └── zeus-128.png
+├── manifest.json
+├── messaging/
+│   └── messageHandler.js
+├── model-registry.js
+├── options.html
+├── options.js
+├── popup.html
+├── popup.js
+├── providers/
+│   ├── claude.js
+│   ├── gemini.js
+│   ├── ollama.js
+│   ├── openai.js
+│   ├── openrouter.js
+│   └── utils.js
+├── settings/
+│   ├── settings.js
+│   └── settingsStore.js
+├── sidepanel.css
+├── sidepanel.html
+├── sidepanel.js
+└── styles.css
+```
+
+---
 
 ## Supported Sites and Providers
 
-### Site host permissions
+### Host Permissions and Supported Chat Surfaces
 
-- `https://chatgpt.com/*`
-- `https://chat.openai.com/*`
-- `https://claude.ai/*`
-- `https://gemini.google.com/*`
-- `https://bard.google.com/*`
-- `https://chat.deepseek.com/*`
-- `https://deepseek.com/*`
-- `https://grok.com/*`
-- `https://openrouter.ai/*`
+Zeus is authored for Manifest V3 (`manifest_version: 3`, extension version `2.1.2`, minimum Chrome version `114`). It declares 11 explicit `host_permissions` in `manifest.json`. Ten of these are web-based AI chat surfaces that are also matched by `content_scripts.matches` (where the in-page reticle and Copilot suggestions mount), while `http://localhost:11434/*` is strictly an API permission for network communication with local Ollama daemons without content script injection:
 
-### Provider endpoints
+| Host Pattern | Content Script Target | Purpose / Surface |
+|---|---|---|
+| `https://chatgpt.com/*` | Yes | OpenAI ChatGPT modern web interface |
+| `https://chat.openai.com/*` | Yes | Legacy OpenAI ChatGPT web interface |
+| `https://claude.ai/*` | Yes | Anthropic Claude web interface |
+| `https://gemini.google.com/*` | Yes | Google Gemini chat application |
+| `https://bard.google.com/*` | Yes | Legacy Google Bard redirect endpoint |
+| `https://deepseek.com/*` | Yes | DeepSeek AI portal |
+| `https://chat.deepseek.com/*` | Yes | DeepSeek chat interface |
+| `https://grok.com/*` | Yes | xAI Grok chat interface |
+| `https://openrouter.ai/*` | Yes | OpenRouter chat interface and completions API |
+| `https://www.kimi.com/*` | Yes | Moonshot Kimi chat platform (handled by generic adapter) |
+| `http://localhost:11434/*` | No (API Only) | Local Ollama REST daemon (`/api/generate`, `/api/tags`, etc.) |
 
-- Gemini: `https://generativelanguage.googleapis.com`
-- OpenAI: `https://api.openai.com`
-- Claude: `https://api.anthropic.com`
-- OpenRouter: `https://openrouter.ai`
-- Ollama local runtime: `http://localhost:11434`
+---
 
-## Installation
+### Provider Backends and API Endpoints
 
-### End users
+1. **Google Gemini**:
+   - Endpoint: `https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent`
+   - Authentication: Query parameter `?key={api_key}`
+2. **OpenAI**:
+   - Endpoint: `https://api.openai.com/v1/chat/completions`
+   - Authentication: Header `Authorization: Bearer {api_key}`
+3. **Anthropic Claude**:
+   - Endpoint: `https://api.anthropic.com/v1/messages`
+   - Authentication: Headers `x-api-key: {api_key}` and `anthropic-version: 2023-06-01`
+4. **OpenRouter**:
+   - Endpoint: `https://openrouter.ai/api/v1/chat/completions`
+   - Authentication: Headers `Authorization: Bearer {api_key}`, `HTTP-Referer: https://zeus-extension.local`, `X-Title: Zeus Prompt Enhancer`
+5. **Local Ollama Daemon**:
+   - Endpoints: `http://localhost:11434/api/generate`, `/api/version`, `/api/ps`, `/api/tags`
+   - Authentication: None (Local daemon; requires scoped origin header)
 
-1. Clone or download this repository.
-2. Open Chrome and navigate to `chrome://extensions`.
-3. Enable Developer mode.
-4. Select Load unpacked.
-5. Choose the repository root folder.
+---
 
-### Contributors
+### Default Models and Fallback Chains
 
-1. Install Node 18 or newer.
-2. Install dependencies:
+All default models and fallback sequences are centrally declared in `model-registry.js`:
 
-```bash
-npm install
-```
+| Provider | Default Model | Fallback Sequence |
+|---|---|---|
+| **Gemini** | `gemini-3-flash` | `gemini-3-flash` &rarr; `gemini-3-pro` &rarr; `gemini-2.5-flash` &rarr; `gemini-2.5-pro` |
+| **OpenAI** | `gpt-5.4-mini` | `gpt-5.4-mini` &rarr; `gpt-5.4-nano` &rarr; `gpt-5.2` &rarr; `gpt-5.3-codex` |
+| **Claude** | `claude-sonnet-4.6` | `claude-sonnet-4.6` &rarr; `claude-4.5-sonnet` &rarr; `claude-opus-4.6` &rarr; `claude-4.5-opus` |
+| **OpenRouter** | `openai/gpt-5.4` | `openai/gpt-5.4` &rarr; `anthropic/claude-opus-4.6` &rarr; `google/gemini-3-pro` &rarr; `mistralai/mistral-large-3` &rarr; `deepseek/deepseek-v3.2` &rarr; `qwen/qwen-3.5` |
+| **Ollama** | Automatic | Discovers active running models (`/api/ps`) or locally installed tags (`/api/tags`). Suggested local models in catalog: `llama4`, `qwen3:8b`, `mistral-large`, `deepseek-coder-v2` |
 
-3. Run tests:
+---
 
-```bash
-npm test
-```
+## Installation and Setup
 
-## Usage
+### End Users (Load Unpacked)
 
-### Core Features
-1. Open the extension popup by clicking the Zeus icon in the Chrome toolbar.
-2. Select a provider (or `Auto`).
-3. Add provider API keys where needed.
-4. Select a model for model-selectable providers.
-5. Click **EXECUTE CONFIG** to save settings.
-6. On a supported chat page, click the Zeus enhance button in the prompt area.
+1. Clone or download this repository to your local machine.
+2. Build the extension bundle:
+   ```bash
+   npm install
+   npm run build
+   ```
+3. Open Google Chrome and navigate to `chrome://extensions`.
+4. Enable the **Developer mode** toggle in the top-right corner.
+5. Click **Load unpacked** in the top-left toolbar.
+6. Select the **`dist/extension`** directory (or the repository root folder during development).
 
-#### Context Menu Flow
-- Right-click an editable prompt field and select `Enhance Prompt with Zeus`.
+---
 
-### Advanced Modules
+### Developers and Contributors
 
-#### Chrome Side Panel Workbench
-1. Open the Zeus popup or options page.
-2. Scroll to the **ADVANCED MODULES** card and check **SIDE PANEL WORKBENCH**.
-3. Click **EXECUTE CONFIG** to save settings.
-4. Open or close the Chrome Side Panel UI:
-   - **Shortcut (Recommended)**: Press **Alt + Shift + Z** (or **Cmd + Shift + Z** on Mac) directly. This acts as a state-aware **toggle** (press once to open, press again to close).
-   - Click the **Side panel** icon in Chrome's top-right toolbar (looks like a split rectangle).
-   - Alternatively, click the Extensions puzzle piece icon, find **ZEUS**, click the three vertical dots next to it, and select **Open side panel**.
-   - **Physical Close Button**: Click the high-tech red **✕** close button in the top-right corner of the workbench header to close the panel instantly.
-5. In the side panel dropdown selection at the top, select **ZEUS — Prompt Enhancement System**.
-6. Use the workbench to load prompt history, inject template variables, edit text with full markdown support, and view line-by-line word differences.
+1. Verify that your environment runs **Node.js 18 or newer**:
+   ```bash
+   node --version
+   ```
+2. Install project dependencies:
+   ```bash
+   npm ci
+   ```
+3. Run the automated test suite:
+   ```bash
+   npm test
+   ```
 
-#### Copilot Inline Suggestions
-1. Open the Zeus popup or options page.
-2. Scroll to the **ADVANCED MODULES** card and check **COPILOT INLINE SUGGEST**.
-3. Click **EXECUTE CONFIG** to save settings.
-4. Open a supported chat application (e.g., ChatGPT, Claude, Gemini).
-5. Start typing in the input textarea or `contenteditable` container.
-6. On typing idle (400ms in aggressive mode, 800ms in conservative mode), Zeus streams real-time completion suggestions as a gray ghost-text overlay.
-7. Interaction hotkeys:
-   - Press **Tab** to accept the suggestion.
-   - Press **Escape** to dismiss/reject the suggestion.
-   - Any other keystroke (continuing to type) will dismiss the overlay automatically.
+---
 
+### Local API Key Storage Expectations
+
+- API keys are **never synced** to your Google account or across devices.
+- Because credentials are saved in `chrome.storage.local`, configuring Zeus on a new machine, browser profile, or device requires entering API keys for that specific browser instance.
+- Preferences (selected provider, chosen models, Copilot modes, UI toggles, custom redaction rules) are synced seamlessly via `chrome.storage.sync`.
+
+---
+
+## Usage and Interface Workflows
+
+### Cyberpunk HUD Popup (popup.html)
+
+Clicking the Zeus lightning bolt icon in the Chrome extension toolbar opens the HUD popup:
+
+1. **Provider Selection**: Select your desired active AI provider (`Gemini`, `OpenAI`, `Claude`, `OpenRouter`, `Ollama`, or `Auto`).
+2. **Model Selection**: When using model-selectable providers, click the model picker dropdown to search and choose from curated tiers (`Recommended`, `Fast / Cheap`, `High Intelligence`, `Coding / Agents`).
+3. **API Key Input**: Enter your provider API key. Toggle the `Show`/`Hide` button to reveal or mask key inputs.
+4. **Save Configuration**: Click **EXECUTE CONFIG**. Settings take effect immediately across all open tabs.
+
+---
+
+### In-Page Enhance Reticle
+
+When navigating to any supported chat application:
+
+1. Zeus detects the active input field (textarea or rich contenteditable composer) and anchors an angular `.zeus-enhance-btn` reticle to the bottom-right corner.
+2. Enter your draft prompt into the chat input.
+3. Click the enhance reticle. The button transitions to a spinning `◈` state (`.processing`), while a toast notification reads `ESTABLISHING NEURAL LINK...`.
+4. Plaintext credentials are scrubbed locally, the prompt is optimized via background routing, secrets are rehydrated in place, and the optimized prompt replaces your input content.
+5. The button flashes green with an `INJECTION COMPLETE` status toast.
+
+---
+
+### Context Menu Flow
+
+1. Highlight or click inside any editable text field on a web page.
+2. Right-click to open Chrome's context menu.
+3. Select **Enhance Prompt with Zeus**.
+4. Zeus automatically targets the active element, scrubs sensitive data, executes prompt optimization, and injects the enhanced prompt back into the input.
+
+---
+
+### Side Panel Workbench (sidepanel.html)
+
+The Side Panel Workbench offers a comprehensive command center for prompt engineering:
+
+1. **Opening and Closing**:
+   - **Keyboard Shortcut**: Press **`Alt + Shift + Z`** (or **`Option + Shift + Z`** on macOS, per Chrome's `Alt` key command mapping). This shortcut functions as a state-aware toggle: pressing it opens the side panel; pressing it again closes it (users can customize this shortcut at `chrome://extensions/shortcuts`).
+   - **Chrome Toolbar**: Click the Side Panel icon in Chrome's top-right toolbar and select **ZEUS — Prompt Enhancement System**.
+   - **Close Button**: Click the red **`✕`** close button (`#btn-close-panel`) in the top-right corner of the workbench header.
+2. **Composer Capture**: Click **CAPTURE FROM PAGE** (`#btn-capture`) to pull text directly from the active tab's chat composer into the workbench editor.
+3. **Prompt Optimization and Diff Viewer**: Click **OPTIMIZE PROMPT** (`#btn-enhance`). The workbench displays the enhanced prompt alongside an interactive word-level difference view highlighting additions (`.diff-add`) and deletions (`.diff-del`). Results can be injected back into the active tab via **INSERT INTO CHAT** (`#btn-insert`) or copied via **COPY TO CLIPBOARD** (`#btn-copy`).
+4. **Session History Archive**: Navigate to the **History** tab (`#tab-history`) to inspect prior prompt transformations. History items persist only scrubbed text with placeholders, never sensitive credentials (capped at 100 entries in `chrome.storage.local`). Each entry provides **RESTORE TO EDITOR** and **DELETE** actions.
+5. **Template Library**: Navigate to the **Templates** tab (`#tab-templates`) to manage reusable prompt skeletons with dynamic variables (e.g., `{{task}}`, `{{constraints}}`). Clicking **FILL & INSERT** opens a variable compilation modal; clicking **INJECT LOADOUT** compiles the variables and injects the populated template directly into your prompt input. You can also create new patterns (**CREATE NEW TEMPLATE**), **EDIT**, or **DELETE** existing templates (stored in `chrome.storage.sync`).
+
+---
+
+### Copilot Inline Ghost Text Completion
+
+When enabled in options, Zeus acts as an inline prompt completion copilot:
+
+1. Start typing in any supported chat prompt box.
+2. If your input exceeds 10 characters and typing stops for 400ms (aggressive) or 800ms (conservative), Zeus opens a streaming port (`copilot-stream`) and displays suggested completions as a ghost text overlay.
+3. **Accepting Suggestions**: Press **`Tab`** to accept the suggestion. The completion text is inserted at the caret, triggering native input events.
+4. **Dismissing Suggestions**: Press **`Escape`** or continue typing any other key to reject and dismiss the ghost overlay.
+5. **Sensitive Token Detection**: If sensitive data or secrets are typed, Copilot immediately pauses execution, aborts active streams, hides ghost text, and displays an amber status indicator: `Copilot paused (sensitive data)`. When the sensitive text is deleted, Copilot automatically resumes completions on subsequent keystrokes.
+
+---
+
+### Config Dashboard Control Center (options.html)
+
+Access the full options dashboard by right-clicking the Zeus extension icon and selecting **Options** (or navigating from the popup):
+
+- **Sidebar Navigation**: Dedicated tabs for **ACCESS LOADOUT** (`config-section`) and **SYSTEM LOGS** (`telemetry-section`), with a live telemetry console tail (`#optionsConsole`).
+- **Core Router Setup**: Select active provider (`Gemini`, `OpenAI`, `Claude`, `OpenRouter`, `Ollama`, or `Auto`).
+- **Advanced Modules**: Toggle the Chrome Side Panel Workbench and configure Copilot inline suggestions (provider, response mode 400ms vs 800ms, and token bounds 10–250).
+- **Runtime Loadout**: Interactive model search picker with group categorization (`Recommended`, `Fast / Cheap`, `High Intelligence`, `Coding / Agents`).
+- **Token Storage**: Enter, mask, or reveal API keys for cloud providers (`Gemini`, `OpenAI`, `Claude`, `OpenRouter`) with real-time status indicator lights.
+- **Local Ollama Loadout & Origin Helper**: Configure local Ollama host URL, model ID, and generate 1-click copyable platform-specific launch commands (`macOS / Linux`, `macOS Desktop`, `Windows PowerShell`, `Windows CMD`) using your extension's actual ID.
+- **Data Purge & Telemetry**: Execute configuration updates via **EXECUTE CONFIG**, purge stored credentials via **PURGE LOCAL MEMORY**, or clear diagnostic logs via **PURGE TELEMETRY LOGS**.
+
+---
 
 ## Configuration and Data Model
 
-Settings are owned by `settings/settings.js` and stored in `chrome.storage.sync`.
+### Storage Partitioning Architecture
 
-### Canonical settings shape
+To guarantee that API credentials are never transmitted through Chrome sync channels, Zeus physically partitions extension storage into two isolated domains:
 
-```js
+```
++-----------------------------------------------------------------------------------+
+|                        CHROME STORAGE PARTITIONING                                |
++-----------------------------------------------------------------------------------+
+|  chrome.storage.sync (Synced Preferences) |  chrome.storage.local (Device-Local)  |
+|  - schemaVersion                          |  - apiKeys.gemini                     |
+|  - provider                               |  - apiKeys.openai                     |
+|  - models                                 |  - apiKeys.claude                     |
+|  - ollama                                 |  - apiKeys.openrouter                 |
+|  - sidePanelEnabled                       |  - zeus_prompt_history (max 100)      |
+|  - copilotEnabled                         |  - zeus_fallback_telemetry (max 250)  |
+|  - copilotMode                            |  - zeus_last_latency                  |
+|  - copilotProvider                        |                                       |
+|  - copilotMaxTokens                       |  Device-local storage only.           |
+|  - redactionEnabled                       |  NEVER synced across devices.         |
+|  - customRedactionPatterns                |  Protected by sync storage guard.     |
+|  - zeus_templates (prompt skeletons)      |                                       |
++-----------------------------------------------------------------------------------+
+```
+
+---
+
+### Canonical Schema (Schema Version 3)
+
+The authoritative settings schema is defined in `settings/settingsStore.js`:
+
+```javascript
 {
-  schemaVersion: 2,
-  provider: "gemini|openai|claude|openrouter|ollama|auto",
+  schemaVersion: 3,
+  provider: "gemini", // "gemini" | "openai" | "claude" | "openrouter" | "ollama" | "auto"
   sidePanelEnabled: true,
   copilotEnabled: false,
-  copilotMode: "conservative|aggressive",
-  copilotProvider: "auto|gemini|openai|claude|openrouter|ollama",
+  copilotMode: "conservative", // "conservative" | "aggressive"
+  copilotProvider: "auto",
   copilotMaxTokens: 60,
+  redactionEnabled: true,
+  customRedactionPatterns: [],
   apiKeys: {
     gemini: "",
     openai: "",
@@ -295,10 +651,10 @@ Settings are owned by `settings/settings.js` and stored in `chrome.storage.sync`
     openrouter: ""
   },
   models: {
-    gemini: "",
-    openai: "",
-    claude: "",
-    openrouter: ""
+    gemini: "gemini-3-flash",
+    openai: "gpt-5.4-mini",
+    claude: "claude-sonnet-4.6",
+    openrouter: "openai/gpt-5.4"
   },
   ollama: {
     model: ""
@@ -306,277 +662,412 @@ Settings are owned by `settings/settings.js` and stored in `chrome.storage.sync`
 }
 ```
 
-### Backward compatibility
+---
 
-Legacy keys are still read and written for migration safety, including:
+### SettingsStore Public API
 
-- `zeus_selected_provider`
-- `zeus_*_api_key`
-- `zeus_*_model`
-- `zeus_provider_configs`
+The `ZeusSettingsStore` module exposes a clean asynchronous API:
 
-### Model source of truth
+- **`get(forceFresh = false)`**: Retrieves normalized settings. Returns cached settings when valid; reads sync and local storage when fresh read is requested.
+- **`update(diff)`**: Executes section-level nested merges. Preserves unmentioned keys, updates specific model entries or API keys (allowing `""` to clear/delete), writes secrets to `storage.local` first, purges legacy keys, and commits sync preferences.
+- **`getPublic(settingsInput)`**: Masks all raw API keys into boolean indicators (`hasApiKey: { gemini: true, ... }`), producing a safe payload suitable for untrusted content scripts.
+- **`invalidateCache()`**: Invalidates in-memory cache upon storage mutations.
+- **`onChanged` Dual-Area Listener**: Automatically invalidates cached settings whenever either the `sync` or `local` storage area emits change events.
 
-`model-registry.js` defines:
+---
 
-- Provider labels and helper text
-- Model metadata and grouping
-- Default model per provider
-- Provider fallback model lists
+### One-Time v2 to v3 Migration and Legacy Key Purge
 
-Avoid duplicating model constants in providers, popup, tests, or docs.
+When upgrading from legacy versions:
 
-## Testing
+1. **Write-Before-Delete Ordering**: `executeLoadSettings()` reads both `sync` and `local` storage areas. If `schemaVersion !== 3` or legacy `zeus_*` keys are detected, the store merges data giving precedence to local keys.
+2. Credentials are immediately saved to `chrome.storage.local.set({ apiKeys })`.
+3. All legacy keys (`zeus_selected_provider`, `zeus_*_api_key`, `zeus_*_model`, `zeus_provider_configs`, and sync `apiKeys`) are **completely purged** from `chrome.storage.sync` via `storage.sync.remove()`.
+4. Normalized preferences are saved to `chrome.storage.sync` with `schemaVersion: 3`.
+5. **No Legacy Dual-Writing**: Legacy `zeus_*` keys are permanently deleted and never written back to storage.
 
-Zeus uses layered testing so runtime and integration risks are caught early.
+---
 
-### Test scripts
+### Public Settings Masking
 
-- `npm test`: syntax check + Vitest suites + smoke test
-- `npm run test:unit`: unit tests only
-- `npm run test:integration`: integration tests only
-- `npm run test:providers`: provider mocking tests
-- `npm run test:dom`: DOM/content tests (jsdom)
-- `npm run test:smoke`: existing smoke script (`tests/smoke/settings-and-messaging.smoke.mjs`)
-- `npm run test:syntax`: parses all `.js` and `.mjs` via `node --check`
-- `npm run test:coverage`: coverage output via V8 provider
-- `npm run test:watch`: watch mode for local development
+Content scripts and untrusted UI pages obtain settings through the `getSettings` message action or `ZeusSettingsStore.getPublic()`. The payload strictly replaces plaintext credentials with boolean existence flags:
 
-### Test categories
-
-- Unit: routing logic, settings normalization/migration, utility behavior
-- Integration: router-provider interaction and fallback orchestration
-- Provider mocking: mocked `fetch` success, failures, and fallback triggers
-- DOM: input detection, injection behavior, and prompt write-back
-- Smoke: end-to-end settings migration + message actions in Node
-
-### Adapter harness pages
-
-Use `tests/harness/*.html` for manual selector validation per supported site adapter.
-
-## CI/CD and Packaging
-
-GitHub Actions workflow: `.github/workflows/test.yml`
-
-### Triggers
-
-- Every push
-- Every pull request
-- Tags matching `v*`
-
-### Pipeline behavior
-
-1. Checkout
-2. Setup Node 18
-3. `npm ci`
-4. `npm run test`
-5. `npm run test:syntax`
-6. `npm run build`
-7. On tag builds: run `npm run zip`, upload `dist/extension.zip`
-
-The zip step is fully Node-based via `archiver`, so no system-level `zip` dependency is required in CI.
-
-### Build and package scripts
-
-- `npm run clean`: removes `dist/`
-- `npm run build`: creates `dist/extension` and copies runtime-only extension assets
-- `npm run zip`: creates `dist/extension.zip` from `dist/extension` using `archiver`
-- `npm run package`: runs build and zip in sequence
-
-Packaging intentionally excludes development-only folders such as tests, scripts, and CI metadata.
-
-The build process is deterministic and safety-focused:
-
-- Build output is rebuilt from a strict runtime whitelist.
-- Missing runtime files are skipped safely with explicit logs.
-- Dev/test/config artifacts are never copied to production output.
-- Common secret patterns (`.env`, `.local`) are blocked from output.
-
-## Scripts Folder
-
-The `scripts/` folder exists to keep build, validation, and packaging logic separate from runtime extension code.
-
-Why this is present:
-
-- Keeps release tooling deterministic and version-controlled.
-- Ensures local development and CI produce the same output.
-- Prevents accidental packaging of tests, coverage, or secrets.
-- Provides one-command workflows through `package.json` scripts.
-
-How it works:
-
-1. `scripts/check-syntax.js`
-- Scans all `.js` and `.mjs` files (excluding `node_modules/`, `dist/`, `coverage/`, `.git/`).
-- Runs `node --check` on each file to catch syntax errors early.
-- Fails fast with per-file error output when parsing fails.
-
-2. `scripts/build-extension.js`
-- Rebuilds `dist/extension` from scratch.
-- Copies only runtime-required files/folders via explicit allowlists.
-- Excludes dev-only paths (`tests`, `scripts`, `.github`, `coverage`, `dist`, `node_modules`).
-- Filters risky/non-runtime files (`.env*`, `*.local`, test/spec files, sourcemaps).
-- Reads `manifest.json` to include referenced static assets like icons.
-
-3. `scripts/zip-extension.js`
-- Validates `dist/extension` exists.
-- Creates `dist/extension.zip` using `archiver` (Node-based, no OS zip dependency).
-- Produces the store-ready artifact used by release workflows.
-
-Execution order in normal release flow:
-
-- `npm run test` (includes syntax + test suites)
-- `npm run build` (creates clean runtime output)
-- `npm run zip` (creates distributable archive)
-- `npm run package` runs build + zip together
-
-This design keeps extension runtime files clean while making packaging predictable and audit-friendly.
-
-## Development and Production Structures
-
-Development (GitHub) keeps the full repository for engineering workflows:
-
-- Runtime extension code
-- Tests and harness pages
-- Scripts and CI/CD configuration
-- Local tooling configuration
-
-Production output is generated only in `dist/`:
-
-```text
-dist/
-|- extension/
-|  |- manifest.json
-|  |- background.js
-|  |- content.js
-|  |- popup.html
-|  |- popup.js
-|  |- styles.css
-|  |- model-registry.js
-|  |- adapters/
-|  |- core/
-|  |- providers/
-|  |- messaging/
-|  |- settings/
-|  |- icons/
-|- extension.zip
+```javascript
+{
+  schemaVersion: 3,
+  provider: "gemini",
+  sidePanelEnabled: true,
+  copilotEnabled: false,
+  // ... preferences ...
+  hasApiKey: {
+    gemini: true,
+    openai: false,
+    claude: true,
+    openrouter: false
+  }
+}
 ```
 
-Notes:
+---
 
-- `icons/` is included because it is referenced by `manifest.json`.
-- `dist/extension.zip` is the Chrome Web Store upload artifact.
-- Recommended release command: `npm run package`.
+## Security, Privacy, and Permissions
 
-## Git Ignore Policy
+### Manifest Permissions Matrix
 
-The project includes a root `.gitignore` to keep source control clean and prevent accidental commits of generated output or local secrets.
+Zeus declares only the minimal permissions required for operation:
 
-### Ignored by default
+| Permission | Purpose |
+|---|---|
+| `activeTab` | Access the currently active tab when the user clicks the toolbar icon or context menu. |
+| `scripting` | Dynamically inject content scripts on user action via `forceInject`. |
+| `storage` | Read and write partitioned preferences (`storage.sync`) and API keys (`storage.local`). |
+| `contextMenus` | Register the right-click "Enhance Prompt with Zeus" context action for editable elements. |
+| `sidePanel` | Register and toggle the Side Panel Workbench (`sidepanel.html`). |
 
-- Dependencies and local installs: `node_modules/`
-- Build/package output: `dist/`, `*.zip`
-- Test output and coverage: `coverage/`, `.vitest/`, `.nyc_output/`
-- Logs: `*.log`, npm/yarn/pnpm debug logs
-- Local environment data: `.env`, `.env.*`, `*.local` (except `.env.example`)
-- Caches and temporary files: `.cache/`, `.eslintcache`, `*.tmp`, `*.temp`
-- OS/editor metadata: `.DS_Store`, `Thumbs.db`, `.idea/`, `.vscode/*` (except `.vscode/extensions.json`)
+---
 
-### Tracked intentionally
+### Content Security Policy (CSP)
 
-- Runtime extension source files and folders
-- Test sources and harness pages under `tests/`
-- Tooling and CI config (`scripts/`, `.github/workflows/`, `vitest.config.js`)
+Extension pages (`popup.html`, `options.html`, `sidepanel.html`) operate under an explicit, hardened Content Security Policy declared in `manifest.json`:
 
-When adding new generated folders or local-only artifacts, update `.gitignore` in the same change.
+```text
+script-src 'self'; object-src 'none'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; base-uri 'none'; frame-ancestors 'none';
+```
 
-## Runtime Message API
+- **`script-src 'self'`**: Completely blocks inline scripts, `eval()`, and remotely hosted executable code.
+- **`object-src 'none'`**: Disallows Flash, Java, or plugin objects.
+- **`base-uri 'none'`**: Prevents `<base>` tag hijacking.
+- **`frame-ancestors 'none'`**: Protects extension pages against clickjacking inside iframes.
 
-### Standard Messaging API
+---
 
-Handled by `messaging/messageHandler.js`:
+### Client-Side Secret and PII Scrubbing (ZeusRedactor)
 
-- `ping`
-- `getSettings`
-- `enhancePrompt`
-- `settingsUpdated`
-- `forceInject`
-- `getTelemetrySummary`
-- `clearTelemetry`
+Before any prompt leaves the user's browser, `core/redactor.js` executes 7-tier deterministic regex scrubbing in strict order of precedence:
+
+1. **Tier 1: PEM Private Keys**: Detects `-----BEGIN ... PRIVATE KEY-----` blocks.
+2. **Tier 2: Connection URIs & Credentials**: Detects database and protocol connection strings (`postgres://`, `mysql://`, `mongodb://`, `redis://`, `amqp://`, etc.).
+3. **Tier 3: Bearer & JWT Tokens**: Detects JSON Web Tokens (`eyJ...`).
+4. **Tier 4: Known API Key Prefixes**: Identifies vendor prefixes (`sk-ant-...`, `sk-...`, `AIza...`, `AKIA...`).
+5. **Tier 5: Credential Assignments**: Identifies key-value assignments for `api_key`, `secret`, `password`, or `auth_token`.
+6. **Tier 6: Email Addresses**: Matches standard RFC email address patterns.
+7. **Tier 7: Public IPv4 Addresses**: Matches IPv4 addresses with context-aware exclusions for loopback (`127.0.0.0/8`), local broadcast (`255.0.0.0/8`), `0.0.0.0/8`, semantic versions (`v1.2.3.4`, `1.2.3.4-beta`), and package specifiers (`@1.2.3.4`).
+- **Custom Regex Patterns**: The redaction engine supports custom user regex patterns via the `customRedactionPatterns` settings option in `chrome.storage.sync` (managed programmatically via `ZeusSettingsStore.update({ customRedactionPatterns: [...] })`), which execute prior to the built-in tiers.
+- **Collision-Safe Indexing**: `ZeusRedactor` pre-scans incoming prompts for pre-existing lookalike tokens (`[[ZEUS_*_N]]` or `[ZEUS_*_N]`) using `findHighestExistingIndices()` and starts replacement counters strictly above existing numbers, guaranteeing user-authored tokens are never clobbered or mismatched during hydration.
+
+**Placeholder Format**: Ephemeral placeholders use uppercase bracketed syntax:
+`[[ZEUS_SECRET_1]]`, `[[ZEUS_SECRET_2]]`, `[[ZEUS_EMAIL_1]]`, `[[ZEUS_IPV4_1]]`.
+
+**Tolerant Rehydration**: When restoring text, Zeus uses exact literal replacement (`split().join()`) to avoid regex replacement token corruption (`$$`, `$&`), with fallback regex handling case drift (`[zeus_secret_1]`), markdown formatting (`\[ZEUS_SECRET_1\]`), or added whitespace. If a model drops a placeholder, a warning is emitted and logged.
+
+---
+
+### Copilot Sensitive-Data Auto-Pause and Recovery
+
+- **Instant Abort**: When sensitive data is detected in the input, Copilot immediately terminates active streaming connections and removes ghost text.
+- **Defense-in-Depth Guard**: In `messaging/messageHandler.js`, the service worker inspects `msg.text` on `copilot:start`. If sensitive content is present, the connection is rejected with `{ type: 'paused', reason: 'sensitive_data' }` and disconnected.
+- **Visual Alert**: An amber `.zeus-copilot-paused` indicator appears directly below the active input: `Copilot paused (sensitive data)`.
+- **Automatic Recovery**: As soon as the user removes or redacts the sensitive token, Copilot automatically clears the pause state, dismisses the warning indicator, and resumes completions on subsequent keystrokes.
+
+---
+
+### SafeDOM Protection and Scheme Neutralization
+
+All HTML rendering across extension pages uses `core/safeDom.js`:
+
+- Unsafe protocols (`javascript:`, `data:`, `vbscript:`, `file:`) in markdown links are rejected.
+- Sanitized links force `target="_blank"` and `rel="noopener noreferrer"`.
+- Container elements are cleared exclusively via `replaceChildren()`.
+
+---
+
+### Storage Sync Guard
+
+The `installStorageSyncGuard()` method wraps `chrome.storage.sync.set()` to inspect incoming keys. Any attempt to store sensitive credentials (`apiKeys`, `/api[_-]?key/i`, or OpenRouter keys in provider configs) into sync storage immediately throws:
+`Error: Security Violation: API keys cannot be stored in chrome.storage.sync.`
+
+---
+
+## Runtime Message API and Long-Lived Ports
+
+### Standard Message Handlers
+
+Runtime messages are processed by `messaging/messageHandler.js`:
+
+| Action | Sender | Parameters | Response Payload | Description |
+|---|---|---|---|---|
+| `ping` | Any | None | `{ status: 'pong' }` | Verifies service worker responsiveness. |
+| `getSettings` | Renderer | None | `{ settings: publicSettings }` | Returns public settings with masked API key flags (`hasApiKey`). |
+| `enhancePrompt` | Renderer | `{ prompt, options }` | `{ success: true, enhancedText, warnings, meta }` | Executes privileged prompt optimization with routing, retries, and defense-in-depth scrubbing. |
+| `settingsUpdated` | Options/Popup | `{ settings }` | `{ success: true }` | Broadcasts sanitized settings updates to active browser tabs. |
+| `forceInject` | Popup/Options | None | `{ success: boolean, message?: string }` | Dynamically executes content script files on the active tab via `chrome.scripting.executeScript`. |
+| `getTelemetrySummary`| Options/Popup | None | `{ summary: { totalEvents, byProvider, byReason, recent } }` | Retrieves diagnostic telemetry summary metrics. |
+| `clearTelemetry` | Options | None | `{ success: true }` | Clears stored telemetry events from `chrome.storage.local`. |
+| `sidePanel:getCurrentInput` | Side Panel | None | `{ value: string, url?: string, site?: string }` | Captures active prompt text from the active tab's chat composer. |
+| `sidePanel:setInputValue` | Side Panel | `{ value: string }` | `{ success: boolean }` | Injects text directly into the active tab's chat composer input. |
+| `sidePanel:getHistory` | Side Panel | None | `{ history: Array<HistoryEntry> }` | Retrieves session prompt history (capped at 100 entries in `storage.local`). |
+| `sidePanel:saveHistory` | Side Panel | `{ entry: HistoryEntry }` | `{ success: boolean }` | Appends a scrubbed prompt entry to history in `storage.local`. |
+| `sidePanel:getTemplates` | Side Panel | None | `{ templates: Array<TemplateEntry> }` | Retrieves saved prompt templates from `storage.sync`. |
+| `sidePanel:saveTemplates`| Side Panel | `{ templates }` | `{ success: boolean, error?: string }` | Persists validated prompt templates to `storage.sync`. |
+| `contextEnhancePrompt` | Background | None | `{ status: 'enhanced' \| 'failed' \| 'no-input' }` | Sent by background to active tab on context menu click to trigger enhancement of focused input. |
+| `forceInjectButton` | Background | None | `{ status: 'injected' }` | Sent by background to active tab after script injection to mount or refresh the reticle button. |
+| `commands:debugToast` | Background | `{ text }` | `{ success: true }` | Sent by background to active tab to display HUD toast confirming keyboard command execution. |
+
+---
 
 ### Long-Lived Connection Ports
 
-- Port Name: `'copilot-stream'`
-  - Used by content script to connect to the background service worker.
-  - Action `'copilot:start'` with `text`, `cursorPos`, and `settings` initializes streaming.
-  - Streams completion chunks back using `{type: 'chunk', text: delta}` and terminates with `{type: 'done'}` or `{type: 'error'}`.
-  - Heartbeat `{type: 'ping'}` sent every 15 seconds to prevent background service worker idle timeouts.
+1. **`'copilot-stream'`**:
+   - Used by `core/copilot.js` to establish streaming prompt completions.
+   - **Client to Background**:
+     - `{ type: 'copilot:start', text, cursorPos, settings }`: Initiates completion stream.
+     - `{ type: 'copilot:abort' }` or `{ type: 'abort' }`: Aborts active stream.
+   - **Background to Client**:
+     - `{ type: 'chunk', text }`: Emits an incremental completion token.
+     - `{ type: 'paused', reason: 'sensitive_data' }`: Alerts client of sensitive token detection.
+     - `{ type: 'done' }`: Signals completion of stream.
+     - `{ type: 'error', message }`: Communicates streaming failure.
+     - `{ type: 'ping' }`: Sent every 15 seconds to keep the background service worker alive.
+2. **`'zeus-sidepanel'`**:
+   - Maintained by `sidepanel.js` while the workbench is open.
+   - Used by the service worker to track workbench state and post `{ type: 'close' }` when the `open-side-panel` toggle command is executed.
 
-## Telemetry
+---
 
-Fallback telemetry is implemented in `core/telemetry.js`.
+## Telemetry and Latency Monitoring
 
-- Storage location: `chrome.storage.local`
-- Storage key: `zeus_fallback_telemetry`
-- Event cap: last 250 events
-- Main fallback categories:
-  - `provider-fallback`
-  - `auto-route-fallback`
+Diagnostic metrics are managed in `core/telemetry.js`:
 
-Use runtime actions `getTelemetrySummary` and `clearTelemetry` for inspection/reset.
+- **Storage Location**: `chrome.storage.local`.
+- **Storage Keys**:
+  - `zeus_fallback_telemetry`: FIFO sliding window containing up to **250 events**.
+  - `zeus_last_latency`: Duration in milliseconds of the most recent enhancement transaction.
+- **Privacy Sanitization**: Before telemetry events are persisted, sensitive attributes (`secretMap`, `mappings`, `apiKeys`, `apiKey`, `prompt`, `rawPrompt`, `enhancedPrompt`) are completely deleted.
+- **Event Categories**:
+  - `auto-route-fallback`: Triggered when smart auto-routing cascades across candidate providers.
+  - `provider-candidate-error`: Recorded when an individual provider endpoint rejects a request.
+  - `provider-fallback`: Triggered when model fallbacks occur within a single provider.
 
-## Security and Permissions
+---
 
-### Extension permissions
+## Testing, Scripts, CI/CD, and Verification
 
-- `activeTab`
-- `scripting`
-- `storage`
-- `contextMenus`
+### NPM Scripts Matrix
 
-### Security posture
+The repository defines the following scripts in `package.json`:
 
-- Least-privilege host permissions, scoped to supported chat domains plus explicitly declared external endpoints (OpenRouter and local Ollama runtime).
-- Settings normalization before persistence.
-- Error handling that avoids leaking sensitive details in user-facing messages.
-- Non-intrusive UI injection approach that avoids replacing host DOM nodes.
+```bash
+# Full test pipeline: syntax validation + vitest suites + smoke test
+npm test
+
+# Run unit tests only
+npm run test:unit
+
+# Run integration tests only
+npm run test:integration
+
+# Run provider mock tests only
+npm run test:providers
+
+# Run JSDOM DOM manipulation tests only
+npm run test:dom
+
+# Run smoke test for storage migration & messaging in Node
+npm run test:smoke
+
+# Validate JavaScript syntax across all source files via node --check
+npm run test:syntax
+
+# Run test suite with V8 code coverage analysis
+npm run test:coverage
+
+# Run Vitest in interactive watch mode
+npm run test:watch
+
+# Rebuild dist/extension from runtime allowlist
+npm run build
+
+# Package dist/extension into dist/extension.zip
+npm run zip
+
+# Clean build and package release zip bundle
+npm run package
+
+# Remove build directory
+npm run clean
+```
+
+---
+
+### Test Suites and Categories
+
+1. **Unit Tests (`tests/unit/`)**:
+   - `tests/unit/redactor.test.js`: Validates 7-tier regex scrubbing, custom patterns, collision avoidance, and tolerant hydration.
+   - `tests/unit/settings.test.js`: Validates schema normalization, split storage, sync guard, and migration.
+   - `tests/unit/prompt-client-engine.test.js`: Validates client scrubbing, IPC dispatch, defense-in-depth, and rehydration.
+   - `tests/unit/router.test.js`: Validates intent classification and candidate route generation.
+   - `tests/unit/ollama-origin.test.js`: Validates origin construction and command generators.
+   - `tests/unit/provider-utils.test.js`: Validates token limit calculations and error classifiers.
+2. **Integration Tests (`tests/integration/`)**:
+   - `tests/integration/dispatch-redaction.test.js`: Verifies that plaintext credentials never cross IPC boundaries during end-to-end enhancement.
+   - `tests/integration/router-provider.test.js`: Verifies auto-mode cascades and fallback handling across providers.
+   - `tests/integration/e2e-security-packaging.test.js`: Verifies file allowlists, build packaging, and SafeDOM container clearing.
+3. **Provider Tests (`tests/providers/`)**:
+   - Mocks network responses and verifies streaming decoders, retry policies, and error handling for `claude`, `gemini`, `openai`, `openrouter`, and `ollama`.
+   - `tests/providers/provider-transport.test.js`: Validates pre-first-byte retry behavior and streaming decoders.
+   - `tests/providers/claude-provider.test.js`: Validates Anthropic Claude Messages API integration.
+   - `tests/providers/gemini-provider.test.js`: Validates Google Gemini generateContent API integration.
+   - `tests/providers/openai-provider.test.js`: Validates OpenAI Chat Completions API integration.
+   - `tests/providers/openrouter-provider.test.js`: Validates OpenRouter API integration.
+   - `tests/providers/ollama-provider.test.js`: Validates Ollama local runtime integration.
+4. **DOM Tests (`tests/dom/`)**:
+   - `tests/dom/content-dom.test.js`: Validates input detection, reticle button mounting, and text insertion.
+   - `tests/dom/copilot-redaction.test.js`: Validates ghost text overlays, sensitive data pausing, and tab acceptance.
+   - `tests/dom/safe-dom-csp.test.js`: Validates Myers diffing, URL sanitization, and protocol neutralization.
+5. **Smoke Tests (`tests/smoke/`)**:
+   - `tests/smoke/settings-and-messaging.smoke.mjs`: Standalone Node.js script verifying storage migration and message routing without external runners.
+
+---
+
+### Release Scripts (scripts/)
+
+- **`scripts/build-extension.js`**: Cleans `dist/extension` and copies runtime files using an explicit allowlist. Blocks tests, `.env*`, and source maps.
+- **`scripts/check-syntax.js`**: Iterates through all `.js` and `.mjs` files using `node --check` to catch syntax errors before test execution.
+- **`scripts/zip-extension.js`**: Packages `dist/extension` into a high-compression `dist/extension.zip` using `archiver`.
+
+---
+
+### Packaged Browser CDP Verification Harness
+
+To verify production readiness in real browser runtimes, `scripts/verify-browser-packaged.mjs` provides an automated harness:
+
+- Spawns Google Chrome in isolated headless mode with a dedicated temporary profile.
+- Connects via Chrome DevTools Protocol (CDP) WebSocket.
+- Hosts packaged `dist/extension` assets over a local HTTP server applying the exact declared Manifest CSP.
+- Injects a synthetic extension runtime environment and evaluates `popup.html`, `options.html`, and `sidepanel.html`.
+- Monitors `securitypolicyviolation` events, verifies DOM element mounting, and ensures web fonts load without CSP violations.
+
+Run verification manually:
+```bash
+npm run build
+node scripts/verify-browser-packaged.mjs
+```
+
+---
+
+### CI/CD Pipeline Workflow
+
+The GitHub Actions workflow in `.github/workflows/test.yml` executes on every push to any branch (`**`), pull request, and release tag (`v*`):
+
+1. **Checkout & Environment**: Checks out the code and sets up Node.js 18 with npm cache.
+2. **Dependency Installation**: Runs `npm ci` for clean dependency installation.
+3. **Automated Testing**: Runs `npm run test` (syntax validation, full Vitest suite, and smoke test).
+4. **Syntax Check**: Runs `npm run test:syntax`.
+5. **Extension Build**: Executes `npm run build` to verify clean output generation.
+6. **Release Packaging**: When tagged with `v*`, executes `npm run zip` and uploads `dist/extension.zip` as a release artifact.
+
+---
+
+## Git Ignore Policy
+
+The `.gitignore` policy strictly prohibits committing build outputs, local dependencies, and secrets:
+
+- **Build & Distribution**: `dist/`, `*.zip`.
+- **Dependencies**: `node_modules/`.
+- **Test & Coverage Outputs**: `coverage/`, `.vitest/`, `.nyc_output/`.
+- **Environment & Secrets**: `.env`, `.env.*`, `*.local` (except `.env.example`).
+- **Logs**: `*.log`, `npm-debug.log*`, `yarn-debug.log*`.
+- **Operating System & Editor Files**: `.DS_Store`, `Thumbs.db`, `.idea/`, `.vscode/*` (except `.vscode/extensions.json`).
+
+---
 
 ## Troubleshooting
 
-### Enhance button does not appear
+### Ollama Setup and Scoped CORS Configuration
 
-- Confirm URL is in supported hosts.
-- Reload the tab after changing settings.
-- Trigger reinjection using runtime `forceInject` flow if needed.
+Ollama enforces Cross-Origin Resource Sharing (CORS) security. Because Zeus runs as a Chrome extension, browser requests originate from `chrome-extension://<EXTENSION_ID>`.
 
-### Provider errors
+To allow Zeus to communicate with your local Ollama daemon, launch Ollama with your specific extension origin:
 
-- Verify API key and selected model.
-- Check quota and rate limits for selected provider.
-- Switch model/provider or use Auto mode.
+#### Finding Your Extension ID
+Navigate to `chrome://extensions` in Google Chrome and locate the **ID** string under **ZEUS — Prompt Enhancement System** (e.g., `abcdefghijklmnopqrstuvwxyz123456`).
 
-### Ollama errors
+> [!TIP]
+> You do not need to construct these commands manually. Open the Zeus Options page (`options.html`) and select **Ollama (Local)**. Zeus automatically detects `chrome.runtime.id`, populates your scoped origin (`chrome-extension://<id>`), and provides 1-click **Copy Origin** and **Copy Command** buttons tailored to each platform.
 
-- Ensure Ollama is running on `localhost:11434`.
-- If the origin is blocked by Ollama's CORS policy, start Ollama with your scoped Chrome extension origin (`chrome-extension://<YOUR_EXTENSION_ID>`):
-  - **macOS / Linux**: `OLLAMA_ORIGINS="chrome-extension://<YOUR_EXTENSION_ID>" ollama serve`
-  - **macOS Ollama Desktop**: `launchctl setenv OLLAMA_ORIGINS "chrome-extension://<YOUR_EXTENSION_ID>"`
-  - **Windows PowerShell**: `$env:OLLAMA_ORIGINS="chrome-extension://<YOUR_EXTENSION_ID>"; ollama serve`
-  - **Windows Command Prompt**: `set OLLAMA_ORIGINS=chrome-extension://<YOUR_EXTENSION_ID> && ollama serve`
-- Never use wildcard origins ('*') as wildcards expose your local Ollama daemon to arbitrary web pages.
+#### Windows (PowerShell)
+```powershell
+$env:OLLAMA_ORIGINS="chrome-extension://<YOUR_EXTENSION_ID>"; ollama serve
+```
+
+#### Windows (Command Prompt / CMD)
+```cmd
+set OLLAMA_ORIGINS=chrome-extension://<YOUR_EXTENSION_ID> && ollama serve
+```
+
+#### macOS and Linux (Terminal CLI)
+```bash
+OLLAMA_ORIGINS="chrome-extension://<YOUR_EXTENSION_ID>" ollama serve
+```
+
+#### macOS (Ollama Desktop GUI App)
+If you run the Ollama Desktop status bar application on macOS, set the environment variable through `launchctl` and restart the Ollama app:
+```bash
+launchctl setenv OLLAMA_ORIGINS "chrome-extension://<YOUR_EXTENSION_ID>"
+```
+
+> [!WARNING]
+> Never set wildcard origins (`*`). Wildcards expose your local Ollama daemon to arbitrary web pages visited in your browser, creating a significant security vulnerability. Always scope `OLLAMA_ORIGINS` to your exact Chrome extension ID.
+
+---
+
+### Enhance Button and Reticle Not Appearing
+
+- **Verify Supported Host**: Ensure the current website URL matches one of the declared patterns in `manifest.json`.
+- **DOM Container Loading**: On dynamic SPAs, wait for the chat input to fully render.
+- **Manual Reinjection**: Open the Zeus extension popup and click the settings button, or dispatch `forceInject` from the developer console.
+- **Reload Tab**: If permissions were recently granted, reload the tab to initialize content scripts.
+
+---
+
+### Copilot Paused on Sensitive Data
+
+If Copilot stops providing inline suggestions and displays the amber `Copilot paused (sensitive data)` banner:
+
+- **Cause**: Zeus detected a pattern resembling an API key, private key, database URI, email address, or sensitive token in the active input.
+- **Resolution**: Delete or edit the sensitive characters out of the input field. Copilot will automatically clear the pause state and resume ghost text suggestions on your next keystroke.
+
+---
+
+### Dropped-Placeholder Warnings
+
+If a warning reads `WARNING: SENSITIVE PLACEHOLDER OMITTED BY AI`:
+
+- **Cause**: An upstream AI model rewrote the prompt so aggressively that it dropped or altered a placeholder tag (e.g., `[[ZEUS_SECRET_1]]`).
+- **Mitigation**: Zeus automatically attempts tolerant regex recovery. If the token cannot be located, Zeus alerts you with a warning toast so you can verify that required parameters were not omitted.
+
+---
+
+### Provider API Errors and Quota Limits
+
+- **401 Unauthorized**: Invalid API key. Re-enter your provider API key in the Zeus popup or options page and click **EXECUTE CONFIG**.
+- **429 Too Many Requests / Quota Exceeded**: You have reached the rate limit or credit ceiling for the selected model. Zeus will automatically attempt fallback models if configured. Alternatively, select **Auto** mode to cascade to an alternate provider.
+- **Connection Refused (`http://localhost:11434`)**: Verify that your Ollama daemon is running (`ollama serve`) and reachable.
+
+---
 
 ## Contributing
 
-For the full contribution workflow, development expectations, and PR process, see `CONTRIBUTING.md`.
+We welcome contributions! Please review [CONTRIBUTING.md](CONTRIBUTING.md) for full development workflows, branch naming conventions, and pull request guidelines.
 
-Guidelines for safe extensions to this codebase:
+### Core Guidelines
+- Maintain `model-registry.js` as the sole source of truth for provider and model definitions.
+- Maintain `settings/settingsStore.js` as the sole authority for schema definitions and storage partitioning.
+- Ensure all DOM manipulation passes through `core/safeDom.js`.
+- Always run `npm test` and `npm run test:syntax` before submitting changes.
 
-- Keep model metadata in `model-registry.js` only.
-- Keep settings logic in `settings/settings.js` only.
-- Keep provider modules focused on transport/protocol behavior.
-- Keep adapter selectors site-specific.
-- Preserve Manifest V3 compatibility and low-permission design.
-- Add/update tests for all behavior changes.
+---
 
 ## License
 
-ISC
+This project is licensed under the **ISC License**. See the [LICENSE](LICENSE) file for details.
