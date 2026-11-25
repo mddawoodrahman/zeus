@@ -129,6 +129,40 @@ describe('Ticket 04: MV3 Process-Split Prompt Architecture (PromptClient & Promp
 
       await expect(globalThis.ZeusPromptClient.enhance('Test prompt')).rejects.toThrow('Provider network timeout');
     });
+
+    it('propagates structured error metadata (code, category, provider, retryable, errorDetail) from IPC failures', async () => {
+      const detail = {
+        code: 'AUTH_FAILED',
+        category: 'AUTHENTICATION_ERROR',
+        provider: 'gemini',
+        model: 'gemini-flash-latest',
+        status: 401,
+        retryable: false,
+        userMessage: 'Invalid Gemini API key. Please verify your key in Zeus settings.'
+      };
+      chromeMock.runtime.sendMessage = (_msg, callback) => {
+        callback({
+          success: false,
+          error: detail.userMessage,
+          errorDetail: detail
+        });
+      };
+
+      let caught = null;
+      try {
+        await globalThis.ZeusPromptClient.enhance('Optimize this prompt');
+      } catch (err) {
+        caught = err;
+      }
+
+      expect(caught).toBeInstanceOf(Error);
+      expect(caught.message).toBe(detail.userMessage);
+      expect(caught.code).toBe('AUTH_FAILED');
+      expect(caught.category).toBe('AUTHENTICATION_ERROR');
+      expect(caught.provider).toBe('gemini');
+      expect(caught.retryable).toBe(false);
+      expect(caught.errorDetail).toEqual(detail);
+    });
   });
 
   describe('2. PromptEngine (Privileged Background Service Worker)', () => {
@@ -294,6 +328,168 @@ describe('Ticket 04: MV3 Process-Split Prompt Architecture (PromptClient & Promp
       } finally {
         globalThis.fetch = origFetch;
       }
+    });
+
+    it('pre-checks missing API key in direct cloud modes and throws ProviderConfigError(NOT_CONFIGURED) without calling providers', async () => {
+      loadScript('core/errors.js');
+      loadScript('core/promptEngine.js');
+
+      for (const provider of ['gemini', 'openai', 'claude', 'openrouter']) {
+        globalThis.ZeusProviders[provider] = vi.fn().mockResolvedValue('should-not-run');
+        globalThis.ZeusSettings.loadSettings = vi.fn().mockResolvedValue({
+          provider,
+          apiKeys: { gemini: '', openai: '', claude: '', openrouter: '' },
+          models: { [provider]: 'some-model' },
+          ollama: { host: 'http://localhost:11434', model: '' }
+        });
+
+        let caught = null;
+        try {
+          await globalThis.ZeusPromptEngine.execute('Enhance this');
+        } catch (err) {
+          caught = err;
+        }
+
+        expect(caught).toBeInstanceOf(globalThis.ZeusErrors.ProviderConfigError);
+        expect(caught.code).toBe('NOT_CONFIGURED');
+        expect(caught.provider).toBe(provider);
+        expect(caught.errorDetail?.code).toBe('NOT_CONFIGURED');
+        expect(globalThis.ZeusProviders[provider]).not.toHaveBeenCalled();
+      }
+    });
+
+    it('pre-checks missing Ollama model and throws ProviderConfigError(NOT_CONFIGURED) without calling Ollama', async () => {
+      loadScript('core/errors.js');
+      loadScript('core/promptEngine.js');
+
+      globalThis.ZeusProviders.ollama = vi.fn().mockResolvedValue('should-not-run');
+      globalThis.ZeusSettings.loadSettings = vi.fn().mockResolvedValue({
+        provider: 'ollama',
+        apiKeys: {},
+        models: {},
+        ollama: { host: 'http://localhost:11434', model: '' }
+      });
+
+      let caught = null;
+      try {
+        await globalThis.ZeusPromptEngine.execute('Enhance locally');
+      } catch (err) {
+        caught = err;
+      }
+
+      expect(caught).toBeInstanceOf(globalThis.ZeusErrors.ProviderConfigError);
+      expect(caught.code).toBe('NOT_CONFIGURED');
+      expect(caught.provider).toBe('ollama');
+      expect(globalThis.ZeusProviders.ollama).not.toHaveBeenCalled();
+    });
+
+    it('gates unconfigured auto mode before network calls and records skippedProviders when falling back', async () => {
+      loadScript('core/errors.js');
+      loadScript('core/promptEngine.js');
+
+      globalThis.ZeusProviders.openrouter = vi.fn().mockResolvedValue('Recovered via OpenRouter');
+      globalThis.ZeusProviders.ollama = vi.fn().mockResolvedValue('Recovered via Ollama');
+
+      // 1. Zero configured backends -> immediate NOT_CONFIGURED
+      globalThis.ZeusSettings.loadSettings = vi.fn().mockResolvedValue({
+        provider: 'auto',
+        apiKeys: { gemini: '', openai: '', claude: '', openrouter: '' },
+        models: {},
+        ollama: { host: 'http://localhost:11434', model: '' }
+      });
+
+      let caught = null;
+      try {
+        await globalThis.ZeusPromptEngine.execute('debug this python function');
+      } catch (err) {
+        caught = err;
+      }
+
+      expect(caught).toBeInstanceOf(globalThis.ZeusErrors.ProviderConfigError);
+      expect(caught.code).toBe('NOT_CONFIGURED');
+      expect(caught.provider).toBe('auto');
+      expect(caught.details?.skippedProviders).toEqual(
+        expect.arrayContaining(['openai', 'claude', 'gemini', 'openrouter', 'ollama'])
+      );
+      expect(globalThis.ZeusProviders.openai).not.toHaveBeenCalled();
+      expect(globalThis.ZeusProviders.gemini).not.toHaveBeenCalled();
+
+      // 2. Only OpenRouter configured -> skips unconfigured providers cleanly and tracks skippedProviders
+      globalThis.ZeusSettings.loadSettings = vi.fn().mockResolvedValue({
+        provider: 'auto',
+        apiKeys: { gemini: '', openai: '', claude: '', openrouter: 'or-key-only' },
+        models: { openrouter: 'openai/gpt-5.4' },
+        ollama: { host: 'http://localhost:11434', model: '' }
+      });
+
+      const res = await globalThis.ZeusPromptEngine.execute('debug this python function');
+      expect(res.enhancedText).toBe('Recovered via OpenRouter');
+      expect(res.meta.provider).toBe('openrouter');
+      expect(res.meta.skippedProviders).toEqual(['openai', 'claude', 'gemini']);
+    });
+
+    it('attaches normalized error metadata (code, category, provider, retryable, errorDetail) on HTTP errors', async () => {
+      loadScript('core/errors.js');
+      loadScript('core/promptEngine.js');
+
+      globalThis.ZeusSettings.loadSettings = vi.fn().mockResolvedValue({
+        provider: 'claude',
+        apiKeys: { claude: 'sk-ant-invalid-secret' },
+        models: { claude: 'claude-sonnet-4.6' }
+      });
+
+      globalThis.ZeusProviders.claude.mockRejectedValueOnce(
+        new globalThis.ZeusErrors.ProviderHttpError('claude', 401, { error: { message: 'Invalid x-api-key sk-ant-invalid-secret' } }, 'claude-sonnet-4.6')
+      );
+
+      let caught = null;
+      try {
+        await globalThis.ZeusPromptEngine.execute('Improve this specification');
+      } catch (err) {
+        caught = err;
+      }
+
+      expect(caught.code).toBe('AUTH_FAILED');
+      expect(caught.category).toBe('AUTHENTICATION_ERROR');
+      expect(caught.provider).toBe('claude');
+      expect(caught.retryable).toBe(false);
+      expect(caught.errorDetail?.userMessage).not.toContain('sk-ant-invalid-secret');
+    });
+
+    it('records all failing candidate attempts in fallbackAttempts when auto mode exhausts >= 2 configured providers', async () => {
+      loadScript('core/errors.js');
+      loadScript('core/promptEngine.js');
+
+      globalThis.ZeusSettings.loadSettings = vi.fn().mockResolvedValue({
+        provider: 'auto',
+        apiKeys: { openai: 'oa-key', claude: 'cl-key', gemini: 'gem-key', openrouter: '' },
+        models: { openai: 'gpt-5.3-codex', claude: 'claude-sonnet-4.6', gemini: 'gemini-flash-latest' },
+        ollama: { host: 'http://localhost:11434', model: '' }
+      });
+
+      globalThis.ZeusProviders.openai = vi.fn().mockRejectedValue(
+        new globalThis.ZeusErrors.ProviderHttpError('openai', 503, { error: { message: 'OpenAI overloaded' } }, 'gpt-5.3-codex')
+      );
+      globalThis.ZeusProviders.claude = vi.fn().mockRejectedValue(
+        new globalThis.ZeusErrors.ProviderHttpError('claude', 429, { error: { message: 'Claude rate limited' } }, 'claude-sonnet-4.6')
+      );
+      globalThis.ZeusProviders.gemini = vi.fn().mockRejectedValue(
+        new globalThis.ZeusErrors.ProviderHttpError('gemini', 401, { error: { message: 'Gemini invalid key' } }, 'gemini-flash-latest')
+      );
+
+      let caught = null;
+      try {
+        await globalThis.ZeusPromptEngine.execute('debug this python function');
+      } catch (err) {
+        caught = err;
+      }
+
+      expect(caught).not.toBeNull();
+      expect(caught.code).toBe('AUTH_FAILED');
+      expect(Array.isArray(caught.fallbackAttempts)).toBe(true);
+      expect(caught.fallbackAttempts.some((item) => item.startsWith('openai:'))).toBe(true);
+      expect(caught.fallbackAttempts.some((item) => item.startsWith('claude:'))).toBe(true);
+      expect(caught.fallbackAttempts.some((item) => item.startsWith('gemini:'))).toBe(true);
     });
   });
 

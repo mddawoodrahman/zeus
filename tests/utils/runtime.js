@@ -17,6 +17,8 @@ const ZEUS_GLOBAL_KEYS = [
   'ZeusProviderTransport',
   'ZeusProviders',
   'ZeusRouter',
+  'ZeusPromptEngine',
+  'ZeusProviderDiagnostics',
   'ZeusTelemetry',
   'ZeusEditorBridge',
   'ZeusPromptClient',

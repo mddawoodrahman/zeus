@@ -1,5 +1,6 @@
 import path from 'node:path';
 import fs from 'node:fs';
+import vm from 'node:vm';
 import { pathToFileURL } from 'node:url';
 
 const rootDir = process.cwd();
@@ -469,8 +470,288 @@ async function runMessageActionSmoke() {
   assert(telemetryCleared, 'Expected telemetry clear hook to be invoked.');
 }
 
+async function runDiagnosticsAndLiveSyncSmoke() {
+  const savedChrome = globalThis.chrome;
+  const savedFetch = globalThis.fetch;
+  const savedRouter = globalThis.ZeusRouter;
+  const savedErrors = globalThis.ZeusErrors;
+  const savedTelemetry = globalThis.ZeusTelemetry;
+  const savedOllamaMeta = globalThis.ZeusOllamaMeta;
+
+  try {
+    const syncStore = {
+      schemaVersion: 3,
+      provider: 'gemini',
+      sidePanelEnabled: true,
+      models: {
+        gemini: 'gemini-flash-latest',
+        openai: 'gpt-5.4-mini',
+        claude: 'claude-sonnet-4.6',
+        openrouter: 'openai/gpt-5.4'
+      },
+      ollama: { host: 'http://localhost:11434', model: '' }
+    };
+    const localStore = {
+      apiKeys: { gemini: '', openai: '', claude: '', openrouter: '' }
+    };
+
+    const listeners = {
+      onInstalled: [],
+      onMessage: [],
+      onContextMenuClicked: [],
+      onCommand: [],
+      storageOnChanged: []
+    };
+    const calls = {
+      runtimeSendMessage: [],
+      tabsSendMessage: [],
+      sidePanelSetPanelBehavior: []
+    };
+
+    const safeClone = (value) => (value === undefined ? undefined : clone(value));
+    const emitStorage = (changes, areaName) => {
+      if (!Object.keys(changes).length) return;
+      for (const fn of listeners.storageOnChanged) {
+        fn(safeClone(changes), areaName);
+      }
+    };
+
+    const makeArea = (store, areaName) => ({
+      get(keys, cb) {
+        let res;
+        if (!keys) res = safeClone(store);
+        else if (Array.isArray(keys)) {
+          res = {};
+          for (const k of keys) res[k] = safeClone(store[k]);
+        } else if (typeof keys === 'string') {
+          res = { [keys]: safeClone(store[keys]) };
+        } else {
+          res = {};
+          for (const k of Object.keys(keys)) res[k] = store[k] !== undefined ? safeClone(store[k]) : safeClone(keys[k]);
+        }
+        if (typeof cb === 'function') {
+          cb(res);
+          return;
+        }
+        return Promise.resolve(res);
+      },
+      set(payload, cb) {
+        const changes = {};
+        for (const [k, v] of Object.entries(payload || {})) {
+          changes[k] = { oldValue: safeClone(store[k]), newValue: safeClone(v) };
+        }
+        Object.assign(store, safeClone(payload || {}));
+        emitStorage(changes, areaName);
+        if (typeof cb === 'function') {
+          cb();
+          return;
+        }
+        return Promise.resolve();
+      },
+      remove(keys, cb) {
+        const list = Array.isArray(keys) ? keys : [keys];
+        const changes = {};
+        for (const k of list) {
+          if (k in store) {
+            changes[k] = { oldValue: safeClone(store[k]), newValue: undefined };
+            delete store[k];
+          }
+        }
+        emitStorage(changes, areaName);
+        if (typeof cb === 'function') {
+          cb();
+          return;
+        }
+        return Promise.resolve();
+      }
+    });
+
+    const chromeMock = {
+      runtime: {
+        id: 'smoke-ext-id',
+        lastError: null,
+        getManifest: () => JSON.parse(fs.readFileSync(path.join(rootDir, 'manifest.json'), 'utf8')),
+        onInstalled: { addListener: (fn) => listeners.onInstalled.push(fn) },
+        onMessage: { addListener: (fn) => listeners.onMessage.push(fn) },
+        sendMessage(message, cb) {
+          calls.runtimeSendMessage.push(clone(message));
+          if (typeof cb === 'function') {
+            const listener = listeners.onMessage[listeners.onMessage.length - 1];
+            if (listener) {
+              const handled = listener(message, {}, (res) => cb(res));
+              if (!handled) cb(undefined);
+            } else {
+              cb(undefined);
+            }
+          }
+          return Promise.resolve();
+        }
+      },
+      storage: {
+        sync: makeArea(syncStore, 'sync'),
+        local: makeArea(localStore, 'local'),
+        onChanged: { addListener: (fn) => listeners.storageOnChanged.push(fn) }
+      },
+      contextMenus: {
+        removeAll: (cb) => { if (cb) cb(); },
+        create: (_c, cb) => { if (cb) cb(); },
+        onClicked: { addListener: (fn) => listeners.onContextMenuClicked.push(fn) }
+      },
+      tabs: {
+        query: (_q, cb) => cb([{ id: 101, windowId: 1 }]),
+        sendMessage: (tabId, msg) => {
+          calls.tabsSendMessage.push({ tabId, message: clone(msg) });
+          return Promise.resolve({ ok: true });
+        }
+      },
+      commands: { onCommand: { addListener: (fn) => listeners.onCommand.push(fn) } },
+      sidePanel: {
+        open: () => Promise.resolve(),
+        close: () => Promise.resolve(),
+        setPanelBehavior: (opts) => {
+          calls.sidePanelSetPanelBehavior.push(opts);
+          return Promise.resolve();
+        }
+      }
+    };
+
+    globalThis.chrome = chromeMock;
+    globalThis.fetch = async (url, init) => {
+      if (String(url).includes('generativelanguage.googleapis.com/v1beta/models/')) {
+        assert(!String(url).includes('smoke-gem-key'), 'Gemini probe URL must never include API key.');
+        assert(init?.headers?.['x-goog-api-key'] === 'smoke-gem-key', 'Gemini probe must send x-goog-api-key header.');
+        return { ok: true, status: 200, headers: { get: () => 'application/json' }, json: async () => ({ name: 'models/gemini-flash-latest' }) };
+      }
+      if (String(url).endsWith('/api/version')) {
+        return { ok: true, status: 200, headers: { get: () => 'application/json' }, json: async () => ({ version: '0.6.4' }) };
+      }
+      if (String(url).endsWith('/api/ps')) {
+        return { ok: true, status: 200, headers: { get: () => 'application/json' }, json: async () => ({ models: [{ model: 'qwen3:8b' }] }) };
+      }
+      if (String(url).endsWith('/api/tags')) {
+        return { ok: true, status: 200, headers: { get: () => 'application/json' }, json: async () => ({ models: [{ name: 'qwen3:8b' }] }) };
+      }
+      return { ok: false, status: 404, headers: { get: () => 'application/json' }, json: async () => ({}) };
+    };
+
+    const vmGlobals = {
+      console,
+      setTimeout,
+      clearTimeout,
+      URL,
+      TextEncoder,
+      TextDecoder,
+      AbortController,
+      AbortSignal,
+      Error,
+      TypeError,
+      Promise,
+      JSON,
+      Object,
+      Array,
+      Map,
+      Set,
+      Math,
+      Date,
+      Number,
+      String,
+      Boolean,
+      RegExp,
+      chrome: chromeMock,
+      fetch: globalThis.fetch,
+      LOG_PREFIX: { info: '[ZEUS]', warn: '[ZEUS]', error: '[ZEUS]', success: '[ZEUS]' },
+      LOG_STYLE: { info: '', warn: '', error: '', success: '' }
+    };
+    vmGlobals.globalThis = vmGlobals;
+    const vmCtx = vm.createContext(vmGlobals);
+
+    const runInCtx = (rel) => {
+      const fullPath = path.resolve(rootDir, rel);
+      const code = fs.readFileSync(fullPath, 'utf8');
+      vm.runInContext(code, vmCtx, { filename: fullPath });
+    };
+
+    runInCtx('model-registry.js');
+    runInCtx(path.join('settings', 'settingsStore.js'));
+    runInCtx(path.join('core', 'retry.js'));
+    runInCtx(path.join('core', 'prompts.js'));
+    runInCtx(path.join('core', 'errors.js'));
+    runInCtx(path.join('core', 'telemetry.js'));
+    runInCtx(path.join('core', 'providerTransport.js'));
+    runInCtx(path.join('providers', 'utils.js'));
+    runInCtx(path.join('providers', 'gemini.js'));
+    runInCtx(path.join('providers', 'openai.js'));
+    runInCtx(path.join('providers', 'claude.js'));
+    runInCtx(path.join('providers', 'openrouter.js'));
+    runInCtx(path.join('providers', 'ollama.js'));
+    runInCtx(path.join('core', 'redactor.js'));
+    runInCtx(path.join('core', 'router.js'));
+    runInCtx(path.join('core', 'promptEngine.js'));
+    runInCtx(path.join('core', 'providerDiagnostics.js'));
+    runInCtx(path.join('core', 'promptClient.js'));
+    runInCtx(path.join('messaging', 'messageHandler.js'));
+
+    await new Promise((r) => setTimeout(r, 15));
+    const messageListener = listeners.onMessage[listeners.onMessage.length - 1];
+
+    // 1. Unconfigured readiness & PromptClient gate
+    const initialReadiness = await invokeMessage(messageListener, { action: 'getProviderReadiness' });
+    assert(initialReadiness?.success === true && initialReadiness.readiness.activeState === 'not_configured', 'Expected initial readiness to be not_configured.');
+
+    let clientNotConfiguredErr = null;
+    try {
+      await vmCtx.ZeusPromptClient.enhance('Test unconfigured prompt');
+    } catch (err) {
+      clientNotConfiguredErr = err;
+    }
+    assert(
+      clientNotConfiguredErr?.code === 'NOT_CONFIGURED',
+      `Expected PromptClient.enhance to throw NOT_CONFIGURED when unconfigured, got: ${clientNotConfiguredErr?.code} / ${clientNotConfiguredErr?.message}`
+    );
+
+    // 2. Live storage update triggers background settingsUpdated without apiKeys
+    calls.runtimeSendMessage.length = 0;
+    calls.tabsSendMessage.length = 0;
+    await vmCtx.ZeusSettingsStore.update({ apiKeys: { gemini: 'smoke-gem-key' }, sidePanelEnabled: false });
+    await new Promise((r) => setTimeout(r, 25));
+
+    const settingsUpdateEvent = calls.runtimeSendMessage.find((m) => m?.action === 'settingsUpdated' && m?.source === 'background');
+    assert(Boolean(settingsUpdateEvent), 'Expected background storage.onChanged listener to emit settingsUpdated.');
+    assert(settingsUpdateEvent.settings.apiKeys === undefined, 'Expected settingsUpdated broadcast to never include apiKeys.');
+    assert(settingsUpdateEvent.settings.hasApiKey?.gemini === true, 'Expected settingsUpdated broadcast to include hasApiKey.gemini=true.');
+    assert(settingsUpdateEvent.readiness?.activeState === 'configured_untested', 'Expected readiness to transition to configured_untested.');
+    assert(calls.sidePanelSetPanelBehavior.at(-1)?.openPanelOnActionClick === false, 'Expected sidePanelEnabled=false to sync via storage.onChanged.');
+
+    // 3. Sender guard and testConnection -> readinessUpdated -> verified
+    const untrustedTest = await invokeMessage(messageListener, { action: 'testConnection', provider: 'gemini' }, { tab: { id: 1 }, url: 'https://chatgpt.com/' });
+    assert(untrustedTest?.success === false, 'Expected untrusted tab sender to be rejected for testConnection.');
+
+    const verifiedTest = await invokeMessage(messageListener, { action: 'testConnection', provider: 'gemini' });
+    assert(verifiedTest?.success === true && verifiedTest.readiness?.activeState === 'verified', 'Expected testConnection to verify Gemini via header.');
+    assert(calls.runtimeSendMessage.some((m) => m?.action === 'readinessUpdated' && m?.readiness?.activeState === 'verified'), 'Expected readinessUpdated broadcast.');
+
+    // 4. discoverOllamaModels
+    const ollamaDisc = await invokeMessage(messageListener, { action: 'discoverOllamaModels' });
+    assert(ollamaDisc?.success === true && ollamaDisc.models?.includes('qwen3:8b'), 'Expected discoverOllamaModels to return local models.');
+
+    // 5. Removing key invalidates readiness back to not_configured
+    await vmCtx.ZeusSettingsStore.update({ apiKeys: { gemini: '' } });
+    await new Promise((r) => setTimeout(r, 25));
+    const clearedReadiness = await invokeMessage(messageListener, { action: 'getProviderReadiness' });
+    assert(clearedReadiness?.readiness?.activeState === 'not_configured', 'Expected cleared key to revert readiness to not_configured.');
+  } finally {
+    globalThis.chrome = savedChrome;
+    globalThis.fetch = savedFetch;
+    globalThis.ZeusRouter = savedRouter;
+    globalThis.ZeusErrors = savedErrors;
+    globalThis.ZeusTelemetry = savedTelemetry;
+    globalThis.ZeusOllamaMeta = savedOllamaMeta;
+  }
+}
+
 (async () => {
   await runSettingsMigrationSmoke();
   await runMessageActionSmoke();
-  console.log('Smoke tests passed: settings migration and message actions.');
+  await runDiagnosticsAndLiveSyncSmoke();
+  console.log('Smoke tests passed: settings migration, diagnostics, live sync, and message actions.');
 })();

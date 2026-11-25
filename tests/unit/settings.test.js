@@ -642,5 +642,26 @@ describe('ZeusSettings', () => {
       expect(store.normalizeSettings({ copilotMaxTokens: -5 }).copilotMaxTokens).toBe(60);
       expect(store.normalizeSettings({ copilotMaxTokens: 'not-a-number' }).copilotMaxTokens).toBe(60);
     });
+
+    it('rejects update() when local storage write fails without updating sync storage or cache', async () => {
+      const store = globalThis.ZeusSettingsStore;
+      await store.update({ provider: 'gemini', apiKeys: { gemini: 'initial-gem-key' } });
+
+      env.chrome.storage.local.set = vi.fn((_payload, callback) => {
+        env.chrome.runtime.lastError = new Error('Local storage write failed');
+        if (typeof callback === 'function') callback();
+      });
+
+      await expect(
+        store.update({ provider: 'openai', apiKeys: { openai: 'new-oa-key' } })
+      ).rejects.toThrow('Local storage write failed');
+
+      expect(env.syncStore.provider).toBe('gemini');
+      expect(env.localStore.apiKeys.gemini).toBe('initial-gem-key');
+      expect(env.localStore.apiKeys.openai).toBe('');
+      const current = await store.get();
+      expect(current.provider).toBe('gemini');
+      expect(current.apiKeys.openai).toBe('');
+    });
   });
 });
