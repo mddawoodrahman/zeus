@@ -10,18 +10,26 @@
 <body class="zeus-ui">
   <div class="zeus-popup">
     <div class="zeus-crt-overlay"></div>
-    
+
     <!-- Header -->
     <header class="popup-header">
       <div class="logo">
         <span class="logo-text">ZEUS</span>
         <span class="logo-version">v2.0</span>
       </div>
-      <div class="status-badge">
+      <div class="status-badge" id="popupReadinessBadge" data-state="not_configured" title="Active provider readiness">
         <span class="status-dot"></span>
-        <span class="status-text typing-cursor">SYSTEM ONLINE</span>
+        <span class="status-text" id="popupStatusText">Checking...</span>
       </div>
     </header>
+
+    <div id="syncNotice" class="sync-notice" role="status" aria-live="polite" hidden>
+      <span id="syncNoticeText">Settings updated externally.</span>
+      <div class="sync-notice-actions">
+        <button type="button" class="zeus-btn zeus-btn-cyan zeus-btn-xs" id="syncReloadBtn">Reload All</button>
+        <button type="button" class="zeus-btn zeus-btn-ghost zeus-btn-xs" id="syncDismissBtn">Dismiss</button>
+      </div>
+    </div>
 
     <main class="main-content">
       <!-- Provider Selection -->
@@ -37,13 +45,18 @@
           <option value="auto">Auto (Smart Routing)</option>
         </select>
         <p id="provider-help-text" class="helper-text"></p>
+        <div class="readiness-row" id="activeReadinessRow">
+          <span class="readiness-pill" id="activeReadinessPill" data-state="not_configured">Not configured</span>
+          <button type="button" class="zeus-btn zeus-btn-cyan zeus-btn-compact" id="testActiveConnectionBtn">Test Connection</button>
+        </div>
+        <p id="activeReadinessDetail" class="helper-text readiness-detail" hidden></p>
       </section>
 
       <!-- Model Selection (conditional) -->
       <section class="zeus-terminal-card" data-variant="yellow" id="model-selection">
         <div class="card-accent"></div>
         <label class="zeus-label">/// LOADOUT MODEL</label>
-        
+
         <div class="model-picker" id="modelPicker">
           <button
             id="modelPickerTrigger"
@@ -91,49 +104,104 @@
       <section class="zeus-terminal-card" data-variant="red" id="key-section">
         <div class="card-accent"></div>
         <label class="zeus-label">/// ACCESS TOKEN</label>
-        
+
         <div id="gemini-settings" class="api-settings">
-          <p>ENTER GEMINI KEY:</p>
-          <div class="input-group">
-            <input type="password" class="zeus-input" id="geminiApiKey" placeholder="ENTER_KEY_...">
-            <button id="showHideGemini" type="button">Show</button>
+          <div class="key-header-row">
+            <label class="zeus-label" for="geminiApiKey">GEMINI API KEY</label>
+            <div class="key-status-badges">
+              <span id="geminiKeyStatus" class="key-config-badge" data-configured="false">Not configured</span>
+              <span id="readiness-gemini" class="readiness-pill" data-state="not_configured">Not configured</span>
+            </div>
           </div>
+          <div class="input-group">
+            <input type="password" class="zeus-input" id="geminiApiKey" placeholder="Enter API key" autocomplete="off">
+            <button id="showHideGemini" type="button" aria-pressed="false">Show</button>
+          </div>
+          <div class="key-actions-row">
+            <button id="saveGeminiKeyBtn" type="button" class="zeus-btn zeus-btn-cyan zeus-btn-xs">Save Key</button>
+            <button id="removeGeminiKeyBtn" type="button" class="zeus-btn zeus-btn-red zeus-btn-xs" hidden>Remove Key</button>
+            <button id="testGeminiBtn" type="button" class="zeus-btn zeus-btn-ghost zeus-btn-xs">Test Connection</button>
+          </div>
+          <p id="readiness-detail-gemini" class="helper-text readiness-detail" hidden></p>
         </div>
 
         <div id="openai-settings" class="api-settings" style="display: none;">
-          <p>ENTER OPENAI KEY:</p>
-          <div class="input-group">
-            <input type="password" class="zeus-input" id="openaiApiKey" placeholder="ENTER_KEY_...">
-            <button id="showHideOpenAI" type="button">Show</button>
+          <div class="key-header-row">
+            <label class="zeus-label" for="openaiApiKey">OPENAI API KEY</label>
+            <div class="key-status-badges">
+              <span id="openaiKeyStatus" class="key-config-badge" data-configured="false">Not configured</span>
+              <span id="readiness-openai" class="readiness-pill" data-state="not_configured">Not configured</span>
+            </div>
           </div>
+          <div class="input-group">
+            <input type="password" class="zeus-input" id="openaiApiKey" placeholder="Enter API key" autocomplete="off">
+            <button id="showHideOpenAI" type="button" aria-pressed="false">Show</button>
+          </div>
+          <div class="key-actions-row">
+            <button id="saveOpenAIKeyBtn" type="button" class="zeus-btn zeus-btn-cyan zeus-btn-xs">Save Key</button>
+            <button id="removeOpenAIKeyBtn" type="button" class="zeus-btn zeus-btn-red zeus-btn-xs" hidden>Remove Key</button>
+            <button id="testOpenAIBtn" type="button" class="zeus-btn zeus-btn-ghost zeus-btn-xs">Test Connection</button>
+          </div>
+          <p id="readiness-detail-openai" class="helper-text readiness-detail" hidden></p>
         </div>
 
         <div id="claude-settings" class="api-settings" style="display: none;">
-          <p>ENTER CLAUDE KEY:</p>
-          <div class="input-group">
-            <input type="password" class="zeus-input" id="claudeApiKey" placeholder="ENTER_KEY_...">
-            <button id="showHideClaude" type="button">Show</button>
+          <div class="key-header-row">
+            <label class="zeus-label" for="claudeApiKey">CLAUDE API KEY</label>
+            <div class="key-status-badges">
+              <span id="claudeKeyStatus" class="key-config-badge" data-configured="false">Not configured</span>
+              <span id="readiness-claude" class="readiness-pill" data-state="not_configured">Not configured</span>
+            </div>
           </div>
+          <div class="input-group">
+            <input type="password" class="zeus-input" id="claudeApiKey" placeholder="Enter API key" autocomplete="off">
+            <button id="showHideClaude" type="button" aria-pressed="false">Show</button>
+          </div>
+          <div class="key-actions-row">
+            <button id="saveClaudeKeyBtn" type="button" class="zeus-btn zeus-btn-cyan zeus-btn-xs">Save Key</button>
+            <button id="removeClaudeKeyBtn" type="button" class="zeus-btn zeus-btn-red zeus-btn-xs" hidden>Remove Key</button>
+            <button id="testClaudeBtn" type="button" class="zeus-btn zeus-btn-ghost zeus-btn-xs">Test Connection</button>
+          </div>
+          <p id="readiness-detail-claude" class="helper-text readiness-detail" hidden></p>
         </div>
 
         <div id="openrouter-settings" class="api-settings" style="display: none;">
-          <p>ENTER OPENROUTER KEY:</p>
-          <div class="input-group">
-            <input type="password" class="zeus-input" id="openrouterApiKey" placeholder="ENTER_KEY_...">
-            <button id="showHideOpenRouter" type="button">Show</button>
+          <div class="key-header-row">
+            <label class="zeus-label" for="openrouterApiKey">OPENROUTER API KEY</label>
+            <div class="key-status-badges">
+              <span id="openrouterKeyStatus" class="key-config-badge" data-configured="false">Not configured</span>
+              <span id="readiness-openrouter" class="readiness-pill" data-state="not_configured">Not configured</span>
+            </div>
           </div>
+          <div class="input-group">
+            <input type="password" class="zeus-input" id="openrouterApiKey" placeholder="Enter API key" autocomplete="off">
+            <button id="showHideOpenRouter" type="button" aria-pressed="false">Show</button>
+          </div>
+          <div class="key-actions-row">
+            <button id="saveOpenRouterKeyBtn" type="button" class="zeus-btn zeus-btn-cyan zeus-btn-xs">Save Key</button>
+            <button id="removeOpenRouterKeyBtn" type="button" class="zeus-btn zeus-btn-red zeus-btn-xs" hidden>Remove Key</button>
+            <button id="testOpenRouterBtn" type="button" class="zeus-btn zeus-btn-ghost zeus-btn-xs">Test Connection</button>
+          </div>
+          <p id="readiness-detail-openrouter" class="helper-text readiness-detail" hidden></p>
         </div>
-        
-        <div id="status" class="status"></div>
       </section>
 
       <!-- Ollama Config -->
       <section class="zeus-terminal-card" data-variant="green" id="ollama-settings" style="display:none;">
         <div class="card-accent"></div>
-        <label class="zeus-label">/// LOCAL HOST</label>
+        <div class="key-header-row">
+          <label class="zeus-label" for="ollamaHost">/// LOCAL HOST</label>
+          <span id="readiness-ollama" class="readiness-pill" data-state="not_configured">Not configured</span>
+        </div>
         <input type="text" class="zeus-input" id="ollamaHost" value="http://localhost:11434">
-        <label class="zeus-label" style="margin-top:8px">/// MODEL ID</label>
+        <label class="zeus-label" for="ollamaModel" style="margin-top:8px">/// MODEL ID</label>
         <input type="text" class="zeus-input" id="ollamaModel" placeholder="llama2">
+        <div class="ollama-actions-row">
+          <button type="button" class="zeus-btn zeus-btn-cyan zeus-btn-xs" id="testOllamaBtn">Test Connection</button>
+          <button type="button" class="zeus-btn zeus-btn-ghost zeus-btn-xs" id="detectOllamaModelsBtn">Detect Models</button>
+        </div>
+        <div id="ollamaDiscoveredModels" class="ollama-chips" hidden></div>
+        <p id="readiness-detail-ollama" class="helper-text readiness-detail" hidden></p>
         <p id="ollama-suggestions" class="helper-text"></p>
       </section>
 
@@ -141,19 +209,20 @@
       <section class="zeus-terminal-card" data-variant="green" id="auto-settings" style="display:none;">
         <div class="card-accent"></div>
         <label class="zeus-label">/// AUTOPILOT HUD</label>
-        <p>Auto mode uses prompt-aware smart routing.</p>
+        <p>Auto mode uses prompt-aware smart routing across configured providers.</p>
         <p style="margin-top: 6px; font-family: 'JetBrains Mono', monospace; font-size: 10px;">
           Coding &rarr; GPT-5 Codex<br>
           Long-form &rarr; Claude Sonnet<br>
           Cheap &rarr; Gemini Flash
         </p>
+        <div id="autoReadinessList" class="auto-readiness-list"></div>
       </section>
 
       <!-- Advanced Feature Access -->
       <section class="zeus-terminal-card" data-variant="cyan">
         <div class="card-accent"></div>
         <label class="zeus-label">/// ADVANCED MODULES</label>
-        
+
         <div style="margin-top: 10px; display: flex; flex-direction: column; gap: 10px;">
           <div style="display: flex; align-items: center; justify-content: space-between;">
             <label style="font-size: 11px; font-family: 'Rajdhani', sans-serif; font-weight: 600; cursor: pointer; margin: 0;" for="sidePanelEnabled">SIDE PANEL WORKBENCH</label>
@@ -163,14 +232,19 @@
             <label style="font-size: 11px; font-family: 'Rajdhani', sans-serif; font-weight: 600; cursor: pointer; margin: 0;" for="copilotEnabled">COPILOT INLINE SUGGEST</label>
             <input type="checkbox" id="copilotEnabled" style="cursor: pointer;">
           </div>
+          <div style="border-top: 1px solid rgba(255,255,255,0.08); padding-top: 8px;">
+            <button type="button" class="zeus-btn zeus-btn-cyan zeus-btn-compact" id="openOptionsBtn" style="width: 100%;">Open Advanced Settings</button>
+          </div>
         </div>
       </section>
     </main>
 
+    <div id="status" class="status" role="status" aria-live="polite"></div>
+
     <!-- Actions -->
     <footer class="popup-footer">
-      <button class="zeus-btn zeus-btn-yellow" id="saveBtn">EXECUTE CONFIG</button>
-      <button class="zeus-btn zeus-btn-ghost" id="resetBtn">PURGE DATA</button>
+      <button type="button" class="zeus-btn zeus-btn-yellow" id="saveBtn">EXECUTE CONFIG</button>
+      <button type="button" class="zeus-btn zeus-btn-ghost" id="resetBtn">PURGE DATA</button>
     </footer>
 
     <!-- Telemetry / Status Bar -->
@@ -180,7 +254,7 @@
       <span>FALLBACKS: <span id="fallbackCount">0</span></span>
     </div>
   </div>
-  
+
   <script src="model-registry.js"></script>
   <script src="settings/settingsStore.js"></script>
   <script src="settings/settings.js"></script>
