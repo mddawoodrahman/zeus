@@ -42,6 +42,7 @@
         "https://openrouter.ai/*"
       ],
       "js": [
+        "core/editorBridge.js",
         "core/domUtils.js",
         "core/useFloatingPosition.js",
         "core/injector.js",
@@ -56,6 +57,7 @@
         "adapters/grok.js",
         "adapters/deepseek.js",
         "adapters/openrouter.js",
+        "adapters/kimi.js",
         "adapters/generic.js",
         "content.js"
       ],

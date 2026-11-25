@@ -143,6 +143,7 @@ function createChromeMock(options = {}) {
 
   const chrome = {
     runtime: {
+      getManifest: () => require('../../manifest.json'),
       id: 'zeus-test-extension',
       lastError: null,
       onInstalled: runtimeOnInstalled,

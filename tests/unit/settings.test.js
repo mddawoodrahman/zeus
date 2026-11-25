@@ -36,6 +36,18 @@ describe('ZeusSettings', () => {
     expect(migrated.models.openrouter).toBe('google/gemini-3-pro');
   });
 
+  it.each([
+    [{ models: { gemini: 'gemini-3-flash' } }, 'gemini-flash-latest'],
+    [{ zeus_gemini_model: 'gemini-3-pro' }, 'gemini-3.1-pro-preview'],
+    [{ models: { gemini: ' models/gemini-3.1-pro ' } }, 'gemini-3.1-pro-preview'],
+    [{ models: { gemini: 'gemini-custom' } }, 'gemini-custom']
+  ])('loads a saved Gemini selection from %j as %s', async (stored, expected) => {
+    await chrome.storage.sync.set(stored);
+    const settings = await globalThis.ZeusSettings.loadSettings();
+    expect(settings.models.gemini).toBe(expected);
+    expect(globalThis.ZeusSettings.getPublicSettings(settings).models.gemini).toBe(expected);
+  });
+
   it('normalizes unsupported providers to defaults', () => {
     const normalized = globalThis.ZeusSettings.normalizeSettings({
       provider: 'unsupported-provider',

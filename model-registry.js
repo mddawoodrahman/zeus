@@ -16,31 +16,31 @@
   const PROVIDERS = {
     gemini: {
       label: 'Gemini',
-      helper: 'Great balance for speed and cost. Best quick option: gemini-3-flash.',
-      defaultModel: 'gemini-3-flash',
-      fallbackModels: ['gemini-3-flash', 'gemini-3-pro', 'gemini-2.5-flash', 'gemini-2.5-pro'],
+      helper: 'Flash follows Google’s current Flash release. Choose Flash-Lite for lower-cost rewrites.',
+      defaultModel: 'gemini-flash-latest',
+      fallbackModels: ['gemini-flash-latest', 'gemini-3.5-flash-lite', 'gemini-3.1-flash-lite'],
       models: [
         {
-          id: 'gemini-3.1-pro',
-          label: 'Gemini 3.1 Pro',
+          id: 'gemini-flash-latest',
+          label: 'Gemini Flash',
           badge: 'Latest',
+          speed: 'fast',
+          cost: 'medium',
+          group: MODEL_GROUP.RECOMMENDED,
+          bestFor: ['daily use', 'quick rewrites']
+        },
+        {
+          id: 'gemini-3.1-pro-preview',
+          label: 'Gemini 3.1 Pro Preview',
+          badge: 'Preview',
           speed: 'medium',
           cost: 'high',
           group: MODEL_GROUP.HIGH_INTELLIGENCE,
           bestFor: ['reasoning', 'analysis', 'complex prompts']
         },
         {
-          id: 'gemini-3-pro',
-          label: 'Gemini 3 Pro',
-          badge: 'Latest',
-          speed: 'medium',
-          cost: 'high',
-          group: MODEL_GROUP.RECOMMENDED,
-          bestFor: ['quality', 'reasoning']
-        },
-        {
-          id: 'gemini-3-flash',
-          label: 'Gemini 3 Flash',
+          id: 'gemini-3.5-flash-lite',
+          label: 'Gemini 3.5 Flash-Lite',
           badge: 'Fast',
           speed: 'fast',
           cost: 'low',
@@ -48,9 +48,18 @@
           bestFor: ['cheap runs', 'high throughput']
         },
         {
+          id: 'gemini-3.1-flash-lite',
+          label: 'Gemini 3.1 Flash-Lite',
+          badge: 'Fast',
+          speed: 'fast',
+          cost: 'low',
+          group: MODEL_GROUP.FAST_CHEAP,
+          bestFor: ['quick rewrites', 'budget']
+        },
+        {
           id: 'gemini-2.5-pro',
           label: 'Gemini 2.5 Pro',
-          badge: 'Stable',
+          badge: 'Deprecated',
           speed: 'medium',
           cost: 'medium',
           group: MODEL_GROUP.HIGH_INTELLIGENCE,
@@ -59,7 +68,7 @@
         {
           id: 'gemini-2.5-flash',
           label: 'Gemini 2.5 Flash',
-          badge: 'Cheap',
+          badge: 'Deprecated',
           speed: 'fast',
           cost: 'low',
           group: MODEL_GROUP.FAST_CHEAP,
@@ -268,6 +277,20 @@
     return String(getProviderConfig(provider)?.defaultModel || '').trim();
   }
 
+  function normalizeGeminiModel(model) {
+    const id = String(model || '').trim().replace(/^models\//, '');
+    switch (id) {
+      case '':
+      case 'gemini-3-flash':
+        return getDefaultModel('gemini');
+      case 'gemini-3-pro':
+      case 'gemini-3.1-pro':
+        return 'gemini-3.1-pro-preview';
+      default:
+        return id;
+    }
+  }
+
   function getFallbackModels(provider) {
     const fallbackModels = getProviderConfig(provider)?.fallbackModels;
     return Array.isArray(fallbackModels) ? fallbackModels.slice() : [];
@@ -308,6 +331,7 @@
     getProviderModels,
     getModel,
     getDefaultModel,
+    normalizeGeminiModel,
     getFallbackModels,
     getProviderHelper,
     supportsModelSelection,

@@ -1,48 +1,21 @@
 <!doctype html>
 <html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Zeus Adapter Harness - Gemini</title>
-  <link rel="stylesheet" href="./harness.css" />
-</head>
-<body>
-  <main>
-    <section class="card">
-      <h1>Gemini Adapter Harness</h1>
-      <p>Validates selector matching and candidate input discovery for the Gemini adapter.</p>
-      <div class="toolbar">
-        <button id="run-checks">Run Checks</button>
-      </div>
-    </section>
-
-    <section class="grid">
-      <section class="card">
-        <h2>Mock DOM</h2>
-        <form>
-          <div class="harness-input" role="textbox" contenteditable="true" aria-label="Enter your prompt">Type prompt here</div>
-          <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:8px;">
-            <button type="button" aria-label="Voice input">Voice</button>
-            <button type="button" aria-label="Send message">Send</button>
-          </div>
-        </form>
-      </section>
-      <section class="card">
-        <h2>Results</h2>
-        <ul id="results"></ul>
-      </section>
-    </section>
-  </main>
-
-  <script src="../../core/domUtils.js"></script>
-  <script src="../../adapters/gemini.js"></script>
-  <script>
-    window.__ZEUS_HARNESS__ = {
-      adapterId: 'gemini-site',
-      testHostname: 'gemini.google.com',
-      minEligible: 1
-    };
-  </script>
-  <script src="./harness.js"></script>
-</body>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Zeus composer fixture – gemini</title>
+<link rel="stylesheet" href="/harness.css">
+<main>
+  <nav><label>Search history <input type="search"></label></nav>
+  <h1>gemini composer</h1>
+  <form aria-label="Compose message">
+    <rich-textarea><div id="quill"></div></rich-textarea>
+    <div role="toolbar" aria-label="Message actions">
+      <button type="button" aria-label="Attach file">＋</button>
+      <button type="button" aria-label="Model selector">Model</button>
+      <button type="button" aria-label="Microphone">Mic</button>
+      <button type="submit" aria-label="Send message">Send</button>
+    </div>
+  </form>
+</main>
+<script src="/harness.js"></script>
 </html>

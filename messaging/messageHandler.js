@@ -4,30 +4,16 @@
   const errors = globalScope.ZeusErrors;
   const telemetry = globalScope.ZeusTelemetry || null;
 
-  const CONTENT_SCRIPT_FILES = [
-    'core/domUtils.js',
-    'core/useFloatingPosition.js',
-    'core/injector.js',
-    'core/observer.js',
-    'core/ghostText.js',
-    'core/redactor.js',
-    'core/promptClient.js',
-    'core/copilot.js',
-    'adapters/chatgpt.js',
-    'adapters/claude.js',
-    'adapters/gemini.js',
-    'adapters/grok.js',
-    'adapters/deepseek.js',
-    'adapters/openrouter.js',
-    'adapters/generic.js',
-    'content.js'
-  ];
+  function composerScripts() {
+    return chrome.runtime.getManifest().content_scripts.find(entry => entry.js?.includes('content.js'));
+  }
 
   function setupContextMenu() {
     chrome.runtime.onInstalled.addListener(() => {
       chrome.contextMenus.create({
         id: 'zeus-enhance-prompt',
         title: 'Enhance Prompt with Zeus',
+        documentUrlPatterns: composerScripts().matches,
         contexts: ['editable']
       });
     });
@@ -79,7 +65,7 @@
         return;
       }
 
-      chrome.scripting.executeScript({ target: { tabId }, files: CONTENT_SCRIPT_FILES })
+      chrome.scripting.executeScript({ target: { tabId }, files: composerScripts().js })
         .then(() => chrome.tabs.sendMessage(tabId, { action: 'forceInjectButton' }))
         .then(() => sendResponse({ success: true }))
         .catch((error) => sendResponse({ success: false, message: String(error?.message || error) }));

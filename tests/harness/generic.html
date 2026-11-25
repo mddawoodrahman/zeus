@@ -1,43 +1,21 @@
 <!doctype html>
 <html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Zeus Adapter Harness - Generic</title>
-  <link rel="stylesheet" href="./harness.css" />
-</head>
-<body>
-  <main>
-    <section class="card">
-      <h1>Generic Adapter Harness</h1>
-      <p>Validates fallback selector behavior used when no host-specific adapter matches.</p>
-      <div class="toolbar">
-        <button id="run-checks">Run Checks</button>
-      </div>
-    </section>
-
-    <section class="grid">
-      <section class="card">
-        <h2>Mock DOM</h2>
-        <input type="text" class="harness-input" placeholder="Generic text input" />
-        <input type="search" class="harness-input" placeholder="Generic search input" />
-      </section>
-      <section class="card">
-        <h2>Results</h2>
-        <ul id="results"></ul>
-      </section>
-    </section>
-  </main>
-
-  <script src="../../core/domUtils.js"></script>
-  <script src="../../adapters/generic.js"></script>
-  <script>
-    window.__ZEUS_HARNESS__ = {
-      adapterId: 'generic',
-      testHostname: 'unknown.example',
-      minEligible: 1
-    };
-  </script>
-  <script src="./harness.js"></script>
-</body>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Zeus composer fixture – generic</title>
+<link rel="stylesheet" href="/harness.css">
+<main>
+  <nav><label>Search history <input type="search"></label></nav>
+  <h1>generic composer</h1>
+  <form aria-label="Compose message">
+    <input type="text" placeholder="Chat message">
+    <div role="toolbar" aria-label="Message actions">
+      <button type="button" aria-label="Attach file">＋</button>
+      <button type="button" aria-label="Model selector">Model</button>
+      <button type="button" aria-label="Microphone">Mic</button>
+      <button type="submit" aria-label="Send message">Send</button>
+    </div>
+  </form>
+</main>
+<script src="/harness.js"></script>
 </html>

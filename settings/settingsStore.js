@@ -189,10 +189,11 @@
       )
     };
 
+    const savedGeminiModel = sanitizeString(stored?.models?.gemini ?? stored?.zeus_gemini_model) || defaults.models.gemini;
     const models = {
       ...defaults.models,
       ...(stored?.models || {}),
-      gemini: sanitizeString(stored?.models?.gemini ?? stored?.zeus_gemini_model ?? defaults.models.gemini) || defaults.models.gemini,
+      gemini: globalScope.ZeusModelRegistry?.normalizeGeminiModel?.(savedGeminiModel) ?? savedGeminiModel,
       openai: sanitizeString(stored?.models?.openai ?? stored?.zeus_openai_model ?? defaults.models.openai) || defaults.models.openai,
       claude: sanitizeString(stored?.models?.claude ?? stored?.zeus_claude_model ?? defaults.models.claude) || defaults.models.claude,
       openrouter: sanitizeString(

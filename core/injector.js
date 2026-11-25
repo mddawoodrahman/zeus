@@ -1,753 +1,279 @@
-(function initZeusInjector(globalScope) {
-  const BUTTON_CLASS = 'zeus-enhance-btn';
-  const STYLE_ID = 'zeus-enhance-button-style';
-
-  function ensureButtonStyles() {
-    if (document.getElementById(STYLE_ID)) {
-      return;
-    }
-
+(function (scope) {
+  if (scope.ZeusInjector) return;
+  function create(onEnhance) {
+    const host = document.createElement('zeus-composer-root');
+    host.dataset.zeusOwner = scope.chrome?.runtime?.id || 'zeus';
+    const shadow = host.attachShadow({ mode: 'closed' });
+    // Keep below site dialogs. The positioner also verifies the composed hit target.
     const style = document.createElement('style');
-    style.id = STYLE_ID;
     style.textContent = `
-      @keyframes neon-breathe {
-        0%, 100% { opacity: 1; filter: brightness(1); }
-        50% { opacity: 0.85; filter: brightness(1.15); }
-      }
-
-      @keyframes zeus-toast-enter {
-        from {
-          opacity: 0;
-          transform: translateY(6px) scale(0.96);
-        }
-        to {
-          opacity: 1;
-          transform: translateY(0) scale(1);
-        }
-      }
-
-      .${BUTTON_CLASS}, .zeus-toast {
-        --void: #080508;
-        --void-elevated: #0f0f12;
-        --void-panel: #151519;
-        --void-glass: rgba(8, 5, 8, 0.94);
-        --cyber-yellow: #FCEE0A;
-        --cyber-yellow-dim: #B8A508;
-        --cyber-yellow-glow: rgba(252, 238, 10, 0.6);
-        --cyber-yellow-faint: rgba(252, 238, 10, 0.08);
-        --arasaka-red: #FF003C;
-        --arasaka-red-dim: #C5003C;
-        --arasaka-red-glow: rgba(255, 0, 60, 0.5);
-        --arasaka-red-faint: rgba(255, 0, 60, 0.06);
-        --net-cyan: #00F0FF;
-        --net-cyan-dim: #55EAD4;
-        --net-cyan-glow: rgba(0, 240, 255, 0.5);
-        --net-cyan-faint: rgba(0, 240, 255, 0.06);
-        --acid-green: #39FF14;
-        --acid-green-dim: #2ECC71;
-        --acid-green-glow: rgba(57, 255, 20, 0.4);
-        --text-primary: #F0F0F0;
-        --text-secondary: #8A8A8F;
-        --text-muted: #4A4A4F;
-        --text-warning: #FCEE0A;
-      }
-
-      .${BUTTON_CLASS} {
-        all: initial;
-        position: absolute !important;
-        z-index: 2147483646 !important;
-        width: 28px !important;
-        height: 28px !important;
-        min-width: 28px !important;
-        min-height: 28px !important;
-        max-width: 28px !important;
-        max-height: 28px !important;
-        margin: 0 !important;
-        padding: 0 !important;
-        background: var(--void-panel, #151519) !important;
-        color: var(--cyber-yellow, #FCEE0A) !important;
-        border: 1.5px solid var(--cyber-yellow, #FCEE0A) !important;
-        border-radius: 7px !important;
-        cursor: pointer !important;
-        display: inline-flex !important;
-        align-items: center !important;
-        justify-content: center !important;
-        box-sizing: border-box !important;
-        box-shadow: 0 0 10px var(--cyber-yellow-faint, rgba(252, 238, 10, 0.12)), 0 2px 6px rgba(0, 0, 0, 0.4) !important;
-        transition: opacity 170ms ease, transform 190ms cubic-bezier(0.2, 0.7, 0.2, 1), background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease, color 0.15s ease;
-        opacity: 0;
-        transform: translateY(4px) scale(0.94);
-        pointer-events: none;
-        user-select: none !important;
-        -webkit-user-select: none !important;
-        outline: none !important;
-        overflow: hidden !important;
-        line-height: 1 !important;
-      }
-
-      @media (prefers-color-scheme: light) {
-        .${BUTTON_CLASS} {
-          box-shadow: 0 0 12px rgba(252, 238, 10, 0.4), 0 2px 8px rgba(0,0,0,0.3) !important;
-          border-width: 1.5px !important;
-        }
-      }
-
-      .${BUTTON_CLASS}[data-visible="1"] {
-        opacity: 1;
-        transform: translateY(0) scale(1);
-        pointer-events: auto;
-      }
-
-      .${BUTTON_CLASS}::before {
-        content: '⚡';
-        color: var(--cyber-yellow, #FCEE0A);
-        font-size: 13px;
-        line-height: 1;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        filter: drop-shadow(0 0 4px var(--cyber-yellow-glow, rgba(252, 238, 10, 0.6)));
-        transition: transform 0.15s ease, filter 0.15s ease;
-      }
-
-      .${BUTTON_CLASS}:hover {
-        background: var(--cyber-yellow, #FCEE0A) !important;
-        color: var(--void, #080508) !important;
-        box-shadow: 0 0 16px var(--cyber-yellow-glow, rgba(252, 238, 10, 0.65)), 0 2px 8px rgba(0, 0, 0, 0.5) !important;
-        transform: translateY(-1px) scale(1.05);
-      }
-
-      .${BUTTON_CLASS}:hover::before {
-        color: var(--void, #080508) !important;
-        filter: none;
-      }
-
-      .${BUTTON_CLASS}:active {
-        transform: translateY(0) scale(0.96);
-      }
-
-      .${BUTTON_CLASS}.processing {
-        border-color: var(--net-cyan, #00F0FF) !important;
-        color: var(--net-cyan, #00F0FF) !important;
-        box-shadow: 0 0 14px var(--net-cyan-glow, rgba(0, 240, 255, 0.5)) !important;
-        pointer-events: none !important;
-      }
-
-      .${BUTTON_CLASS}.processing::before {
-        content: '◈';
-        font-size: 14px;
-        animation: neon-breathe 0.9s ease-in-out infinite;
-        color: var(--net-cyan, #00F0FF);
-      }
-
-      .${BUTTON_CLASS}.error {
-        border-color: var(--arasaka-red, #FF003C) !important;
-        color: var(--arasaka-red, #FF003C) !important;
-        box-shadow: 0 0 14px var(--arasaka-red-glow, rgba(255, 0, 60, 0.5)) !important;
-      }
-
-      .${BUTTON_CLASS}.error::before {
-        content: '✕';
-        font-size: 12px;
-        font-weight: 800;
-        font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-        color: var(--arasaka-red, #FF003C);
-      }
-
-      .${BUTTON_CLASS}.error:hover {
-        background: rgba(255, 0, 60, 0.15) !important;
-        border-color: var(--arasaka-red, #FF003C) !important;
-        color: var(--arasaka-red, #FF003C) !important;
-      }
-
-      .${BUTTON_CLASS}.error:hover::before {
-        color: var(--arasaka-red, #FF003C) !important;
-      }
-
-      .${BUTTON_CLASS}.success {
-        border-color: var(--acid-green, #39FF14) !important;
-        color: var(--acid-green, #39FF14) !important;
-        box-shadow: 0 0 14px var(--acid-green-glow, rgba(57, 255, 20, 0.5)) !important;
-      }
-
-      .${BUTTON_CLASS}.success::before {
-        content: '✓';
-        font-size: 13px;
-        font-weight: 800;
-        font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-        color: var(--acid-green, #39FF14);
-      }
-
-      .${BUTTON_CLASS}.success:hover {
-        background: rgba(57, 255, 20, 0.15) !important;
-        border-color: var(--acid-green, #39FF14) !important;
-        color: var(--acid-green, #39FF14) !important;
-      }
-
-      .${BUTTON_CLASS}.success:hover::before {
-        color: var(--acid-green, #39FF14) !important;
-      }
-
-      /* Tooltip / Status Toast */
-      .zeus-toast {
-        position: fixed !important;
-        z-index: 2147483647 !important;
-        background: var(--void-glass, rgba(8, 5, 8, 0.94)) !important;
-        border: 1px solid var(--net-cyan, #00F0FF) !important;
-        color: var(--text-primary, #F0F0F0) !important;
-        font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', Menlo, Monaco, Consolas, monospace;
-        font-size: 11px;
-        font-weight: 600;
-        letter-spacing: 0.6px;
-        line-height: 1.4;
-        padding: 6px 12px;
-        max-width: min(380px, calc(100vw - 24px));
-        white-space: nowrap;
-        text-overflow: ellipsis;
-        overflow: hidden;
-        backdrop-filter: blur(8px);
-        -webkit-backdrop-filter: blur(8px);
-        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.65), 0 0 10px var(--net-cyan-faint);
-        pointer-events: none;
-        border-radius: 6px !important;
-        box-sizing: border-box;
-        animation: zeus-toast-enter 180ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
-        transition: opacity 200ms ease, transform 200ms ease;
-      }
-
-      .zeus-toast::before {
-        content: '> ';
-        color: var(--net-cyan, #00F0FF);
-        font-weight: 700;
-      }
-
-      .zeus-toast.info {
-        border-color: var(--net-cyan, #00F0FF) !important;
-        color: var(--net-cyan, #00F0FF) !important;
-        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.65), 0 0 12px var(--net-cyan-glow);
-      }
-
-      .zeus-toast.info::before {
-        content: '◈ ';
-        color: var(--net-cyan, #00F0FF);
-      }
-
-      .zeus-toast.warning {
-        border-color: var(--cyber-yellow, #FCEE0A) !important;
-        color: var(--cyber-yellow, #FCEE0A) !important;
-        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.65), 0 0 12px var(--cyber-yellow-glow);
-      }
-
-      .zeus-toast.warning::before {
-        content: '▲ ';
-        color: var(--cyber-yellow, #FCEE0A);
-      }
-
-      .zeus-toast.error {
-        border-color: var(--arasaka-red, #FF003C) !important;
-        color: #FF4D6D !important;
-        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.65), 0 0 14px var(--arasaka-red-glow);
-      }
-
-      .zeus-toast.error::before {
-        content: '✕ ';
-        color: var(--arasaka-red, #FF003C);
-        font-weight: 700;
-      }
-
-      .zeus-toast.success {
-        border-color: var(--acid-green, #39FF14) !important;
-        color: var(--acid-green, #39FF14) !important;
-        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.65), 0 0 12px var(--acid-green-glow);
-      }
-
-      .zeus-toast.success::before {
-        content: '✓ ';
-        color: var(--acid-green, #39FF14);
-        font-weight: 700;
-      }
+      :host { all:initial !important; position:fixed !important; inset:0 !important;
+        display:block !important; margin:0 !important; padding:0 !important; border:0 !important;
+        pointer-events:none !important; overflow:clip !important; z-index:1000 !important; }
+      *, *::before, *::after { box-sizing:border-box }
+      .surface { --bg:#fff; --fg:#222428; --border:#9da1a6; --bolt:#765900;
+        color:var(--fg); font:14px/1.45 system-ui,sans-serif; color-scheme:light; }
+      .surface.dark { --bg:#27292d; --fg:#f4f4f5; --border:#6d7178; --bolt:#ffdc54; color-scheme:dark; }
+      button,dialog,textarea { font:inherit; color:var(--fg); background:var(--bg); }
+      button { pointer-events:auto; cursor:pointer; border:1px solid var(--border); border-radius:8px; padding:5px 10px; }
+      button:focus-visible,textarea:focus-visible { outline:3px solid #1482a0; outline-offset:2px; }
+      .action { position:absolute; top:0; left:0; width:34px; height:34px; visibility:hidden;
+        display:grid; place-items:center; padding:0; color:var(--bolt); transition:background-color .12s; }
+      .action:hover { background:color-mix(in srgb,var(--bg) 89%,var(--bolt)); }
+      svg { width:19px; height:19px; fill:currentColor; }
+      .indicator { position:absolute; right:2px; bottom:2px; width:7px; height:7px; border-radius:50%; }
+      [data-state=processing] .indicator { border:2px solid var(--border); border-top-color:transparent; animation:spin .75s linear infinite; }
+      [data-state=success] .indicator { background:#20883b; }
+      [data-state=error] .indicator { background:#ce3c52; }
+      @keyframes spin { to { transform:rotate(360deg); } }
+      @media(prefers-reduced-motion:reduce) { * { animation:none!important; transition:none!important; } }
+      .notice { position:absolute; left:0; top:0; width:max-content; max-width:min(36ch,90vw);
+        background:var(--bg); border-radius:8px; box-shadow:0 2px 10px #0002; }
+      .notice.minimized { clip-path:inset(50%); pointer-events:none }
+      [role=status]:not(:empty) { display:block; padding:8px 12px; }
+      dialog { pointer-events:auto; width:min(32rem,90vw); border:1px solid var(--border); border-radius:12px; }
+      dialog textarea { width:100%; min-height:12em; display:block; margin:8px 0; }
+      dialog button + button { margin-inline-start:8px; }
     `;
-
-    (document.head || document.documentElement).appendChild(style);
-  }
-
-  function isInputFocused(input) {
-    if (!input || !document.activeElement) {
-      return false;
+    function make(tag, cls, parent) {
+      const node = document.createElement(tag);
+      if (cls) node.className = cls;
+      parent.append(node);
+      return node;
     }
-
-    return document.activeElement === input || (input.contains && input.contains(document.activeElement));
-  }
-
-  function createButton(onClick) {
-    ensureButtonStyles();
-
-    const button = document.createElement('button');
+    shadow.append(style);
+    const surface = make('div', 'surface', shadow);
+    const button = make('button', 'action', surface);
     button.type = 'button';
-    button.className = BUTTON_CLASS;
-    button.dataset.visible = '0';
-    button.setAttribute('aria-hidden', 'true');
-    button.setAttribute('aria-label', 'Optimize prompt with Zeus');
-    button.setAttribute('title', 'Optimize Prompt');
-    button.textContent = '';
-
-    button.addEventListener('mousedown', (event) => {
-      event.preventDefault();
-    });
-
-    button.addEventListener('click', (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      onClick(button);
-    });
-
-    return button;
-  }
-
-  function create(options) {
-    const onEnhanceClick = typeof options?.onEnhanceClick === 'function' ? options.onEnhanceClick : () => {};
-
-    const inputListeners = new Map();
-
-    let knownInputs = [];
-    let button = null;
-    let floatingController = null;
-    let activeInput = null;
-    let focusedInput = null;
-    let hoveredInput = null;
-    let buttonHovering = false;
-    let hideTimer = null;
-    let resolveAnchorContainer = (input) => input?.parentElement || null;
-    let resolvePositionStrategy = () => ({ mode: 'anchored', right: 12, bottom: 10 });
-    let toastElement = null;
-    let toastTimer = null;
-    let toastDismissTimer = null;
-    let toastViewportListening = false;
-
-    function handleToastViewportChange() {
-      if (toastElement && toastElement.isConnected) {
-        updateToastPosition();
-      }
-    }
-
-    function removeToastViewportListeners() {
-      if (!toastViewportListening) {
-        return;
-      }
-      toastViewportListening = false;
-      window.removeEventListener('scroll', handleToastViewportChange, true);
-      window.removeEventListener('resize', handleToastViewportChange);
-    }
-
-    function addToastViewportListeners() {
-      if (toastViewportListening) {
-        return;
-      }
-      toastViewportListening = true;
-      window.addEventListener('scroll', handleToastViewportChange, { passive: true, capture: true });
-      window.addEventListener('resize', handleToastViewportChange, { passive: true });
-    }
-
-    function clearToast() {
-      if (toastTimer) {
-        clearTimeout(toastTimer);
-        toastTimer = null;
-      }
-      if (toastDismissTimer) {
-        clearTimeout(toastDismissTimer);
-        toastDismissTimer = null;
-      }
-      removeToastViewportListeners();
-      if (toastElement) {
-        toastElement.remove();
-        toastElement = null;
-      }
-    }
-
-    function updateToastPosition() {
-      if (!toastElement || !toastElement.isConnected) {
-        return;
-      }
-      const winW = window.innerWidth || document.documentElement?.clientWidth || 1024;
-      const winH = window.innerHeight || document.documentElement?.clientHeight || 768;
-
-      if (button && button.isConnected) {
-        const btnRect = button.getBoundingClientRect();
-        if (btnRect.width > 0 || btnRect.height > 0) {
-          const right = Math.max(12, Math.min(winW - 20, Math.round(winW - btnRect.right)));
-          const bottom = Math.max(12, Math.min(winH - 20, Math.round(winH - btnRect.top + 8)));
-          toastElement.style.right = `${right}px`;
-          toastElement.style.bottom = `${bottom}px`;
-          toastElement.style.maxWidth = `${Math.min(380, Math.max(140, winW - right - 12))}px`;
-          return;
-        }
-      }
-      toastElement.style.right = '24px';
-      toastElement.style.bottom = '24px';
-      toastElement.style.maxWidth = '380px';
-    }
-
-    function showToast(message, type = 'info', durationMs = 3000) {
-      clearToast();
-
-      toastElement = document.createElement('div');
-      toastElement.className = `zeus-toast ${type}`;
-      toastElement.style.position = 'fixed';
-      toastElement.style.zIndex = '2147483647';
-      toastElement.textContent = message;
-
-      const mountRoot = document.body || document.documentElement;
-      if (mountRoot) {
-        mountRoot.appendChild(toastElement);
-        updateToastPosition();
-        addToastViewportListeners();
-      }
-
-      if (durationMs > 0) {
-        toastTimer = setTimeout(() => {
-          if (toastElement && toastElement.isConnected) {
-            toastElement.style.opacity = '0';
-            toastElement.style.transform = 'translateY(-4px) scale(0.96)';
-            toastDismissTimer = setTimeout(() => {
-              clearToast();
-            }, 220);
-          }
-        }, durationMs);
-      }
-    }
-
-    function ensureButton() {
-      if (button) {
-        return;
-      }
-
-      button = createButton(() => {
-        if (activeInput) {
-          onEnhanceClick(activeInput, button);
-        }
-      });
-
-      button.addEventListener('mouseenter', () => {
-        buttonHovering = true;
-        updateVisibility();
-      });
-
-      button.addEventListener('mouseleave', () => {
-        buttonHovering = false;
-        scheduleVisibility(80);
-      });
-    }
-
-    function resolveAnchor(input) {
-      let anchor = null;
+    const ns = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(ns, 'svg');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    svg.setAttribute('aria-hidden', 'true');
+    const path = document.createElementNS(ns, 'path');
+    path.setAttribute('d', 'M14.8 1 3.6 14h7.2L9.2 23 20.4 10h-7.2z');
+    svg.append(path);
+    button.append(svg);
+    make('span', 'indicator', button);
+    const notice = make('div', 'notice', surface);
+    const status = make('span', '', notice);
+    status.setAttribute('role', 'status');
+    status.id = 'status';
+    button.setAttribute('aria-describedby', status.id);
+    const review = make('button', '', notice);
+    review.textContent = 'Review enhanced prompt';
+    review.hidden = true;
+    const dialog = make('dialog', '', surface);
+    dialog.setAttribute('aria-label', 'Enhanced prompt preview');
+    const label = make('label', '', dialog);
+    label.textContent = 'Enhanced prompt';
+    const preview = make('textarea', '', label);
+    preview.readOnly = true;
+    const originalLabel = make('label', '', dialog);
+    originalLabel.textContent = 'Original draft';
+    const originalDraft = make('textarea', '', originalLabel);
+    originalDraft.readOnly = true;
+    const copy = make('button', '', dialog);
+    copy.textContent = 'Copy prompt';
+    const close = make('button', '', dialog);
+    close.textContent = 'Close';
+    review.onclick = () => {
+      dialog.showModal();
+      preview.focus();
+      preview.select();
+    };
+    copy.onclick = async () => {
       try {
-        anchor = resolveAnchorContainer(input);
-      } catch (_) {
-        anchor = null;
+        await navigator.clipboard.writeText(preview.value);
+        copy.textContent = 'Copied';
+      } catch {
+        preview.focus();
+        preview.select();
+        copy.textContent = 'Use the copy shortcut';
       }
-
-      if (!(anchor instanceof Element)) {
-        anchor = input?.parentElement || null;
+    };
+    close.onclick = () => dialog.close();
+    dialog.onclose = () => {
+      if (dialog.open || review.hidden) return;
+      reset();
+      copy.textContent = 'Copy prompt';
+      if (button.style.visibility === 'visible') button.focus({ preventScroll: true });
+    };
+    const overlays = make('div', '', surface);
+    let editor = null,
+      adapter = null,
+      composer = null,
+      positioner = null,
+      editorEvents = null,
+      timer;
+    function placeNotice() {
+      if (!status.textContent || !editor || !document.elementsFromPoint) return;
+      const view = scope.ZeusFloatingPosition.viewport();
+      const size = notice.getBoundingClientRect(),
+        draft = composer.getBoundingClientRect();
+      const action = button.getBoundingClientRect();
+      const blocked = [draft, action];
+      const gap = 8;
+      const left = view.left + gap,
+        right = view.right - size.width - gap;
+      const top = view.top + gap,
+        bottom = view.bottom - size.height - gap;
+      const aligned = Math.max(left, Math.min(right, action.right - size.width));
+      const places = [
+        [aligned, draft.top - size.height - gap],
+        [aligned, draft.bottom + gap],
+        [right, top],
+        [left, top],
+        [right, bottom],
+        [left, bottom]
+      ];
+      for (const [x, y] of places) {
+        const rect = { left: x, top: y, right: x + size.width, bottom: y + size.height };
+        if (
+          x < left ||
+          x > right ||
+          y < top ||
+          y > bottom ||
+          blocked.some((other) => scope.ZeusFloatingPosition.intersects(rect, other, 4))
+        )
+          continue;
+        const free = [x + 1, x + size.width / 2, rect.right - 1].every((px) =>
+          [y + 1, y + size.height / 2, rect.bottom - 1].every((py) => {
+            const el = document.elementsFromPoint(px, py).find((n) => n !== host);
+            return (
+              el && !el.closest(scope.ZeusDomUtils.interactive) && getComputedStyle(el).cursor !== 'pointer'
+            );
+          })
+        );
+        if (!free) continue;
+        notice.style.left = x + 'px';
+        notice.style.top = y + 'px';
+        notice.classList.remove('minimized');
+        review.tabIndex = 0;
+        return;
       }
-
-      return anchor;
+      notice.classList.add('minimized');
+      review.tabIndex = -1;
     }
-
-    function resolveStrategy(input, anchor) {
-      try {
-        const strategy = resolvePositionStrategy(input, anchor);
-        if (strategy && typeof strategy === 'object') {
-          return strategy;
+    function reset() {
+      clearTimeout(timer);
+      if (dialog.open) dialog.close();
+      preview.value = '';
+      originalDraft.value = '';
+      originalLabel.hidden = true;
+      review.hidden = true;
+      notice.classList.remove('minimized');
+      status.textContent = '';
+      button.dataset.state = 'idle';
+      button.setAttribute('aria-busy', 'false');
+      button.setAttribute('aria-disabled', 'false');
+      button.title =
+        editor && !adapter.getCapabilities(editor).canReplace
+          ? 'Enhance with Zeus and review a copy'
+          : 'Enhance prompt with Zeus';
+      button.setAttribute('aria-label', button.title);
+    }
+    function state(name, message, duration = 0, result, original) {
+      clearTimeout(timer);
+      button.dataset.state = name;
+      button.setAttribute('aria-busy', String(name === 'processing'));
+      button.setAttribute('aria-disabled', String(name === 'processing' || name === 'disabled'));
+      status.textContent = message;
+      if (result !== undefined) {
+        preview.value = result;
+        originalLabel.hidden = original === undefined;
+        originalDraft.value = original ?? '';
+        review.hidden = false;
+      }
+      if (!review.hidden) {
+        button.title = 'Review enhanced prompt';
+        button.setAttribute('aria-label', button.title);
+      }
+      placeNotice();
+      if (duration) timer = setTimeout(reset, duration);
+    }
+    function theme() {
+      let dark = window.matchMedia?.('(prefers-color-scheme: dark)').matches || false;
+      for (let el = editor; el; el = el.parentElement || el.getRootNode().host) {
+        const rgb = getComputedStyle(el)
+          .backgroundColor.match(/^rgba?\(([^)]+)\)/)?.[1]
+          .split(',')
+          .map(Number);
+        if (rgb && (rgb.length === 3 || rgb[3] >= 0.8)) {
+          dark = rgb[0] * 0.21 + rgb[1] * 0.72 + rgb[2] * 0.07 < 135;
+          break;
         }
-      } catch (_) {
-        // Fall back to anchored mode if strategy logic fails.
       }
-
-      return { mode: 'anchored', right: 12, bottom: 10 };
+      surface.classList.toggle('dark', dark);
+      surface.dir = editor ? getComputedStyle(editor).direction : 'auto';
     }
-
-    function resolveMountRoot(input, anchor) {
-      const strategy = resolveStrategy(input, anchor);
-      const mode = String(strategy?.mode || strategy?.type || 'anchored').toLowerCase();
-      if (mode === 'fixed') {
-        return document.documentElement || document.body;
-      }
-
-      return anchor || input?.parentElement || document.body;
-    }
-
-    function ensureFloatingController() {
-      if (floatingController || !button) {
+    function bind(next, site) {
+      if (next === editor && host.isConnected) {
+        theme();
+        positioner?.refresh();
         return;
       }
-
-      const floatingFactory = globalScope.ZeusFloatingPosition;
-      if (!floatingFactory || typeof floatingFactory.create !== 'function') {
-        floatingController = Object.freeze({
-          update() {},
-          setTarget() {},
-          destroy() {}
-        });
+      positioner?.destroy();
+      editorEvents?.abort();
+      positioner = null;
+      const changed = editor !== next;
+      editor = next;
+      adapter = site;
+      composer = next;
+      if (changed || !editor) reset();
+      button.style.visibility = 'hidden';
+      if (!next) {
+        host.remove();
         return;
       }
-
-      floatingController = floatingFactory.create({
-        button,
-        getStrategy: resolveStrategy
+      for (const orphan of document.documentElement.querySelectorAll(
+        ':scope > zeus-composer-root[data-zeus-owner]'
+      )) {
+        if (orphan !== host && orphan.dataset.zeusOwner === host.dataset.zeusOwner) orphan.remove();
+      }
+      document.documentElement.append(host);
+      theme();
+      editorEvents = new AbortController();
+      const options = { signal: editorEvents.signal };
+      editor.addEventListener(
+        'compositionstart',
+        () => {
+          if (button.dataset.state === 'idle' && review.hidden)
+            state('disabled', 'Finish composing your text to enhance it.');
+        },
+        options
+      );
+      const finishComposition = () => {
+        if (button.dataset.state === 'disabled') reset();
+      };
+      editor.addEventListener('compositionend', finishComposition, options);
+      editor.addEventListener('blur', finishComposition, options);
+      positioner = scope.ZeusFloatingPosition.create(button, editor, adapter, host, (root) => {
+        composer = root;
+        placeNotice();
       });
     }
-
-    function mountForInput(input) {
-      if (!input || !input.isConnected) {
+    button.onmousedown = (e) => e.preventDefault();
+    button.onclick = () => {
+      if (!review.hidden) {
+        review.click();
         return;
       }
-
-      ensureButton();
-      ensureFloatingController();
-
-      const anchor = resolveAnchor(input);
-      const mountRoot = resolveMountRoot(input, anchor);
-
-      if (mountRoot && button.parentElement !== mountRoot) {
-        mountRoot.appendChild(button);
+      if (editor && button.getAttribute('aria-disabled') !== 'true') onEnhance(editor);
+    };
+    reset();
+    return {
+      host,
+      button,
+      overlays,
+      bind,
+      state,
+      reset,
+      reposition: () => positioner?.schedule(),
+      destroy() {
+        bind(null, null);
+        host.remove();
       }
-
-      activeInput = input;
-      floatingController.setTarget(input, anchor);
-      floatingController.update(true);
-    }
-
-    function pickBestInput(candidates) {
-      const list = Array.isArray(candidates) ? candidates : [];
-      if (list.length === 0) {
-        return null;
-      }
-
-      if (focusedInput && list.includes(focusedInput)) {
-        return focusedInput;
-      }
-
-      if (hoveredInput && list.includes(hoveredInput)) {
-        return hoveredInput;
-      }
-
-      if (document.activeElement && list.includes(document.activeElement)) {
-        return document.activeElement;
-      }
-
-      return list[0];
-    }
-
-    function setVisible(visible) {
-      if (!button) {
-        return;
-      }
-
-      button.dataset.visible = visible ? '1' : '0';
-      button.setAttribute('aria-hidden', visible ? 'false' : 'true');
-
-      if (!visible) {
-        clearToast();
-      }
-    }
-
-    function shouldBeVisible() {
-      if (activeInput && activeInput.isConnected) {
-        return true;
-      }
-
-      if (buttonHovering) {
-        return true;
-      }
-
-      if (focusedInput && focusedInput.isConnected) {
-        return true;
-      }
-
-      if (hoveredInput && hoveredInput.isConnected) {
-        return true;
-      }
-
-      if (activeInput && activeInput.isConnected && isInputFocused(activeInput)) {
-        return true;
-      }
-
-      return false;
-    }
-
-    function updateVisibility() {
-      clearTimeout(hideTimer);
-      hideTimer = null;
-
-      if (knownInputs.length === 0) {
-        setVisible(false);
-        return;
-      }
-
-      const nextInput = pickBestInput(knownInputs);
-      if (nextInput && nextInput !== activeInput) {
-        mountForInput(nextInput);
-      } else if (activeInput && activeInput.isConnected) {
-        mountForInput(activeInput);
-      }
-
-      setVisible(shouldBeVisible());
-    }
-
-    function scheduleVisibility(delayMs) {
-      clearTimeout(hideTimer);
-      hideTimer = window.setTimeout(() => {
-        updateVisibility();
-      }, Math.max(0, Number(delayMs) || 0));
-    }
-
-    function registerInput(input) {
-      if (!input || inputListeners.has(input)) {
-        return;
-      }
-
-      const onFocus = () => {
-        focusedInput = input;
-        mountForInput(input);
-        setVisible(true);
-      };
-
-      const onBlur = () => {
-        if (focusedInput === input) {
-          focusedInput = null;
-        }
-        scheduleVisibility(80);
-      };
-
-      const onMouseEnter = () => {
-        hoveredInput = input;
-        if (!focusedInput) {
-          mountForInput(input);
-        }
-        setVisible(true);
-      };
-
-      const onMouseLeave = () => {
-        if (hoveredInput === input) {
-          hoveredInput = null;
-        }
-        scheduleVisibility(120);
-      };
-
-      const onInput = () => {
-        if (activeInput === input && floatingController) {
-          floatingController.update();
-        }
-      };
-
-      input.addEventListener('focus', onFocus, true);
-      input.addEventListener('blur', onBlur, true);
-      input.addEventListener('mouseenter', onMouseEnter);
-      input.addEventListener('mouseleave', onMouseLeave);
-      input.addEventListener('input', onInput);
-
-      inputListeners.set(input, () => {
-        input.removeEventListener('focus', onFocus, true);
-        input.removeEventListener('blur', onBlur, true);
-        input.removeEventListener('mouseenter', onMouseEnter);
-        input.removeEventListener('mouseleave', onMouseLeave);
-        input.removeEventListener('input', onInput);
-      });
-    }
-
-    function unregisterMissingInputs(nextInputs) {
-      const nextSet = new Set(nextInputs);
-      for (const [input, cleanup] of inputListeners.entries()) {
-        if (!nextSet.has(input) || !input.isConnected) {
-          cleanup();
-          inputListeners.delete(input);
-        }
-      }
-    }
-
-    function inject(inputs, adapter) {
-      const list = Array.from(new Set((Array.isArray(inputs) ? inputs : []).filter((input) => input && input.isConnected)));
-
-      resolveAnchorContainer = typeof adapter?.getAnchorContainer === 'function'
-        ? adapter.getAnchorContainer
-        : (input) => input?.parentElement || null;
-
-      resolvePositionStrategy = typeof adapter?.getPositionStrategy === 'function'
-        ? adapter.getPositionStrategy
-        : () => ({ mode: 'anchored', right: 12, bottom: 10 });
-
-      ensureButton();
-      ensureFloatingController();
-
-      knownInputs = list;
-      unregisterMissingInputs(list);
-
-      for (const input of list) {
-        registerInput(input);
-      }
-
-      if (activeInput && (!activeInput.isConnected || !list.includes(activeInput))) {
-        activeInput = null;
-      }
-
-      if (focusedInput && (!focusedInput.isConnected || !list.includes(focusedInput))) {
-        focusedInput = null;
-      }
-
-      if (hoveredInput && (!hoveredInput.isConnected || !list.includes(hoveredInput))) {
-        hoveredInput = null;
-      }
-
-      if (list.length === 0) {
-        setVisible(false);
-        if (button?.isConnected) {
-          button.remove();
-        }
-        return;
-      }
-
-      const fallbackInput = pickBestInput(list);
-      if (fallbackInput && !activeInput) {
-        mountForInput(fallbackInput);
-      }
-
-      updateVisibility();
-    }
-
-    function refresh() {
-      if (activeInput && activeInput.isConnected) {
-        mountForInput(activeInput);
-      } else {
-        const connected = knownInputs.filter((input) => input && input.isConnected);
-        const fallbackInput = pickBestInput(connected);
-        if (fallbackInput) {
-          mountForInput(fallbackInput);
-        }
-      }
-
-      updateVisibility();
-      floatingController?.update(true);
-      updateToastPosition();
-    }
-
-    function updateButtonState(inputElement, updater) {
-      if (!button || inputElement !== activeInput || typeof updater !== 'function') {
-        return;
-      }
-      updater(button);
-    }
-
-    return Object.freeze({
-      inject,
-      refresh,
-      updateButtonState,
-      showToast,
-      clearToast,
-      hideToast: clearToast
-    });
+    };
   }
-
-  globalScope.ZeusInjector = Object.freeze({
-    create
-  });
-})(typeof globalThis !== 'undefined' ? globalThis : this);
+  scope.ZeusInjector = Object.freeze({ create });
+})(globalThis);

@@ -1,4 +1,7 @@
-/** @vitest-environment jsdom */
+/**
+ * @vitest-environment jsdom
+ * @vitest-environment-options {"url":"https://chatgpt.com/"}
+ */
 const fs = require('node:fs');
 function withRect(element, rect = { width: 400, height: 100, top: 0, left: 0, right: 400, bottom: 100 }) {
   element.getBoundingClientRect = () => ({
@@ -99,6 +102,7 @@ describe('Ticket 3: Redaction across all dispatch surfaces', () => {
   });
 
   afterEach(() => {
+    globalThis.ZeusContentRuntime?.destroy();
     delete globalThis.chrome;
     delete window.chrome;
     clearZeusGlobals();
@@ -107,7 +111,9 @@ describe('Ticket 3: Redaction across all dispatch surfaces', () => {
 
   describe('Dispatch Surface 1: In-Page Enhance Button (`content.js`)', () => {
     it('redacts sensitive credentials before transmitting prompt to extension background', async () => {
+      loadScript('core/editorBridge.js');
       loadScript('core/domUtils.js');
+      loadScript('adapters/chatgpt.js');
       loadScript('core/useFloatingPosition.js');
       loadScript('core/injector.js');
       loadScript('core/observer.js');
@@ -117,15 +123,15 @@ describe('Ticket 3: Redaction across all dispatch surfaces', () => {
       await new Promise((r) => setTimeout(r, 30));
 
       const textarea = document.createElement('textarea');
+      textarea.id = 'prompt-textarea';
       withRect(textarea);
       textarea.value = `Connect to ${FIXTURES.postgresUri} and authenticate with key ${FIXTURES.apiKey}`;
       document.body.appendChild(textarea);
 
-      const button = document.createElement('button');
-      document.body.appendChild(button);
+      textarea.focus();
 
       // Invoke enhancement click on the input
-      await globalThis.ZeusContentRuntime.enhanceInput(textarea, button);
+      await globalThis.ZeusContentRuntime.enhanceInput(textarea);
 
       // 1. Inspect outgoing enhancePrompt message payload
       const enhanceMessage = runtimeMessages.find((m) => m.action === 'enhancePrompt');
@@ -149,7 +155,9 @@ describe('Ticket 3: Redaction across all dispatch surfaces', () => {
 
   describe('Dispatch Surface 2: Context Menu (`contextEnhancePrompt`)', () => {
     it('redacts sensitive data when triggered via context menu and rehydrates upon write-back', async () => {
+      loadScript('core/editorBridge.js');
       loadScript('core/domUtils.js');
+      loadScript('adapters/chatgpt.js');
       loadScript('core/useFloatingPosition.js');
       loadScript('core/injector.js');
       loadScript('core/observer.js');
@@ -159,6 +167,7 @@ describe('Ticket 3: Redaction across all dispatch surfaces', () => {
       await new Promise((r) => setTimeout(r, 30));
 
       const textarea = document.createElement('textarea');
+      textarea.id = 'prompt-textarea';
       withRect(textarea);
       textarea.value = `Send confidential report to ${FIXTURES.email} using token ${FIXTURES.jwtToken}`;
       document.body.appendChild(textarea);

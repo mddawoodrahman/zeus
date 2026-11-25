@@ -1,131 +1,92 @@
-(function initZeusObserver(globalScope) {
-  const URL_CHECK_INTERVAL_MS = 700;
-  const OBSERVED_ATTRIBUTES = ['class', 'style', 'role', 'contenteditable', 'data-testid'];
-
-  function createDebouncedCallback(callback, delayMs) {
-    let timer = null;
-
-    return function trigger() {
-      clearTimeout(timer);
-      timer = setTimeout(() => {
-        callback();
-      }, delayMs);
-    };
-  }
-
-  function nodeMayContainInput(node, selectors) {
-    if (!node || node.nodeType !== Node.ELEMENT_NODE) {
-      return false;
+(function (scope) {
+  if (scope.ZeusObserver) return;
+  function create({ onChange, onNavigate, onLayout, root = document.documentElement, debounceMs = 40 }) {
+    let timer = null,
+      url = location.href;
+    function trigger() {
+      if (timer === null)
+        timer = setTimeout(() => {
+          timer = null;
+          onChange();
+        }, debounceMs);
     }
-
-    const element = node;
-    for (const selector of selectors) {
-      try {
-        if (element.matches(selector) || element.querySelector(selector)) {
-          return true;
-        }
-      } catch (_) {
-        // Skip invalid selectors.
+    function navigation() {
+      if (url !== location.href) {
+        url = location.href;
+        onNavigate?.();
       }
+      trigger();
     }
-
-    return false;
-  }
-
-  function mutationMayAffectInputs(mutation, selectors) {
-    if (!mutation) {
-      return false;
+    const selector = scope.ZeusDomUtils.editors;
+    function relevant(node) {
+      return (
+        node.nodeType === 1 &&
+        !node.matches('zeus-composer-root') &&
+        (node.matches(selector) || !!node.querySelector(selector))
+      );
     }
-
-    if (mutation.type === 'childList') {
-      for (const node of mutation.addedNodes || []) {
-        if (nodeMayContainInput(node, selectors)) {
-          return true;
-        }
-      }
-
-      for (const node of mutation.removedNodes || []) {
-        if (nodeMayContainInput(node, selectors)) {
-          return true;
-        }
-      }
-
-      return false;
-    }
-
-    if (mutation.type === 'attributes') {
-      return nodeMayContainInput(mutation.target, selectors);
-    }
-
-    return false;
-  }
-
-  function create(options) {
-    const selectors = Array.isArray(options?.inputSelectors) ? options.inputSelectors : [];
-    const onChange = typeof options?.onChange === 'function' ? options.onChange : () => {};
-    const root = options?.root || document.body;
-    const debounceMs = Number(options?.debounceMs) > 0 ? Number(options.debounceMs) : 180;
-
-    let lastUrl = location.href;
-    let observer = null;
-    let urlTimer = null;
-
-    const trigger = createDebouncedCallback(() => {
-      onChange();
-      if (globalScope.ZeusCopilot) {
-        globalScope.ZeusCopilot.refreshTargets();
-      }
-    }, debounceMs);
-
-    if (root) {
-      observer = new MutationObserver((mutations) => {
-        for (const mutation of mutations) {
-          if (mutationMayAffectInputs(mutation, selectors)) {
-            trigger();
-            return;
-          }
-        }
-      });
-
-      observer.observe(root, {
-        childList: true,
-        subtree: true,
-        attributes: true,
-        attributeFilter: OBSERVED_ATTRIBUTES
-      });
-    }
-
-    const onNavigation = () => trigger();
-    window.addEventListener('popstate', onNavigation, { passive: true });
-    window.addEventListener('hashchange', onNavigation, { passive: true });
-
-    urlTimer = setInterval(() => {
-      if (location.href !== lastUrl) {
-        lastUrl = location.href;
+    const observer = new MutationObserver((records) => {
+      if (location.href !== url) return navigation();
+      const portals = 'dialog,[role=dialog],[role=menu],[role=listbox],[popover],aside,nav';
+      if (
+        onLayout &&
+        records.some(
+          (m) =>
+            m.target.matches?.(portals) ||
+            [...m.addedNodes, ...m.removedNodes].some(
+              (n) => n.matches?.(portals) || n.querySelector?.(portals)
+            )
+        )
+      )
+        onLayout();
+      if (records.some((m) => [...m.removedNodes].some((n) => n.nodeName === 'ZEUS-COMPOSER-ROOT')))
         trigger();
-      }
-    }, URL_CHECK_INTERVAL_MS);
-
-    return Object.freeze({
+      if (
+        records.some((m) =>
+          m.type === 'attributes'
+            ? relevant(m.target) || m.attributeName === 'contenteditable'
+            : [...m.addedNodes, ...m.removedNodes].some(relevant)
+        )
+      )
+        trigger();
+    });
+    observer.observe(root, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: [
+        'contenteditable',
+        'hidden',
+        'inert',
+        'disabled',
+        'readonly',
+        'aria-hidden',
+        'aria-disabled',
+        'role',
+        'open',
+        'style',
+        'class',
+        'dir',
+        'data-theme',
+        'placeholder',
+        'data-placeholder',
+        'data-testid',
+        'aria-label',
+        'id'
+      ]
+    });
+    const events = new AbortController();
+    for (const type of ['popstate', 'hashchange', 'pageshow'])
+      window.addEventListener(type, navigation, { signal: events.signal });
+    window.navigation?.addEventListener('currententrychange', navigation, { signal: events.signal });
+    return {
       trigger,
       disconnect() {
-        if (observer) {
-          observer.disconnect();
-          observer = null;
-        }
-
-        if (urlTimer) {
-          clearInterval(urlTimer);
-          urlTimer = null;
-        }
-
-        window.removeEventListener('popstate', onNavigation);
-        window.removeEventListener('hashchange', onNavigation);
+        events.abort();
+        clearTimeout(timer);
+        observer.disconnect();
       }
-    });
+    };
   }
-
-  globalScope.ZeusObserver = Object.freeze({
-    create
-  });
-})(typeof globalThis !== 'undefined' ? globalThis : this);
+  scope.ZeusObserver = Object.freeze({ create });
+})(globalThis);

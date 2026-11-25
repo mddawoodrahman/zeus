@@ -19,7 +19,8 @@
     "test:watch": "vitest",
     "build": "node scripts/build-extension.js",
     "zip": "node scripts/zip-extension.js",
-    "package": "npm run build && npm run zip"
+    "package": "npm run build && npm run zip",
+    "test:browser": "npm run build && node scripts/verify-composer.mjs"
   },
   "keywords": [],
   "author": "",
@@ -31,8 +32,15 @@
   "devDependencies": {
     "@vitest/coverage-v8": "^2.1.8",
     "archiver": "^7.0.1",
+    "esbuild": "^0.21.5",
     "glob": "^9.3.5",
     "jsdom": "^24.1.3",
+    "playwright-core": "1.60.0",
+    "prosemirror-model": "^1.25.13",
+    "prosemirror-schema-basic": "^1.2.5",
+    "prosemirror-state": "^1.4.4",
+    "prosemirror-view": "^1.43.0",
+    "quill": "^2.0.3",
     "vitest": "^2.1.8"
   }
 }

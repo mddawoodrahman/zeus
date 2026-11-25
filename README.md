@@ -86,7 +86,7 @@ Zeus is architected around deep, decoupled modules with strict Manifest V3 proce
 ## Key Capabilities
 
 - **Military-Grade Cyberpunk HUD Popup (`popup.html`)**: Rogue AI aesthetic featuring high-contrast neon accents (Cyber Yellow `#FFD500`, Netrunner Cyan `#00F0FF`, Arasaka Red `#FF003C`, Acid Green `#39FF14`), CRT scanline overlays, system telemetry monitors, and custom model search dropdowns.
-- **In-Page Angular Enhance Reticle (`.zeus-enhance-btn`)**: Angular cut-corner reticle floating cleanly beside native chat composers. Features CSS state animations (`idle`, spinning `◈` during `.processing`, and `✕` on `.error`), anchored positioning with collision avoidance, and non-intrusive mounting.
+- **In-page composer action** — A lightning SVG opens enhancement beside the active draft. A closed shadow root isolates the action, status, Copilot layer and review dialog.
 - **Chrome Side Panel API Workbench (`sidepanel.html`)**: Comprehensive prompt workspace accessible via persistent keyboard shortcut (`Alt+Shift+Z` / `Option+Shift+Z` on macOS). Includes live composer input capturing (`CAPTURE FROM PAGE`), inline Myers word diff visualizer (`.diff-add`, `.diff-del`), reverse-chronological session history archive (storing only scrubbed text with placeholders), and a template library with dynamic variable replacement.
 - **Copilot-Style Inline Ghost Text Completion (`core/copilot.js` & `core/ghostText.js`)**: Real-time inline suggestion engine streaming completions word-by-word into textareas and `contenteditable` inputs. Keystrokes are debounced (400ms aggressive, 800ms conservative). Features single-key acceptance (`Tab`), dismissal (`Escape` or type-through), and automatic pause upon detecting sensitive credentials.
 - **Real-Time Status Toast Overlays**: In-page visual notifications (`ESTABLISHING NEURAL LINK...`, `INJECTION COMPLETE`, `LINK FAILURE`, `WARNING: SENSITIVE PLACEHOLDER OMITTED BY AI`) informing users of enhancement state without modal interruptions.
@@ -225,16 +225,9 @@ The `core/safeDom.js` module provides safe DOM construction mechanisms that prev
 
 In-page interaction is structured into dedicated modular layers loaded in sequence:
 
-1. `core/domUtils.js`: Generic DOM discovery, input text extraction, and cursor coordinate calculation across `HTMLTextAreaElement`, `HTMLInputElement`, and rich-text `contenteditable` editors (ProseMirror, Lexical, Draft.js).
-2. `core/useFloatingPosition.js`: Dynamic positioning coordinator anchoring UI elements relative to target inputs with boundary collision detection.
-3. `core/injector.js`: Lifecycle manager for the `.zeus-enhance-btn` reticle and status toast notifications.
-4. `core/observer.js`: MutationObserver listening for dynamic SPA DOM additions, route changes, and view switching.
-5. `core/ghostText.js`: Off-screen mirror calculation and absolute positioning of completion ghost text overlays.
-6. `core/redactor.js`: Client-side PII and credential scrubbing engine.
-7. `core/promptClient.js`: Client-side IPC enhancement orchestrator.
-8. `core/copilot.js`: Inline keystroke debouncer and streaming suggestion state machine.
-9. `adapters/*.js`: Site-specific adapters tailored for ChatGPT, Claude, Gemini, DeepSeek, Grok, OpenRouter, and generic web inputs.
-10. `content.js`: Master content script coordinating injection, runtime messaging, and settings synchronization.
+The manifest loads the editor bridge, adapter factory, positioner, UI and observers before starting `content.js`. The runtime resolves an allowed host, binds one eligible composer and tracks its draft through asynchronous work. The adapter identifies editors and native controls. The bridge owns text extraction, replacement and verification. Copilot and the enhancement button share an extension-owned overlay.
+
+Provider requests continue through the content-side redactor and PromptClient to the background service worker. The implementation report records adapter capabilities, reproductions, browser tests and live coverage. [Composer engineering report](specs/composer-integration.md)
 
 ---
 
@@ -254,16 +247,18 @@ In-page interaction is structured into dedicated modular layers loaded in sequen
 ├── adapters/                                # Site-specific chat UI adapters
 │   ├── chatgpt.js                           # Adapter for chatgpt.com & chat.openai.com
 │   ├── claude.js                            # Adapter for claude.ai
-│   ├── deepseek.js                          # Adapter for deepseek.com & chat.deepseek.com
+│   ├── deepseek.js                          # Adapter for chat.deepseek.com
 │   ├── gemini.js                            # Adapter for gemini.google.com & bard.google.com
 │   ├── generic.js                           # Fallback adapter for standard textareas/inputs
 │   ├── grok.js                              # Adapter for grok.com
+│   ├── kimi.js
 │   └── openrouter.js                        # Adapter for openrouter.ai
 ├── background.js                            # MV3 background service worker entry point
 ├── content.js                               # Content script lifecycle orchestrator
 ├── core/                                    # Deep functional modules
 │   ├── copilot.js                           # Inline suggestion state machine & key handlers
-│   ├── domUtils.js                          # DOM traversal, text reading, and caret calculation
+│   ├── domUtils.js                          # Composer discovery and adapter contract
+│   ├── editorBridge.js
 │   ├── errors.js                            # Error classification & ProviderHttpError
 │   ├── ghostText.js                         # Ghost text overlay DOM rendering & positioning
 │   ├── injector.js                          # Enhance reticle button mounting & toast UI
@@ -320,13 +315,13 @@ In-page interaction is structured into dedicated modular layers loaded in sequen
 │   ├── codebase-architecture-deepening.md
 │   ├── critical-risks-architectural-red-flags.md
 │   └── security-and-privacy-overhaul.md
-├── styles.css                               # Shared styles for reticle, popup & toast overlays
+├── styles.css                               # Extension-page styles
 ├── tests/                                   # Comprehensive automated test suite
 │   ├── dom/                                 # JSDOM tests for content scripts, reticle, safeDom
 │   │   ├── content-dom.test.js
 │   │   ├── copilot-redaction.test.js
 │   │   └── safe-dom-csp.test.js
-│   ├── harness/                             # Standalone HTML mock pages for site adapters
+│   ├── harness/                             # Browser fixture pages for site adapters
 │   │   ├── chatgpt.html
 │   │   ├── claude.html
 │   │   ├── deepseek.html
@@ -334,7 +329,9 @@ In-page interaction is structured into dedicated modular layers loaded in sequen
 │   │   ├── generic.html
 │   │   ├── grok.html
 │   │   ├── harness.css
-│   │   └── harness.js
+│   │   ├── kimi.html
+│   │   ├── openrouter.html
+│   │   └── harness.mjs
 │   ├── integration/                         # Cross-boundary IPC & security packaging tests
 │   │   ├── dispatch-redaction.test.js
 │   │   ├── e2e-security-packaging.test.js
@@ -377,12 +374,14 @@ dist/extension/
 │   ├── gemini.js
 │   ├── generic.js
 │   ├── grok.js
+│   ├── kimi.js
 │   └── openrouter.js
 ├── background.js
 ├── content.js
 ├── core/
 │   ├── copilot.js
 │   ├── domUtils.js
+│   ├── editorBridge.js
 │   ├── errors.js
 │   ├── ghostText.js
 │   ├── injector.js
@@ -445,7 +444,7 @@ Zeus is authored for Manifest V3 (`manifest_version: 3`, extension version `2.1.
 | `https://chat.deepseek.com/*` | Yes | DeepSeek chat interface |
 | `https://grok.com/*` | Yes | xAI Grok chat interface |
 | `https://openrouter.ai/*` | Yes | OpenRouter chat interface and completions API |
-| `https://www.kimi.com/*` | Yes | Moonshot Kimi chat platform (handled by generic adapter) |
+| `https://www.kimi.com/*` | Yes | Moonshot Kimi chat platform |
 | `http://localhost:11434/*` | No (API Only) | Local Ollama REST daemon (`/api/generate`, `/api/tags`, etc.) |
 
 ---
@@ -476,7 +475,7 @@ All default models and fallback sequences are centrally declared in `model-regis
 
 | Provider | Default Model | Fallback Sequence |
 |---|---|---|
-| **Gemini** | `gemini-3-flash` | `gemini-3-flash` &rarr; `gemini-3-pro` &rarr; `gemini-2.5-flash` &rarr; `gemini-2.5-pro` |
+| **Gemini** | `gemini-flash-latest` | `gemini-flash-latest` &rarr; `gemini-3.5-flash-lite` &rarr; `gemini-3.1-flash-lite` |
 | **OpenAI** | `gpt-5.4-mini` | `gpt-5.4-mini` &rarr; `gpt-5.4-nano` &rarr; `gpt-5.2` &rarr; `gpt-5.3-codex` |
 | **Claude** | `claude-sonnet-4.6` | `claude-sonnet-4.6` &rarr; `claude-4.5-sonnet` &rarr; `claude-opus-4.6` &rarr; `claude-4.5-opus` |
 | **OpenRouter** | `openai/gpt-5.4` | `openai/gpt-5.4` &rarr; `anthropic/claude-opus-4.6` &rarr; `google/gemini-3-pro` &rarr; `mistralai/mistral-large-3` &rarr; `deepseek/deepseek-v3.2` &rarr; `qwen/qwen-3.5` |
@@ -541,19 +540,15 @@ Clicking the Zeus lightning bolt icon in the Chrome extension toolbar opens the 
 
 ### In-Page Enhance Reticle
 
-When navigating to any supported chat application:
+Focus the chat composer and activate the lightning button by mouse or keyboard. Zeus measures the editor and toolbar before placing the action. When there is insufficient room, use the composer context menu or the side panel.
 
-1. Zeus detects the active input field (textarea or rich contenteditable composer) and anchors an angular `.zeus-enhance-btn` reticle to the bottom-right corner.
-2. Enter your draft prompt into the chat input.
-3. Click the enhance reticle. The button transitions to a spinning `◈` state (`.processing`), while a toast notification reads `ESTABLISHING NEURAL LINK...`.
-4. Plaintext credentials are scrubbed locally, the prompt is optimized via background routing, secrets are rehydrated in place, and the optimized prompt replaces your input content.
-5. The button flashes green with an `INJECTION COMPLETE` status toast.
+The bolt stays visible during processing and errors. Zeus verifies the replacement before announcing success. A changed draft, unsupported editor, or provider warning offers **Review enhanced prompt**. Open the review to copy the result or select it manually. Switching conversations discards pending results.
 
 ---
 
 ### Context Menu Flow
 
-1. Highlight or click inside any editable text field on a web page.
+1. Focus an eligible chat composer on a permitted site.
 2. Right-click to open Chrome's context menu.
 3. Select **Enhance Prompt with Zeus**.
 4. Zeus automatically targets the active element, scrubs sensitive data, executes prompt optimization, and injects the enhanced prompt back into the input.
@@ -579,11 +574,11 @@ The Side Panel Workbench offers a comprehensive command center for prompt engine
 
 When enabled in options, Zeus acts as an inline prompt completion copilot:
 
-1. Start typing in any supported chat prompt box.
+1. Place a collapsed caret at the end of a supported chat draft.
 2. If your input exceeds 10 characters and typing stops for 400ms (aggressive) or 800ms (conservative), Zeus opens a streaming port (`copilot-stream`) and displays suggested completions as a ghost text overlay.
 3. **Accepting Suggestions**: Press **`Tab`** to accept the suggestion. The completion text is inserted at the caret, triggering native input events.
 4. **Dismissing Suggestions**: Press **`Escape`** or continue typing any other key to reject and dismiss the ghost overlay.
-5. **Sensitive Token Detection**: If sensitive data or secrets are typed, Copilot immediately pauses execution, aborts active streams, hides ghost text, and displays an amber status indicator: `Copilot paused (sensitive data)`. When the sensitive text is deleted, Copilot automatically resumes completions on subsequent keystrokes.
+5. **Sensitive Token Detection**: If sensitive data or secrets are typed, Copilot immediately pauses execution, aborts active streams, hides ghost text, and displays a status indicator: `Copilot paused (sensitive data)`. When the sensitive text is deleted, Copilot automatically resumes completions on subsequent keystrokes.
 
 ---
 
@@ -651,7 +646,7 @@ The authoritative settings schema is defined in `settings/settingsStore.js`:
     openrouter: ""
   },
   models: {
-    gemini: "gemini-3-flash",
+    gemini: "gemini-flash-latest",
     openai: "gpt-5.4-mini",
     claude: "claude-sonnet-4.6",
     openrouter: "openai/gpt-5.4"
@@ -936,6 +931,14 @@ npm run clean
 - **`scripts/zip-extension.js`**: Packages `dist/extension` into a high-compression `dist/extension.zip` using `archiver`.
 
 ---
+
+### Packaged composer tests
+
+Run `npm run package` before the full Vitest suite on a fresh checkout. The packaging tests read both the build directory and ZIP archive.
+
+Install the test browser with `npx playwright-core install chromium` and run `npm run test:browser`. Alternatively, set `ZEUS_CHROMIUM` to a local extension-capable Chromium executable. The harness loads the packaged MV3 extension in a temporary profile, serves local site fixtures and supplies synthetic provider responses. Fixture screenshots are saved in `dist/composer-evidence/`.
+
+Run `node scripts/verify-composer.mjs --live` after building for the separate public-site check. It uses a disposable profile and a synthetic provider response. On an empty eligible composer it enters a test draft, exercises the action, checks the result and clears the test draft. It never submits a message.
 
 ### Packaged Browser CDP Verification Harness
 

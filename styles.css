@@ -824,19 +824,6 @@ body {
 .provider-health-indicator.degraded { background: var(--cyber-yellow); }
 .provider-health-indicator.offline { background: var(--arasaka-red); }
 
-/* ============ PRESERVED WRAPPER LAYOUT STYLES ============ */
-.zeus-enhance-wrapper {
-  position: relative !important;
-  display: inline-block;
-  width: auto;
-  max-width: 100%;
-}
-
-.zeus-enhance-wrapper textarea,
-.zeus-enhance-wrapper [contenteditable="true"] {
-  padding-right: 44px;
-}
-
 /* ============ PREFERS REDUCED MOTION RESPECT ============ */
 @media (prefers-reduced-motion: reduce) {
   .zeus-crt-overlay,
@@ -844,8 +831,7 @@ body {
   .neon-breathe,
   .glitch-hover:hover,
   .typing-cursor::after,
-  .status-dot,
-  .zeus-enhance-btn.processing::before {
+  .status-dot {
     animation: none !important;
     opacity: 0.45 !important;
   }

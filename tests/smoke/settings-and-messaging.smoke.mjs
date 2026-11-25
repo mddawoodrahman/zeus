@@ -1,4 +1,5 @@
 import path from 'node:path';
+import fs from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
 const rootDir = process.cwd();
@@ -65,6 +66,7 @@ function createChromeMock(options = {}) {
 
   const chrome = {
     runtime: {
+      getManifest: () => JSON.parse(fs.readFileSync(path.join(rootDir,'manifest.json'),'utf8')),
       id: 'test-extension-id',
       lastError: null,
       onInstalled: {

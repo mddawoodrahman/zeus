@@ -78,7 +78,7 @@ function createMockPort(name = 'copilot-stream') {
 describe('Copilot Sensitive Data Interruption & Dynamic Recovery (Ticket 4)', () => {
   let createdPorts = [];
   let textarea;
-  let adapter;
+  let layer, controller;
   let settings;
 
   beforeEach(() => {
@@ -100,7 +100,9 @@ describe('Copilot Sensitive Data Interruption & Dynamic Recovery (Ticket 4)', ()
     };
 
     // Load dependencies in exact order
-    loadScript('core/domUtils.js');
+    loadScript('core/editorBridge.js');
+    controller = new AbortController();
+    ZeusEditorBridge.observe(controller.signal);
     loadScript('core/redactor.js');
     loadScript('core/ghostText.js');
     loadScript('core/copilot.js');
@@ -116,10 +118,11 @@ describe('Copilot Sensitive Data Interruption & Dynamic Recovery (Ticket 4)', ()
     });
     document.body.appendChild(textarea);
 
-    adapter = {
-      inputSelectors: ['textarea'],
-      pickInputs: (inputs) => inputs
-    };
+    layer = document.createElement('div').attachShadow({mode:'closed'});
+    document.body.append(layer.host);
+    textarea.focus();
+    const rect = textarea.getBoundingClientRect();
+    vi.spyOn(HTMLSpanElement.prototype, 'getBoundingClientRect').mockReturnValue({...rect,top:0,left:0,height:16});
 
     settings = {
       copilotEnabled: true,
@@ -130,7 +133,7 @@ describe('Copilot Sensitive Data Interruption & Dynamic Recovery (Ticket 4)', ()
       apiKeys: {}
     };
 
-    globalThis.ZeusCopilot.init(adapter, settings);
+    globalThis.ZeusCopilot.init(textarea, settings, layer);
   });
 
   afterEach(() => {
@@ -139,6 +142,7 @@ describe('Copilot Sensitive Data Interruption & Dynamic Recovery (Ticket 4)', ()
     }
     clearZeusGlobals();
     document.body.innerHTML = '';
+    controller.abort();
     vi.clearAllTimers();
     vi.useRealTimers();
   });
@@ -157,11 +161,11 @@ describe('Copilot Sensitive Data Interruption & Dynamic Recovery (Ticket 4)', ()
 
     // Assert paused state and indicator
     expect(globalThis.ZeusCopilot.isPaused(textarea)).toBe(true);
-    const indicator = document.querySelector('.zeus-copilot-paused');
+    const indicator = layer.querySelector('.zeus-copilot-paused:not([hidden])');
     expect(indicator).toBeTruthy();
     expect(indicator.getAttribute('data-zeus-copilot-status')).toBe('paused');
     expect(indicator.textContent).toContain('Copilot paused');
-    expect(document.querySelector('.zeus-ghost')).toBeFalsy();
+    expect(layer.querySelector('.zeus-ghost:not([hidden])')).toBeFalsy();
   });
 
   it('detects connection URIs and blocks stream dispatch', () => {
@@ -172,7 +176,7 @@ describe('Copilot Sensitive Data Interruption & Dynamic Recovery (Ticket 4)', ()
 
     expect(globalThis.chrome.runtime.connect).not.toHaveBeenCalled();
     expect(globalThis.ZeusCopilot.isPaused(textarea)).toBe(true);
-    expect(document.querySelector('.zeus-copilot-paused')).toBeTruthy();
+    expect(layer.querySelector('.zeus-copilot-paused:not([hidden])')).toBeTruthy();
   });
 
   it('immediately aborts an active in-flight stream via port.disconnect() when sensitive data is entered', () => {
@@ -190,7 +194,7 @@ describe('Copilot Sensitive Data Interruption & Dynamic Recovery (Ticket 4)', ()
 
     // Stream delivers a chunk
     port._emitMessage({ type: 'chunk', text: ' an array of numbers' });
-    const ghost = document.querySelector('.zeus-ghost');
+    const ghost = layer.querySelector('.zeus-ghost:not([hidden])');
     expect(ghost).toBeTruthy();
     expect(ghost.textContent).toBe(' an array of numbers');
     expect(globalThis.ZeusCopilot.isPaused(textarea)).toBe(false);
@@ -204,9 +208,9 @@ describe('Copilot Sensitive Data Interruption & Dynamic Recovery (Ticket 4)', ()
     expect(globalThis.ZeusCopilot.isPaused(textarea)).toBe(true);
 
     // Assert: ghost overlay is cleared/hidden and paused indicator is shown
-    const ghostAfterAbort = document.querySelector('.zeus-ghost');
+    const ghostAfterAbort = layer.querySelector('.zeus-ghost:not([hidden])');
     expect(!ghostAfterAbort || ghostAfterAbort.style.display === 'none').toBe(true);
-    const indicator = document.querySelector('.zeus-copilot-paused');
+    const indicator = layer.querySelector('.zeus-copilot-paused:not([hidden])');
     expect(indicator).toBeTruthy();
     expect(indicator.textContent).toContain('Copilot paused');
   });
@@ -231,7 +235,7 @@ describe('Copilot Sensitive Data Interruption & Dynamic Recovery (Ticket 4)', ()
     port._emitMessage({ type: 'chunk', text: ' in JavaScript functions' });
 
     // Stale chunk must be suppressed
-    const ghostAfterChunk = document.querySelector('.zeus-ghost');
+    const ghostAfterChunk = layer.querySelector('.zeus-ghost:not([hidden])');
     expect(!ghostAfterChunk || ghostAfterChunk.style.display === 'none').toBe(true);
     expect(ghostAfterChunk?.textContent || '').not.toContain('in JavaScript functions');
   });
@@ -243,7 +247,7 @@ describe('Copilot Sensitive Data Interruption & Dynamic Recovery (Ticket 4)', ()
     vi.advanceTimersByTime(800);
 
     expect(globalThis.ZeusCopilot.isPaused(textarea)).toBe(true);
-    expect(document.querySelector('.zeus-copilot-paused')).toBeTruthy();
+    expect(layer.querySelector('.zeus-copilot-paused:not([hidden])')).toBeTruthy();
     expect(createdPorts.length).toBe(0);
 
     // 2. User deletes the database connection URI, leaving safe prompt text (>= 10 chars)
@@ -252,7 +256,7 @@ describe('Copilot Sensitive Data Interruption & Dynamic Recovery (Ticket 4)', ()
 
     // Assert: pause state is immediately cleared and indicator is removed
     expect(globalThis.ZeusCopilot.isPaused(textarea)).toBe(false);
-    expect(document.querySelector('.zeus-copilot-paused')).toBeFalsy();
+    expect(layer.querySelector('.zeus-copilot-paused:not([hidden])')).toBeFalsy();
 
     // 3. Debounce timer elapses -> suggestion stream resumes!
     vi.advanceTimersByTime(800);
@@ -263,9 +267,9 @@ describe('Copilot Sensitive Data Interruption & Dynamic Recovery (Ticket 4)', ()
     const port = createdPorts[0];
     port._emitMessage({ type: 'chunk', text: ' and min/max connections' });
 
-    const ghost = document.querySelector('.zeus-ghost');
+    const ghost = layer.querySelector('.zeus-ghost:not([hidden])');
     expect(ghost).toBeTruthy();
-    expect(ghost.style.display).toBe('block');
+    expect(ghost.hidden).toBe(false);
     expect(ghost.textContent).toBe(' and min/max connections');
   });
 
@@ -278,16 +282,16 @@ describe('Copilot Sensitive Data Interruption & Dynamic Recovery (Ticket 4)', ()
 
     // Should not be paused
     expect(globalThis.ZeusCopilot.isPaused(textarea)).toBe(false);
-    expect(document.querySelector('.zeus-copilot-paused')).toBeFalsy();
+    expect(layer.querySelector('.zeus-copilot-paused:not([hidden])')).toBeFalsy();
     expect(globalThis.chrome.runtime.connect).toHaveBeenCalledWith({ name: 'copilot-stream' });
   });
 
   it('respects redactionEnabled: false setting when user explicitly opts out', () => {
     // Reconfigure with redaction explicitly disabled
-    globalThis.ZeusCopilot.reconfigure({
+    globalThis.ZeusCopilot.init(textarea, {
       ...settings,
       redactionEnabled: false
-    });
+    }, layer);
 
     textarea.value = 'Testing with sk-proj-test12345678901234567890 when redaction disabled';
     textarea.dispatchEvent(new Event('input', { bubbles: true }));
@@ -296,7 +300,7 @@ describe('Copilot Sensitive Data Interruption & Dynamic Recovery (Ticket 4)', ()
 
     // Redaction disabled -> no pause
     expect(globalThis.ZeusCopilot.isPaused(textarea)).toBe(false);
-    expect(document.querySelector('.zeus-copilot-paused')).toBeFalsy();
+    expect(layer.querySelector('.zeus-copilot-paused:not([hidden])')).toBeFalsy();
     expect(globalThis.chrome.runtime.connect).toHaveBeenCalled();
   });
 
@@ -305,11 +309,11 @@ describe('Copilot Sensitive Data Interruption & Dynamic Recovery (Ticket 4)', ()
     textarea.dispatchEvent(new Event('input', { bubbles: true }));
 
     expect(globalThis.ZeusCopilot.isPaused(textarea)).toBe(true);
-    expect(document.querySelector('.zeus-copilot-paused')).toBeTruthy();
+    expect(layer.querySelector('.zeus-copilot-paused:not([hidden])')).toBeTruthy();
 
     globalThis.ZeusCopilot.destroy();
 
-    expect(document.querySelector('.zeus-copilot-paused')).toBeFalsy();
+    expect(layer.querySelector('.zeus-copilot-paused:not([hidden])')).toBeFalsy();
     expect(globalThis.ZeusCopilot.isPaused(textarea)).toBe(false);
   });
 });

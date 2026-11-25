@@ -25,18 +25,20 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Build artifacts for packaging tests
+        run: npm run package
+
       - name: Run full tests
         run: npm run test
 
       - name: Run syntax validation
         run: npm run test:syntax
 
-      - name: Build extension package directory
-        run: npm run build
+      - name: Install Chromium for composer fixtures
+        run: npx playwright-core install --with-deps chromium
 
-      - name: Zip extension bundle
-        if: startsWith(github.ref, 'refs/tags/')
-        run: npm run zip
+      - name: Verify packaged composer integration
+        run: node scripts/verify-composer.mjs
 
       - name: Upload extension artifact
         if: startsWith(github.ref, 'refs/tags/')

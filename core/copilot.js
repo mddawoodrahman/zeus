@@ -1,375 +1,171 @@
-(function initZeusCopilot(globalScope) {
-  const domUtils = globalScope.ZeusDomUtils;
-  const ghostText = globalScope.ZeusGhostText;
-
-  if (!domUtils || !ghostText) return;
-
-  let activeAdapter = null;
-  let settings = null;
-  let activePort = null;
-  let activeInput = null;
-  let activeSuggestion = '';
-  let cursorPos = 0;
-  let debounceTimer = null;
-  let isSensitivePaused = false;
-  let activeAbortController = null;
-  const inputCleanups = new Map();
-  let pausedInputs = new WeakSet();
-
-  function isSensitive(text) {
-    const redactor = globalScope.ZeusRedactor;
-    if (!redactor || typeof redactor.hasSensitive !== 'function') return false;
-    if (settings && settings.redactionEnabled === false) return false;
-    return redactor.hasSensitive(text, {
-      redactionEnabled: settings ? settings.redactionEnabled !== false : true,
-      customRedactionPatterns: settings?.customRedactionPatterns
-    });
-  }
-
-  function showPausedIndicator(input) {
-    if (!input) return;
-    pausedInputs.add(input);
-    if (ghostText && typeof ghostText.showPausedIndicator === 'function') {
-      ghostText.showPausedIndicator(input);
-    }
-  }
-
-  function hidePausedIndicator(input) {
-    if (input) {
-      pausedInputs.delete(input);
-    } else {
-      pausedInputs = new WeakSet();
-    }
-    if (ghostText && typeof ghostText.hidePausedIndicator === 'function') {
-      ghostText.hidePausedIndicator();
-    }
-  }
-
-  function abortStream() {
-    if (activeAbortController) {
+(function (scope) {
+  if (scope.ZeusCopilot) return;
+  const bridge = scope.ZeusEditorBridge;
+  let binding;
+  function init(editor, settings, layer) {
+    if (binding?.editor === editor && binding.settings === settings) return;
+    destroy();
+    if (!settings?.copilotEnabled || !bridge.capabilities(editor).canReplace) return;
+    const overlay = scope.ZeusGhostText.create(editor, layer);
+    const controller = new AbortController();
+    const { signal } = controller;
+    let timer,
+      port,
+      suggestion = '',
+      original,
+      revision,
+      paused = false;
+    function stopPort(abort) {
+      const old = port;
+      port = null;
+      if (!old) return;
       try {
-        activeAbortController.abort();
-      } catch (_) {}
-      activeAbortController = null;
-    }
-    if (activePort) {
+        if (abort) old.postMessage({ type: 'copilot:abort' });
+      } catch {}
       try {
-        activePort.postMessage({ type: 'copilot:abort' });
-      } catch (_) {}
+        old.disconnect();
+      } catch {}
+    }
+    function reset() {
+      clearTimeout(timer);
+      stopPort(true);
+      original = undefined;
+      suggestion = '';
+      overlay.setText('');
+      paused = false;
+      overlay.paused(false);
+    }
+    function sensitive(text) {
+      return (
+        settings.redactionEnabled !== false &&
+        (!scope.ZeusRedactor || scope.ZeusRedactor.hasSensitive(text, settings))
+      );
+    }
+    function pause() {
+      reset();
+      paused = true;
+      overlay.paused(true);
+    }
+    function current() {
+      return (
+        !signal.aborted &&
+        editor.isConnected &&
+        bridge.atEnd(editor) &&
+        original === bridge.read(editor) &&
+        revision === bridge.version(editor)
+      );
+    }
+    function fetchSuggestion() {
+      if (!current()) return reset();
+      if (sensitive(original)) return pause();
       try {
-        activePort.disconnect();
-      } catch (_) {}
-      activePort = null;
-    }
-  }
-
-  function init(adapter, initialSettings) {
-    activeAdapter = adapter;
-    settings = initialSettings;
-    refreshTargets();
-  }
-
-  function reconfigure(newSettings) {
-    settings = newSettings;
-    if (!settings?.copilotEnabled) {
-      destroy();
-    } else {
-      refreshTargets();
-    }
-  }
-
-  function getEligibleInputs() {
-    if (!activeAdapter) return [];
-    const selectors = activeAdapter.inputSelectors || domUtils.DEFAULT_INPUT_SELECTORS;
-    let inputs = domUtils.findCandidates(selectors, document);
-    inputs = domUtils.filterEligibleInputs(inputs);
-    if (typeof activeAdapter.pickInputs === 'function') {
-      inputs = domUtils.filterEligibleInputs(activeAdapter.pickInputs(inputs));
-    }
-    return inputs;
-  }
-
-  function refreshTargets() {
-    if (!settings?.copilotEnabled) return;
-
-    const currentInputs = getEligibleInputs();
-    
-    // Remove listeners from inputs that are no longer eligible or connected
-    for (const [input, cleanup] of inputCleanups.entries()) {
-      if (!currentInputs.includes(input) || !input.isConnected) {
-        cleanup();
-        inputCleanups.delete(input);
+        const stream = chrome.runtime.connect({ name: 'copilot-stream' });
+        port = stream;
+        stream.onMessage.addListener((msg) => {
+          if (port !== stream) return;
+          if (sensitive(bridge.read(editor)) || msg.type === 'paused') return pause();
+          if (!current()) return reset();
+          if (msg.type === 'chunk') {
+            suggestion += msg.text;
+            overlay.setText(suggestion);
+          } else if (msg.type === 'done') stopPort(false);
+          else if (msg.type === 'error') reset();
+        });
+        stream.onDisconnect.addListener(() => {
+          if (port === stream) reset();
+        });
+        stream.postMessage({
+          type: 'copilot:start',
+          text: original,
+          cursorPos: original.length,
+          settings: {
+            copilotMode: settings.copilotMode,
+            copilotProvider: settings.copilotProvider,
+            copilotMaxTokens: settings.copilotMaxTokens,
+            customRedactionPatterns: settings.customRedactionPatterns,
+            redactionEnabled: settings.redactionEnabled
+          }
+        });
+      } catch {
+        reset();
       }
     }
-
-    // Attach listeners to new eligible inputs
-    for (const input of currentInputs) {
-      if (!inputCleanups.has(input)) {
-        attachToInput(input);
+    let accepting = false;
+    function input(event) {
+      reset();
+      if (accepting) return;
+      if (event.isComposing || bridge.isComposing(editor)) return;
+      original = bridge.read(editor);
+      if (sensitive(original)) return pause();
+      if (!bridge.atEnd(editor) || original.length < 10) return;
+      revision = bridge.version(editor);
+      timer = setTimeout(fetchSuggestion, settings.copilotMode === 'aggressive' ? 400 : 800);
+    }
+    function keydown(event) {
+      if (event.isComposing || event.keyCode === 229) return reset();
+      if (
+        event.key === 'Tab' &&
+        !event.shiftKey &&
+        !event.ctrlKey &&
+        !event.altKey &&
+        !event.metaKey &&
+        suggestion &&
+        current() &&
+        overlay.position()
+      ) {
+        const value = original + suggestion;
+        reset();
+        event.preventDefault();
+        event.stopPropagation();
+        accepting = true;
+        bridge
+          .replace(editor, value, () => !signal.aborted && editor.isConnected, value.length)
+          .catch(reset)
+          .finally(() => {
+            accepting = false;
+          });
+      } else if (!['Shift', 'Alt', 'Control', 'Meta'].includes(event.key)) {
+        if (event.key === 'Escape' && suggestion && current() && overlay.position()) {
+          event.preventDefault();
+          event.stopPropagation();
+        }
+        reset();
       }
     }
-  }
-
-  function attachToInput(input) {
-    const handleInput = (event) => onInput(input, event);
-    const handleKeydown = (event) => onKeydown(input, event);
-    const handleBlur = () => reject();
-    const handleScroll = () => {
-      if (activeSuggestion) {
-        ghostText.positionOverlay(input);
+    function reposition() {
+      if (original !== undefined && !current()) reset();
+      else if (suggestion) overlay.position();
+    }
+    editor.addEventListener('input', input, { signal });
+    editor.addEventListener('keydown', keydown, { signal, capture: true });
+    for (const type of ['blur', 'compositionstart', 'pointerdown'])
+      editor.addEventListener(type, reset, { signal });
+    document.addEventListener('selectionchange', reposition, { signal });
+    window.addEventListener('scroll', reposition, { capture: true, passive: true, signal });
+    window.addEventListener('resize', reposition, { signal });
+    for (const type of ['resize', 'scroll'])
+      window.visualViewport?.addEventListener(type, reposition, { signal });
+    const resize = typeof ResizeObserver === 'function' && new ResizeObserver(reposition);
+    resize && resize.observe(editor);
+    binding = {
+      editor,
+      settings,
+      paused: () => paused,
+      destroy() {
+        controller.abort();
+        reset();
+        overlay.destroy();
+        resize && resize.disconnect();
       }
     };
-    const handleClick = () => reject();
-
-    input.addEventListener('input', handleInput);
-    input.addEventListener('keydown', handleKeydown);
-    input.addEventListener('blur', handleBlur);
-    input.addEventListener('scroll', handleScroll);
-    input.addEventListener('click', handleClick);
-
-    inputCleanups.set(input, () => {
-      input.removeEventListener('input', handleInput);
-      input.removeEventListener('keydown', handleKeydown);
-      input.removeEventListener('blur', handleBlur);
-      input.removeEventListener('scroll', handleScroll);
-      input.removeEventListener('click', handleClick);
-    });
   }
-
-  function onInput(input, event) {
-    clearTimeout(debounceTimer);
-    debounceTimer = null;
-
-    const value = domUtils.getInputText(input);
-    const hasSensitiveData = isSensitive(value);
-
-    if (hasSensitiveData) {
-      isSensitivePaused = true;
-      // Immediately abort active streams and suppress in-flight chunks
-      abortStream();
-      ghostText.hide();
-      ghostText.destroy();
-      activeSuggestion = '';
-      showPausedIndicator(input);
-      return;
-    }
-
-    // Automatically clear the pause state and indicator when sensitive text is removed
-    if (isSensitivePaused || pausedInputs.has(input)) {
-      isSensitivePaused = false;
-      hidePausedIndicator(input);
-    }
-
-    if (value.length < 10) {
-      reject();
-      return;
-    }
-
-    const pos = input.tagName === 'TEXTAREA' ? input.selectionStart : value.length;
-
-    // Reject current suggestion on typing
-    if (activeSuggestion || activePort) {
-      reject();
-    }
-
-    const delay = settings?.copilotMode === 'aggressive' ? 400 : 800;
-    debounceTimer = setTimeout(() => {
-      fetchSuggestion(input, value, pos);
-    }, delay);
-  }
-
-  function fetchSuggestion(input, text, pos) {
-    const currentVal = domUtils.getInputText(input);
-    if (isSensitive(text) || isSensitive(currentVal)) {
-      isSensitivePaused = true;
-      showPausedIndicator(input);
-      reject();
-      return;
-    }
-
-    reject();
-
-    activeInput = input;
-    cursorPos = pos;
-    activeSuggestion = '';
-
-    if (activeAbortController) {
-      try {
-        activeAbortController.abort();
-      } catch (_) {}
-    }
-    activeAbortController = new AbortController();
-    const currentAbortController = activeAbortController;
-
-    ghostText.createOverlay(input);
-
-    try {
-      activePort = chrome.runtime.connect({ name: 'copilot-stream' });
-      const currentPort = activePort;
-      
-      activePort.onMessage.addListener((msg) => {
-        // Suppress stale chunks if stream was aborted, port disconnected, or input changed
-        if (!activePort || activePort !== currentPort || activeInput !== input) return;
-        if (currentAbortController.signal.aborted) return;
-
-        // Verify current text in the input has not become sensitive in the interim
-        const latestVal = domUtils.getInputText(input);
-        if (isSensitive(latestVal)) {
-          isSensitivePaused = true;
-          abortStream();
-          ghostText.hide();
-          ghostText.destroy();
-          activeSuggestion = '';
-          showPausedIndicator(input);
-          return;
-        }
-
-        if (msg.type === 'chunk') {
-          activeSuggestion += msg.text;
-          ghostText.setText(activeSuggestion);
-          ghostText.show();
-        } else if (msg.type === 'paused') {
-          isSensitivePaused = true;
-          abortStream();
-          ghostText.hide();
-          ghostText.destroy();
-          activeSuggestion = '';
-          showPausedIndicator(input);
-        } else if (msg.type === 'done') {
-          cleanupPort();
-        } else if (msg.type === 'error') {
-          reject();
-        }
-      });
-
-      activePort.onDisconnect.addListener(() => {
-        if (activePort === currentPort) {
-          cleanupPort();
-        }
-      });
-
-      activePort.postMessage({
-        type: 'copilot:start',
-        text: text,
-        cursorPos: pos,
-        settings: {
-          copilotMode: settings?.copilotMode,
-          copilotProvider: settings?.copilotProvider,
-          copilotMaxTokens: settings?.copilotMaxTokens,
-          redactionEnabled: settings?.redactionEnabled,
-          customRedactionPatterns: settings?.customRedactionPatterns
-        }
-      });
-    } catch (_) {
-      reject();
-    }
-  }
-
-  function onKeydown(input, event) {
-    if (!activeSuggestion) return;
-
-    if (event.key === 'Tab') {
-      event.preventDefault();
-      event.stopPropagation();
-      accept();
-    } else if (event.key === 'Escape') {
-      event.preventDefault();
-      event.stopPropagation();
-      reject();
-    } else if (!['Shift', 'Control', 'Alt', 'Meta'].includes(event.key)) {
-      // Type through dismisses suggestion
-      reject();
-    }
-  }
-
-  function accept() {
-    if (!activeInput || !activeSuggestion) return;
-
-    const input = activeInput;
-    const suggestion = activeSuggestion;
-    
-    reject(); // Clear ghost and ports
-
-    if (input.tagName === 'TEXTAREA' || input.tagName === 'INPUT') {
-      const val = input.value;
-      input.value = val.slice(0, cursorPos) + suggestion + val.slice(cursorPos);
-      input.selectionStart = input.selectionEnd = cursorPos + suggestion.length;
-      input.dispatchEvent(new Event('input', { bubbles: true }));
-      input.dispatchEvent(new Event('change', { bubbles: true }));
-    } else if (input.isContentEditable) {
-      input.focus();
-      try {
-        const selection = window.getSelection();
-        if (selection.rangeCount > 0) {
-          const range = selection.getRangeAt(0);
-          range.deleteContents();
-          const textNode = document.createTextNode(suggestion);
-          range.insertNode(textNode);
-          
-          // Move cursor after the inserted text
-          range.setStartAfter(textNode);
-          range.setEndAfter(textNode);
-          selection.removeAllRanges();
-          selection.addRange(range);
-          
-          input.dispatchEvent(new Event('input', { bubbles: true }));
-          input.dispatchEvent(new Event('change', { bubbles: true }));
-        }
-      } catch (_) {
-        // Fallback simple insert
-        const val = domUtils.getInputText(input);
-        domUtils.setInputText(input, val + suggestion);
-      }
-    }
-  }
-
-  function cleanupPort() {
-    if (activePort) {
-      try {
-        activePort.disconnect();
-      } catch (_) {}
-      activePort = null;
-    }
-  }
-
-  function reject() {
-    clearTimeout(debounceTimer);
-    debounceTimer = null;
-    abortStream();
-    ghostText.hide();
-    ghostText.destroy();
-    activeInput = null;
-    activeSuggestion = '';
-    cursorPos = 0;
-  }
-
   function destroy() {
-    reject();
-    hidePausedIndicator();
-    isSensitivePaused = false;
-    pausedInputs = new WeakSet();
-    for (const cleanup of inputCleanups.values()) {
-      cleanup();
-    }
-    inputCleanups.clear();
-    activeAdapter = null;
-    settings = null;
+    binding?.destroy();
+    binding = null;
   }
-
-  globalScope.ZeusCopilot = Object.freeze({
+  scope.ZeusCopilot = Object.freeze({
     init,
-    reconfigure,
-    refreshTargets,
     destroy,
-    isPaused: (input) => input ? pausedInputs.has(input) : isSensitivePaused,
-    getPausedIndicator: () => {
-      if (ghostText && typeof ghostText.getPausedIndicator === 'function') {
-        const ind = ghostText.getPausedIndicator();
-        if (ind) return ind;
-      }
-      return document.querySelector('.zeus-copilot-paused');
-    },
-    abortStream,
-    triggerSuggestion: fetchSuggestion
+    isPaused: (el) => !!binding && (!el || binding.editor === el) && binding.paused()
   });
-})(typeof globalThis !== 'undefined' ? globalThis : this);
+})(globalThis);

@@ -3,6 +3,7 @@
   const prompts = globalScope.ZeusPrompts;
   const errors = globalScope.ZeusErrors;
   const providerUtils = globalScope.ZeusProviderUtils;
+  const registry = globalScope.ZeusModelRegistry;
   const transport = globalScope.ZeusProviderTransport || (typeof require !== 'undefined' ? (function() {
     try {
       const path = require('node:path');
@@ -46,6 +47,7 @@
   }
 
   function isRetryable(status, errData) {
+    if (status === 404) return false;
     const signal = extractSignal(errData);
     if ([408, 429, 500, 502, 503, 504].includes(status)) {
       return true;
@@ -64,10 +66,10 @@
 
   async function enhance(prompt, config) {
     const apiKey = String(config?.apiKeys?.gemini || '').trim();
-    const model = String(config?.models?.gemini || '').trim();
+    const model = registry.normalizeGeminiModel(config?.models?.gemini);
     if (!apiKey) throw new Error('Missing Gemini API key.');
-    if (!model) throw new Error('Missing Gemini model.');
 
+    const headers = { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey };
     const body = {
       contents: [{ parts: [{ text: prompts.buildEnhancePrompt(prompt) }] }],
       generationConfig: { temperature: 0.4, maxOutputTokens: 2048 }
@@ -78,20 +80,20 @@
 
     for (let modelIndex = 0; modelIndex < modelCandidates.length; modelIndex += 1) {
       const currentModel = modelCandidates[modelIndex];
-      const apiUrl = `${GEMINI_API_BASE_URL}/${currentModel}:generateContent?key=${apiKey}`;
+      const apiUrl = `${GEMINI_API_BASE_URL}/${encodeURIComponent(currentModel)}:generateContent`;
 
       for (let attempt = 0; attempt < GEMINI_MAX_RETRIES; attempt += 1) {
         const result = await (transport ? transport.execute({
           url: apiUrl,
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers,
           body,
           maxRetries: 1,
           provider: 'gemini'
         }) : (async () => {
           const response = await retry.fetchWithTimeout(apiUrl, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers,
             body: JSON.stringify(body)
           });
           const data = await providerUtils.readJsonSafe(response);
@@ -135,7 +137,7 @@
 
   async function suggest(text, settings, port, signal) {
     const apiKey = String(settings?.apiKeys?.gemini || '').trim();
-    const model = String(settings?.models?.gemini || 'gemini-3-flash').trim();
+    const model = registry.normalizeGeminiModel(settings?.models?.gemini);
     if (!apiKey) throw new Error('Missing Gemini API key.');
 
     const promptText = `You are a concise prompt-completion assistant. Continue the user's incomplete prompt with at most 2 sentences. Do not repeat what they already typed. Prompt: ${text}`;
@@ -144,13 +146,14 @@
       generationConfig: { temperature: 0.3, maxOutputTokens: settings.copilotMaxTokens || 60 }
     };
 
-    const apiUrl = `${GEMINI_API_BASE_URL}/${model}:streamGenerateContent?alt=sse&key=${apiKey}`;
+    const apiUrl = `${GEMINI_API_BASE_URL}/${encodeURIComponent(model)}:streamGenerateContent?alt=sse`;
+    const headers = { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey };
 
     if (transport && typeof transport.stream === 'function') {
       await transport.stream({
         url: apiUrl,
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body,
         decoder: 'sse',
         provider: 'gemini',
@@ -167,7 +170,7 @@
     } else {
       const response = await fetch(apiUrl, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify(body),
         signal
       });
