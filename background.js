@@ -30,5 +30,6 @@ importScripts(
   'core/redactor.js',
   'core/router.js',
   'core/promptEngine.js',
+  'core/providerDiagnostics.js',
   'messaging/messageHandler.js'
 );

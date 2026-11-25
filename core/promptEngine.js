@@ -70,6 +70,23 @@
     return null;
   }
 
+  function getErrors() {
+    if (globalScope.ZeusErrors) return globalScope.ZeusErrors;
+    if (typeof require !== 'undefined') {
+      try {
+        const path = require('node:path');
+        return require(path.resolve(process.cwd(), 'core/errors.js'));
+      } catch (_) {
+        try {
+          return require('./errors.js');
+        } catch (_2) {
+          return null;
+        }
+      }
+    }
+    return null;
+  }
+
   function getProviders() {
     return globalScope.ZeusProviders || {};
   }
@@ -93,10 +110,108 @@
     return Boolean(String(config?.apiKeys?.[provider] || '').trim());
   }
 
+  function hasOllamaModel(config) {
+    return Boolean(String(config?.ollama?.model || '').trim());
+  }
+
+  function isProviderConfigured(config, provider) {
+    if (provider === 'ollama') {
+      return hasOllamaModel(config);
+    }
+    return hasApiKeyForProvider(config, provider);
+  }
+
+  function formatProviderLabel(provider) {
+    if (provider === 'openai') return 'OpenAI';
+    if (provider === 'openrouter') return 'OpenRouter';
+    if (provider === 'claude') return 'Claude';
+    if (provider === 'gemini') return 'Gemini';
+    if (provider === 'ollama') return 'Ollama';
+    if (provider === 'auto') return 'Auto mode';
+    return provider || 'provider';
+  }
+
+  function createConfigError(code, provider, message, details = {}) {
+    const errorsModule = getErrors();
+    if (errorsModule && typeof errorsModule.ProviderConfigError === 'function') {
+      return new errorsModule.ProviderConfigError(code, provider, message, details);
+    }
+    const err = new Error(message);
+    err.name = 'ProviderConfigError';
+    err.code = code || 'NOT_CONFIGURED';
+    err.category = details?.category || err.code;
+    err.provider = String(provider || '').trim();
+    err.model = String(details?.model || '').trim();
+    err.status = Number(details?.status) || 0;
+    err.retryable = Boolean(details?.retryable);
+    err.details = details;
+    return err;
+  }
+
+  function safelyAttachErrorMetadata(error, metadata) {
+    if (!error || typeof error !== 'object') {
+      return;
+    }
+
+    const errorsModule = getErrors();
+    const ollamaMeta = globalScope.ZeusOllamaMeta || {};
+    const context = {
+      provider: error.provider || metadata.provider || '',
+      model: error.model || metadata.model || '',
+      ollamaNotRunningMessage: ollamaMeta.OLLAMA_NOT_RUNNING_MESSAGE,
+      ollamaNoModelMessage: ollamaMeta.OLLAMA_NO_MODEL_MESSAGE,
+      buildOllamaOriginBlockedMessage: ollamaMeta.buildOllamaOriginBlockedMessage
+    };
+
+    const detail = errorsModule && typeof errorsModule.classifyEnhanceError === 'function'
+      ? errorsModule.classifyEnhanceError(error, context)
+      : null;
+
+    const assignIfSafe = (key, value) => {
+      if (value === undefined) return;
+      try {
+        if (error[key] === undefined || error[key] === '') {
+          error[key] = value;
+        }
+      } catch (_) {
+        // Ignore non-writable or frozen error properties
+      }
+    };
+
+    if (detail) {
+      assignIfSafe('code', detail.code);
+      assignIfSafe('category', detail.category);
+      assignIfSafe('provider', detail.provider);
+      assignIfSafe('model', detail.model);
+      assignIfSafe('retryable', detail.retryable);
+      assignIfSafe('errorDetail', detail);
+    } else {
+      assignIfSafe('provider', context.provider);
+      assignIfSafe('model', context.model);
+    }
+
+    if (Array.isArray(metadata.fallbackAttempts) && metadata.fallbackAttempts.length > 0) {
+      assignIfSafe('fallbackAttempts', metadata.fallbackAttempts.slice());
+    }
+    if (Array.isArray(metadata.skippedProviders) && metadata.skippedProviders.length > 0) {
+      assignIfSafe('skippedProviders', metadata.skippedProviders.slice());
+    }
+  }
+
   function withProviderModelOverride(config, provider, model) {
     const normalizedModel = String(model || '').trim();
     if (!normalizedModel) {
       return config;
+    }
+
+    if (provider === 'ollama') {
+      return {
+        ...config,
+        ollama: {
+          ...(config.ollama || {}),
+          model: normalizedModel
+        }
+      };
     }
 
     return {
@@ -141,7 +256,13 @@
       ...(options?.provider ? { provider: options.provider } : {}),
       models: {
         ...(baseConfig.models || {}),
-        ...(options?.model && options?.provider ? { [options.provider]: options.model } : {})
+        ...(options?.model && options?.provider && options.provider !== 'ollama'
+          ? { [options.provider]: options.model }
+          : {})
+      },
+      ollama: {
+        ...(baseConfig.ollama || {}),
+        ...(options?.provider === 'ollama' && options?.model ? { model: options.model } : {})
       }
     };
 
@@ -201,9 +322,12 @@
 
     let finalEnhancedText = '';
     let executedProvider = configuredProvider;
-    let executedModel = String(config.models?.[configuredProvider] || '').trim();
+    let executedModel = configuredProvider === 'ollama'
+      ? String(config.ollama?.model || '').trim()
+      : String(config.models?.[configuredProvider] || '').trim();
     let detectedIntent = 'general';
     const fallbackAttempts = [];
+    const skippedProviders = [];
 
     try {
       console.log(`${logPrefix.info} ROUTING PROMPT`, logStyle.info, { provider: configuredProvider });
@@ -223,6 +347,7 @@
           : [primaryRoute];
 
         let success = false;
+        let attemptedCount = 0;
         let lastAutoError = null;
 
         for (const route of candidates) {
@@ -235,7 +360,13 @@
           const provider = route.provider;
           const model = route.model;
 
-          if (!hasApiKeyForProvider(config, provider)) {
+          if (!isProviderConfigured(config, provider)) {
+            if (!skippedProviders.includes(provider)) {
+              skippedProviders.push(provider);
+              fallbackAttempts.push(
+                `${provider}:${model || 'auto'} (not configured: ${provider === 'ollama' ? 'no local model' : 'missing API key'})`
+              );
+            }
             continue;
           }
 
@@ -244,11 +375,15 @@
             continue;
           }
 
+          attemptedCount += 1;
+
           try {
             const candidateConfig = withProviderModelOverride(runtimeConfig, provider, model);
             finalEnhancedText = await providerFn(scrubbedPrompt, candidateConfig);
             executedProvider = provider;
-            executedModel = model || String(candidateConfig.models?.[provider] || '').trim();
+            executedModel = provider === 'ollama'
+              ? String(candidateConfig.ollama?.model || '').trim()
+              : (model || String(candidateConfig.models?.[provider] || '').trim());
             success = true;
             break;
           } catch (error) {
@@ -256,6 +391,12 @@
               throw error;
             }
             lastAutoError = error;
+            safelyAttachErrorMetadata(lastAutoError, {
+              provider,
+              model: model || (provider === 'ollama' ? config.ollama?.model : config.models?.[provider]) || '',
+              fallbackAttempts,
+              skippedProviders
+            });
             trackFallbackEvent({
               provider,
               fromModel: model || '',
@@ -269,17 +410,48 @@
         }
 
         if (!success) {
-          throw new Error(`Auto mode failed after smart routing attempts. ${fallbackAttempts.join(' | ')}`);
+          if (attemptedCount === 0 || !lastAutoError) {
+            throw createConfigError(
+              'NOT_CONFIGURED',
+              'auto',
+              'No AI provider is configured for Auto mode. Add a cloud API key or configure a local Ollama model in Zeus settings.',
+              { skippedProviders: skippedProviders.slice(), fallbackAttempts: fallbackAttempts.slice() }
+            );
+          }
+
+          safelyAttachErrorMetadata(lastAutoError, {
+            provider: lastAutoError?.provider || 'auto',
+            model: lastAutoError?.model || '',
+            fallbackAttempts,
+            skippedProviders
+          });
+          throw lastAutoError;
         }
       } else {
         const providerFn = providers[configuredProvider] || globalScope.ZeusProviders?.[configuredProvider];
         if (typeof providerFn !== 'function') {
-          throw new Error(`Unsupported provider: ${configuredProvider}`);
+          throw createConfigError(
+            'NOT_CONFIGURED',
+            configuredProvider,
+            `Unsupported provider: ${configuredProvider}`
+          );
+        }
+
+        if (!isProviderConfigured(config, configuredProvider)) {
+          const ollamaMeta = globalScope.ZeusOllamaMeta || {};
+          const msg = configuredProvider === 'ollama'
+            ? (ollamaMeta.OLLAMA_NO_MODEL_MESSAGE || 'No local Ollama model configured. Select or enter a model in Zeus settings.')
+            : `Missing ${formatProviderLabel(configuredProvider)} API key. Add your key in Zeus settings.`;
+          throw createConfigError('NOT_CONFIGURED', configuredProvider, msg, {
+            model: executedModel
+          });
         }
 
         finalEnhancedText = await providerFn(scrubbedPrompt, runtimeConfig);
         executedProvider = configuredProvider;
-        executedModel = String(config.models?.[configuredProvider] || '').trim();
+        executedModel = configuredProvider === 'ollama'
+          ? String(config.ollama?.model || '').trim()
+          : String(config.models?.[configuredProvider] || '').trim();
       }
 
       // 3. Defense-in-Depth Rehydration (if background-only scrubbing was performed)
@@ -305,7 +477,8 @@
           model: executedModel,
           durationMs,
           intent: detectedIntent,
-          fallbackAttempts
+          fallbackAttempts,
+          skippedProviders
         }
       };
     } catch (error) {
@@ -314,6 +487,13 @@
       if (storageLocal && typeof storageLocal.set === 'function') {
         storageLocal.set({ zeus_last_latency: durationMs });
       }
+
+      safelyAttachErrorMetadata(error, {
+        provider: error?.provider || executedProvider,
+        model: error?.model || executedModel,
+        fallbackAttempts,
+        skippedProviders
+      });
 
       console.error(`${logPrefix.error} NEURAL LINK FAILED`, logStyle.error, error);
       throw error;
@@ -328,6 +508,8 @@
   const ZeusPromptEngine = Object.freeze({
     execute,
     hasApiKeyForProvider,
+    hasOllamaModel,
+    isProviderConfigured,
     withProviderModelOverride
   });
 

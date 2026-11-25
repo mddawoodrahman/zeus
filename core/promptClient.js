@@ -33,7 +33,11 @@
       timer = setTimeout(() => {
         if (!settled) {
           settled = true;
-          reject(new Error(`Enhancement request timed out after ${timeout}ms.`));
+          const timeoutErr = new Error(`Enhancement request timed out after ${timeout}ms.`);
+          timeoutErr.code = 'TIMEOUT';
+          timeoutErr.category = 'TIMEOUT';
+          timeoutErr.retryable = true;
+          reject(timeoutErr);
         }
       }, timeout);
 
@@ -57,6 +61,22 @@
         reject(err);
       }
     });
+  }
+
+  function buildResponseError(response) {
+    const detail = response?.errorDetail && typeof response.errorDetail === 'object'
+      ? { ...response.errorDetail }
+      : null;
+    const errMsg = response?.error || detail?.userMessage || 'Enhancement failed without specific error message.';
+    const err = new Error(String(errMsg));
+
+    err.code = String(detail?.code || response?.code || '').trim();
+    err.category = String(detail?.category || response?.category || '').trim();
+    err.provider = String(detail?.provider || response?.provider || '').trim();
+    err.retryable = Boolean(detail?.retryable ?? response?.retryable);
+    err.errorDetail = detail;
+
+    return err;
   }
 
   async function enhance(rawText, options = {}) {
@@ -88,9 +108,8 @@
       }
     }, options.timeoutMs);
 
-    if (!response || response.success === false) {
-      const errMsg = response?.error || 'Enhancement failed without specific error message.';
-      throw new Error(String(errMsg));
+    if (!response || !response.success) {
+      throw buildResponseError(response);
     }
 
     const backgroundEnhancedText = String(response.enhancedText || response.enhancedPrompt || '').trim();

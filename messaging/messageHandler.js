@@ -4,6 +4,28 @@
   const errors = globalScope.ZeusErrors;
   const telemetry = globalScope.ZeusTelemetry || null;
 
+  const RELEVANT_LOCAL_KEYS = new Set(['apiKeys']);
+  const RELEVANT_SYNC_KEYS = new Set([
+    'schemaVersion',
+    'provider',
+    'models',
+    'ollama',
+    'sidePanelEnabled',
+    'copilotEnabled',
+    'copilotMode',
+    'copilotProvider',
+    'copilotMaxTokens',
+    'redactionEnabled',
+    'customRedactionPatterns',
+    'apiKeys',
+    'zeus_selected_provider',
+    'zeus_provider_configs'
+  ]);
+
+  function getDiagnostics() {
+    return globalScope.ZeusProviderDiagnostics || null;
+  }
+
   function composerScripts() {
     return chrome.runtime.getManifest().content_scripts.find(entry => entry.js?.includes('content.js'));
   }
@@ -69,10 +91,29 @@
     });
   }
 
+  function toPublicSettings(settingsPayload) {
+    if (!settingsModule) return settingsPayload;
+    if (typeof settingsModule.getPublicSettings === 'function') {
+      return settingsModule.getPublicSettings(settingsPayload);
+    }
+    if (typeof settingsModule.serializeSettings === 'function') {
+      return settingsModule.serializeSettings(settingsPayload);
+    }
+    return settingsPayload;
+  }
+
+  function emitRuntimeEvent(payload) {
+    const sendMessage = globalScope?.chrome?.runtime?.sendMessage;
+    if (typeof sendMessage !== 'function') {
+      return;
+    }
+    try {
+      Promise.resolve(sendMessage(payload)).catch(() => {});
+    } catch (_) {}
+  }
+
   function notifyTabsOfUpdate(settingsPayload) {
-    const publicSettings = settingsModule?.getPublicSettings
-      ? settingsModule.getPublicSettings(settingsPayload)
-      : (settingsModule?.serializeSettings ? settingsModule.serializeSettings(settingsPayload) : settingsPayload);
+    const publicSettings = toPublicSettings(settingsPayload);
 
     const urlPatterns = composerScripts()?.matches;
     const query = Array.isArray(urlPatterns) && urlPatterns.length > 0 ? { url: urlPatterns } : {};
@@ -87,6 +128,158 @@
         }
       }
     });
+  }
+
+  function isPrivilegedExtensionSender(sender) {
+    if (!sender || !sender.tab) {
+      return true;
+    }
+    const senderUrl = String(sender.url || sender.origin || '').trim();
+    const extId = String(globalScope?.chrome?.runtime?.id || '').trim();
+    if (extId) {
+      return senderUrl.startsWith(`chrome-extension://${extId}/`) || senderUrl === `chrome-extension://${extId}`;
+    }
+    return /^chrome-extension:\/\//i.test(senderUrl);
+  }
+
+  function sanitizeEngineOptions(rawOptions) {
+    if (!rawOptions || typeof rawOptions !== 'object') {
+      return undefined;
+    }
+    const sanitized = {};
+    if (typeof rawOptions.provider === 'string' && rawOptions.provider.trim()) {
+      sanitized.provider = rawOptions.provider.trim();
+    }
+    if (typeof rawOptions.model === 'string' && rawOptions.model.trim()) {
+      sanitized.model = rawOptions.model.trim();
+    }
+    if (Number.isFinite(Number(rawOptions.timeoutMs)) && Number(rawOptions.timeoutMs) > 0) {
+      sanitized.timeoutMs = Number(rawOptions.timeoutMs);
+    }
+    return sanitized;
+  }
+
+  function buildErrorContext(error, currentSettings, options) {
+    const ollamaMeta = globalScope.ZeusOllamaMeta || {};
+    const provider = String(error?.provider || options?.provider || currentSettings?.provider || '').trim();
+    const model = String(
+      error?.model ||
+      (provider && options?.model) ||
+      (provider === 'ollama' ? currentSettings?.ollama?.model : currentSettings?.models?.[provider]) ||
+      ''
+    ).trim();
+
+    return {
+      provider,
+      model,
+      ollamaNotRunningMessage: ollamaMeta.OLLAMA_NOT_RUNNING_MESSAGE,
+      ollamaNoModelMessage: ollamaMeta.OLLAMA_NO_MODEL_MESSAGE,
+      buildOllamaOriginBlockedMessage: ollamaMeta.buildOllamaOriginBlockedMessage
+    };
+  }
+
+  function classifyErrorSafe(error, errorContext) {
+    if (errors && typeof errors.classifyEnhanceError === 'function') {
+      return errors.classifyEnhanceError(error, errorContext);
+    }
+    const fallbackMessage = errors && typeof errors.normalizeEnhanceError === 'function'
+      ? errors.normalizeEnhanceError(error, errorContext)
+      : String(error?.message || error || 'Enhancement failed.');
+    return {
+      code: String(error?.code || 'UNKNOWN_ERROR'),
+      category: String(error?.category || 'UNKNOWN_ERROR'),
+      provider: String(error?.provider || errorContext?.provider || ''),
+      model: String(error?.model || errorContext?.model || ''),
+      status: Number(error?.status) || 0,
+      retryable: Boolean(error?.retryable),
+      userMessage: fallbackMessage
+    };
+  }
+
+  function buildFallbackReadiness(settings) {
+    const publicSettings = toPublicSettings(settings || {});
+    const activeProvider = String(publicSettings?.provider || 'gemini').trim().toLowerCase();
+    const cloudIds = ['gemini', 'openai', 'claude', 'openrouter'];
+    const providers = {};
+
+    for (const id of cloudIds) {
+      const hasApiKey = Boolean(publicSettings?.hasApiKey?.[id]);
+      const model = String(publicSettings?.models?.[id] || '').trim();
+      providers[id] = {
+        provider: id,
+        configured: hasApiKey,
+        hasApiKey,
+        model,
+        state: hasApiKey ? 'configured_untested' : 'not_configured',
+        statusLabel: hasApiKey ? 'Configured, not tested' : 'Not configured',
+        code: hasApiKey ? 'UNTESTED' : 'NOT_CONFIGURED',
+        usable: hasApiKey
+      };
+    }
+
+    const ollamaModel = String(publicSettings?.ollama?.model || '').trim();
+    const ollamaConfigured = Boolean(ollamaModel);
+    providers.ollama = {
+      provider: 'ollama',
+      configured: ollamaConfigured,
+      hasApiKey: false,
+      host: String(publicSettings?.ollama?.host || 'http://localhost:11434'),
+      model: ollamaModel,
+      state: ollamaConfigured ? 'configured_untested' : 'not_configured',
+      statusLabel: ollamaConfigured ? 'Configured, not tested' : 'Not configured',
+      code: ollamaConfigured ? 'UNTESTED' : 'NOT_CONFIGURED',
+      usable: ollamaConfigured
+    };
+
+    const configuredProviders = Object.keys(providers).filter((id) => providers[id].configured);
+    const usableProviders = Object.keys(providers).filter((id) => providers[id].usable);
+
+    if (activeProvider === 'auto') {
+      const usable = usableProviders.length > 0;
+      return {
+        activeProvider: 'auto',
+        activeState: usable ? 'configured_untested' : 'not_configured',
+        statusLabel: usable ? 'Configured, not tested' : 'Not configured',
+        code: usable ? 'UNTESTED' : 'NOT_CONFIGURED',
+        usable,
+        configured: configuredProviders.length > 0,
+        userMessage: usable
+          ? `Auto mode ready (${usableProviders.join(', ')} configured).`
+          : 'No AI provider is configured for Auto mode.',
+        model: '',
+        usableProviders,
+        configuredProviders,
+        providers
+      };
+    }
+
+    const activeEntry = providers[activeProvider] || providers.gemini;
+    return {
+      activeProvider,
+      activeState: activeEntry.state,
+      statusLabel: activeEntry.statusLabel,
+      code: activeEntry.code,
+      usable: activeEntry.usable,
+      configured: activeEntry.configured,
+      userMessage: activeEntry.state === 'not_configured'
+        ? `${activeProvider} is not configured.`
+        : `${activeProvider} is configured.`,
+      model: activeEntry.model || '',
+      usableProviders,
+      configuredProviders,
+      providers
+    };
+  }
+
+  async function resolveReadinessSummary(settingsInput) {
+    const settings = settingsInput || (settingsModule && typeof settingsModule.loadSettings === 'function'
+      ? await settingsModule.loadSettings()
+      : {});
+    const diagnostics = getDiagnostics();
+    if (diagnostics && typeof diagnostics.getReadinessSummary === 'function') {
+      return diagnostics.getReadinessSummary(settings);
+    }
+    return buildFallbackReadiness(settings);
   }
 
   function resolveTargetTab(tabIdFromSender, callback) {
@@ -116,11 +309,12 @@
 
   async function handleEnhancePrompt(message, sendResponse) {
     const prompt = String(message?.prompt || '').trim();
+    const safeOptions = sanitizeEngineOptions(message?.options);
 
     try {
       const engine = globalScope.ZeusPromptEngine;
       const result = engine && typeof engine.execute === 'function'
-        ? await engine.execute(prompt, message?.options)
+        ? await engine.execute(prompt, safeOptions)
         : { enhancedText: await router.enhancePrompt(prompt), warnings: [], meta: {} };
 
       sendResponse({
@@ -131,27 +325,23 @@
         meta: result.meta || {}
       });
     } catch (error) {
-      let provider = '';
-      let model = '';
-
+      let currentSettings = null;
       try {
-        const currentSettings = await settingsModule.loadSettings();
-        provider = String(currentSettings?.provider || '').trim();
-        model = String(currentSettings?.models?.[provider] || '').trim();
+        currentSettings = await settingsModule.loadSettings();
       } catch (_) {
         // If settings retrieval fails while building an error, return normalized fallback.
       }
 
-      const ollamaMeta = globalScope.ZeusOllamaMeta || {};
+      const errorContext = buildErrorContext(error, currentSettings, safeOptions);
+      const errorDetail = classifyErrorSafe(error, errorContext);
+      const userError = errors && typeof errors.normalizeEnhanceError === 'function'
+        ? errors.normalizeEnhanceError(error, errorContext)
+        : errorDetail.userMessage;
+
       sendResponse({
         success: false,
-        error: errors.normalizeEnhanceError(error, {
-          provider,
-          model,
-          ollamaNotRunningMessage: ollamaMeta.OLLAMA_NOT_RUNNING_MESSAGE,
-          ollamaNoModelMessage: ollamaMeta.OLLAMA_NO_MODEL_MESSAGE,
-          buildOllamaOriginBlockedMessage: ollamaMeta.buildOllamaOriginBlockedMessage
-        })
+        error: userError,
+        errorDetail
       });
     }
   }
@@ -159,12 +349,211 @@
   function handleGetSettings(sendResponse) {
     settingsModule.loadSettings()
       .then((settings) => {
-        const publicSettings = settingsModule?.getPublicSettings
-          ? settingsModule.getPublicSettings(settings)
-          : settingsModule?.serializeSettings(settings);
-        sendResponse({ settings: publicSettings });
+        sendResponse({ settings: toPublicSettings(settings) });
       })
       .catch((error) => sendResponse({ error: String(error?.message || 'Failed to load settings.') }));
+  }
+
+  async function handleGetProviderReadiness(sendResponse) {
+    try {
+      const readiness = await resolveReadinessSummary();
+      sendResponse({ success: true, readiness });
+    } catch (error) {
+      sendResponse({
+        success: false,
+        error: String(error?.message || 'Failed to load provider readiness.')
+      });
+    }
+  }
+
+  async function handleTestConnection(message, sender, sendResponse) {
+    if (!isPrivilegedExtensionSender(sender)) {
+      sendResponse({ success: false, error: 'Unauthorized sender for connection diagnostics.' });
+      return;
+    }
+
+    const diagnostics = getDiagnostics();
+    if (!diagnostics || typeof diagnostics.testConnection !== 'function') {
+      sendResponse({ success: false, error: 'Provider diagnostics unavailable.' });
+      return;
+    }
+
+    try {
+      // Strictly never accept raw API keys over IPC; credentials are always read via ZeusSettingsStore in background.
+      const probeOptions = {};
+      if (typeof message?.provider === 'string' && message.provider.trim()) {
+        probeOptions.provider = message.provider.trim();
+      }
+      if (typeof message?.model === 'string' && message.model.trim()) {
+        probeOptions.model = message.model.trim();
+      }
+      if (typeof message?.host === 'string' && message.host.trim()) {
+        probeOptions.host = message.host.trim();
+      }
+
+      const result = await diagnostics.testConnection(probeOptions);
+      const readiness = result?.readiness || await resolveReadinessSummary();
+      const { readiness: _omitReadiness, ...sanitizedResult } = result || {};
+
+      emitRuntimeEvent({
+        action: 'readinessUpdated',
+        readiness,
+        result: sanitizedResult,
+        source: 'background'
+      });
+
+      sendResponse({
+        success: Boolean(result?.ok),
+        result: sanitizedResult,
+        readiness,
+        ...(result?.ok ? {} : { error: result?.userMessage || 'Connection test failed.' })
+      });
+    } catch (error) {
+      sendResponse({
+        success: false,
+        error: String(error?.message || 'Connection test failed.')
+      });
+    }
+  }
+
+  async function handleDiscoverOllamaModels(message, sender, sendResponse) {
+    if (!isPrivilegedExtensionSender(sender)) {
+      sendResponse({ success: false, error: 'Unauthorized sender for Ollama discovery.' });
+      return;
+    }
+
+    const ollamaMeta = globalScope.ZeusOllamaMeta || {};
+    if (typeof ollamaMeta.discoverLocalModels !== 'function') {
+      sendResponse({ success: false, error: 'Ollama model discovery is unavailable.' });
+      return;
+    }
+
+    try {
+      let host = typeof message?.host === 'string' && message.host.trim() ? message.host.trim() : '';
+      if (!host && settingsModule && typeof settingsModule.loadSettings === 'function') {
+        const settings = await settingsModule.loadSettings();
+        host = String(settings?.ollama?.host || '').trim();
+      }
+
+      const discovery = await ollamaMeta.discoverLocalModels({ ollama: { host } });
+      if (discovery.reachable) {
+        sendResponse({
+          success: true,
+          reachable: true,
+          originBlocked: false,
+          origin: discovery.origin,
+          version: discovery.version || '',
+          running: discovery.running || [],
+          installed: discovery.installed || [],
+          models: discovery.models || []
+        });
+        return;
+      }
+
+      const errorMessage = discovery.error || (discovery.originBlocked
+        ? ollamaMeta.buildOllamaOriginBlockedMessage?.()
+        : ollamaMeta.OLLAMA_NOT_RUNNING_MESSAGE);
+      const errorDetail = classifyErrorSafe(
+        new Error(errorMessage || 'Ollama unavailable.'),
+        {
+          provider: 'ollama',
+          model: '',
+          ollamaNotRunningMessage: ollamaMeta.OLLAMA_NOT_RUNNING_MESSAGE,
+          ollamaNoModelMessage: ollamaMeta.OLLAMA_NO_MODEL_MESSAGE,
+          buildOllamaOriginBlockedMessage: ollamaMeta.buildOllamaOriginBlockedMessage
+        }
+      );
+
+      sendResponse({
+        success: false,
+        reachable: false,
+        originBlocked: Boolean(discovery.originBlocked),
+        origin: discovery.origin,
+        version: discovery.version || '',
+        running: [],
+        installed: [],
+        models: [],
+        error: errorDetail.userMessage,
+        errorDetail
+      });
+    } catch (error) {
+      const errorDetail = classifyErrorSafe(error, {
+        provider: 'ollama',
+        model: '',
+        ollamaNotRunningMessage: ollamaMeta.OLLAMA_NOT_RUNNING_MESSAGE,
+        ollamaNoModelMessage: ollamaMeta.OLLAMA_NO_MODEL_MESSAGE,
+        buildOllamaOriginBlockedMessage: ollamaMeta.buildOllamaOriginBlockedMessage
+      });
+      sendResponse({
+        success: false,
+        reachable: false,
+        originBlocked: errorDetail.code === 'OLLAMA_ORIGIN_BLOCKED',
+        origin: ollamaMeta.getOllamaOrigin ? ollamaMeta.getOllamaOrigin() : '',
+        running: [],
+        installed: [],
+        models: [],
+        error: errorDetail.userMessage,
+        errorDetail
+      });
+    }
+  }
+
+  function isSettingsStorageChange(changes, areaName) {
+    if (!changes || typeof changes !== 'object') {
+      return false;
+    }
+    const keys = Object.keys(changes);
+    if (areaName === 'local') {
+      return keys.some((key) => RELEVANT_LOCAL_KEYS.has(key) || /^zeus_.*_api_key$/i.test(key));
+    }
+    if (areaName === 'sync') {
+      return keys.some((key) => RELEVANT_SYNC_KEYS.has(key) || /^zeus_.*_(?:api_key|model)$/i.test(key));
+    }
+    return false;
+  }
+
+  let storageRefreshChain = Promise.resolve();
+
+  function setupStorageSyncListener() {
+    const onChanged = globalScope?.chrome?.storage?.onChanged;
+    if (!onChanged || typeof onChanged.addListener !== 'function') {
+      return;
+    }
+
+    onChanged.addListener((changes, areaName) => {
+      if ((areaName !== 'sync' && areaName !== 'local') || !isSettingsStorageChange(changes, areaName)) {
+        return;
+      }
+
+      const diagnostics = getDiagnostics();
+      if (diagnostics && typeof diagnostics.invalidateForStorageChange === 'function') {
+        diagnostics.invalidateForStorageChange(changes, areaName);
+      }
+
+      if (settingsModule && typeof settingsModule.invalidateCache === 'function') {
+        settingsModule.invalidateCache();
+      }
+
+      storageRefreshChain = storageRefreshChain.then(async () => {
+        if (!settingsModule || typeof settingsModule.loadSettings !== 'function') {
+          return;
+        }
+        const freshSettings = typeof settingsModule.get === 'function'
+          ? await settingsModule.get(true)
+          : await settingsModule.loadSettings();
+        const publicSettings = toPublicSettings(freshSettings);
+        const readiness = await resolveReadinessSummary(freshSettings);
+
+        syncSidePanelBehavior(freshSettings?.sidePanelEnabled);
+        notifyTabsOfUpdate(publicSettings);
+        emitRuntimeEvent({
+          action: 'settingsUpdated',
+          settings: publicSettings,
+          readiness,
+          source: 'background'
+        });
+      }).catch(() => {});
+    });
   }
 
   function setupRuntimeMessaging() {
@@ -264,13 +653,33 @@
           handleGetSettings(sendResponse);
           return true;
 
+        case 'getProviderReadiness':
+          handleGetProviderReadiness(sendResponse);
+          return true;
+
+        case 'testConnection':
+          handleTestConnection(message, sender, sendResponse);
+          return true;
+
+        case 'discoverOllamaModels':
+          handleDiscoverOllamaModels(message, sender, sendResponse);
+          return true;
+
         case 'settingsUpdated':
+          if (message?.source === 'background') {
+            sendResponse({ success: true });
+            return true;
+          }
           if (message?.settings && 'sidePanelEnabled' in message.settings) {
             syncSidePanelBehavior(message.settings.sidePanelEnabled);
           } else {
             initSidePanelBehavior();
           }
           notifyTabsOfUpdate(message?.settings || {});
+          sendResponse({ success: true });
+          return true;
+
+        case 'readinessUpdated':
           sendResponse({ success: true });
           return true;
 
@@ -501,6 +910,7 @@
 
   initSidePanelBehavior();
   setupContextMenu();
+  setupStorageSyncListener();
   setupRuntimeMessaging();
   setupCopilotStreamListener();
   setupCommandsListener();

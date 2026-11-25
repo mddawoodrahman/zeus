@@ -21,12 +21,19 @@
   const OLLAMA_NOT_RUNNING_MESSAGE = 'Ollama not running. Start with: ollama run qwen3:8b';
   const OLLAMA_NO_MODEL_MESSAGE = 'No local Ollama model detected. Start one with: ollama run qwen3:8b';
 
+  function getTransport() {
+    return globalScope.ZeusProviderTransport || transport;
+  }
+
   function resolveBaseUrl(config) {
+    const rawHostInput = typeof config === 'string'
+      ? config
+      : (config?.ollama?.host !== undefined ? config.ollama.host : config?.host);
     const store = globalScope.ZeusSettingsStore || globalScope.ZeusSettings;
     if (store && typeof store.normalizeOllamaHost === 'function') {
-      return store.normalizeOllamaHost(config?.ollama?.host);
+      return store.normalizeOllamaHost(rawHostInput);
     }
-    const raw = String(config?.ollama?.host || '').trim().replace(/\/+$/, '');
+    const raw = String(rawHostInput || '').trim().replace(/\/+$/, '');
     if (!raw) return DEFAULT_OLLAMA_HOST;
     try {
       const parsed = new URL(raw);
@@ -61,84 +68,84 @@
     return `Ollama blocked extension origin '${origin}'. Start Ollama with OLLAMA_ORIGINS="${origin}" (or run 'launchctl setenv OLLAMA_ORIGINS "${origin}"' for macOS Ollama Desktop) and restart Ollama.`;
   }
 
-  async function fetchModels(url, signal) {
-    if (transport && typeof transport.execute === 'function') {
-      let result;
-      try {
-        result = await transport.execute({
-          url,
-          method: 'GET',
-          timeoutMs: 5000,
-          signal,
-          maxRetries: 1,
-          provider: 'ollama'
-        });
-      } catch (error) {
-        if (signal?.aborted || error?.name === 'AbortError') throw error;
-        return [];
-      }
-
-      if (result.status === 403) {
-        throw new Error(buildOllamaOriginBlockedMessage());
-      }
-      if (!result.ok) {
-        return [];
-      }
-
-      const data = result.data || {};
-      const list = Array.isArray(data?.models) ? data.models : [];
-      return list
-        .map((item) => String(item?.model || item?.name || '').trim())
-        .filter(Boolean);
+  async function executeGet(url, signal, timeoutMs = 5000) {
+    const activeTransport = getTransport();
+    if (activeTransport && typeof activeTransport.execute === 'function') {
+      return activeTransport.execute({
+        url,
+        method: 'GET',
+        timeoutMs,
+        signal,
+        maxRetries: 1,
+        provider: 'ollama'
+      });
     }
 
-    const response = await retry.fetchWithTimeout(url, { method: 'GET' }, 5000, signal);
-
-    if (response.status === 403) {
-      throw new Error(buildOllamaOriginBlockedMessage());
-    }
-
-    if (!response.ok) {
-      return [];
-    }
-
+    const response = await retry.fetchWithTimeout(url, { method: 'GET' }, timeoutMs, signal);
     const data = await providerUtils.readJsonSafe(response);
-    const list = Array.isArray(data?.models) ? data.models : [];
+    return {
+      ok: response.ok,
+      status: response.status,
+      data,
+      headers: response.headers
+    };
+  }
 
+  function extractModelNames(data) {
+    const list = Array.isArray(data?.models) ? data.models : [];
     return list
       .map((item) => String(item?.model || item?.name || '').trim())
       .filter(Boolean);
   }
 
+  async function fetchModels(url, signal) {
+    let result;
+    try {
+      result = await executeGet(url, signal, 5000);
+    } catch (error) {
+      if (signal?.aborted || error?.name === 'AbortError') throw error;
+      return [];
+    }
+
+    if (result.status === 403) {
+      throw new Error(buildOllamaOriginBlockedMessage());
+    }
+    if (!result.ok) {
+      return [];
+    }
+
+    return extractModelNames(result.data || {});
+  }
+
+  async function fetchModelEndpointSafe(url, signal) {
+    try {
+      const result = await executeGet(url, signal, 5000);
+      if (result.status === 403) {
+        return { originBlocked: true, models: [] };
+      }
+      if (!result.ok) {
+        return { originBlocked: false, models: [] };
+      }
+      return { originBlocked: false, models: extractModelNames(result.data || {}) };
+    } catch (error) {
+      if (signal?.aborted) {
+        throw error;
+      }
+      return { originBlocked: false, models: [] };
+    }
+  }
+
   async function checkHealth(signal, baseUrl = DEFAULT_OLLAMA_HOST) {
     const healthUrl = `${baseUrl}/api/version`;
     try {
-      if (transport && typeof transport.execute === 'function') {
-        const result = await transport.execute({
-          url: healthUrl,
-          method: 'GET',
-          timeoutMs: 5000,
-          signal,
-          maxRetries: 1,
-          provider: 'ollama'
-        });
-
-        if (result.status === 403) {
-          throw new Error(buildOllamaOriginBlockedMessage());
-        }
-        if (!result.ok) {
-          throw new Error('Ollama health check failed.');
-        }
-        return;
-      }
-
-      const response = await retry.fetchWithTimeout(healthUrl, { method: 'GET' }, 5000, signal);
-      if (response.status === 403) {
+      const result = await executeGet(healthUrl, signal, 5000);
+      if (result.status === 403) {
         throw new Error(buildOllamaOriginBlockedMessage());
       }
-      if (!response.ok) {
+      if (!result.ok) {
         throw new Error('Ollama health check failed.');
       }
+      return result.data || {};
     } catch (error) {
       if (signal?.aborted || error?.name === 'AbortError') {
         throw error;
@@ -170,6 +177,90 @@
     throw new Error(OLLAMA_NO_MODEL_MESSAGE);
   }
 
+  async function discoverLocalModels(config = {}, signal) {
+    const baseUrl = resolveBaseUrl(config);
+    const origin = getOllamaOrigin();
+    let versionResult;
+
+    try {
+      versionResult = await executeGet(`${baseUrl}/api/version`, signal, 5000);
+    } catch (error) {
+      if (signal?.aborted) {
+        throw error;
+      }
+      return {
+        reachable: false,
+        originBlocked: false,
+        origin,
+        version: '',
+        running: [],
+        installed: [],
+        models: [],
+        error: OLLAMA_NOT_RUNNING_MESSAGE
+      };
+    }
+
+    if (versionResult.status === 403) {
+      return {
+        reachable: false,
+        originBlocked: true,
+        origin,
+        version: '',
+        running: [],
+        installed: [],
+        models: [],
+        error: buildOllamaOriginBlockedMessage()
+      };
+    }
+
+    if (!versionResult.ok) {
+      return {
+        reachable: false,
+        originBlocked: false,
+        origin,
+        version: '',
+        running: [],
+        installed: [],
+        models: [],
+        error: OLLAMA_NOT_RUNNING_MESSAGE
+      };
+    }
+
+    const version = String(versionResult.data?.version || '').trim();
+    const [runningRes, installedRes] = await Promise.all([
+      fetchModelEndpointSafe(`${baseUrl}/api/ps`, signal),
+      fetchModelEndpointSafe(`${baseUrl}/api/tags`, signal)
+    ]);
+
+    if (runningRes.originBlocked || installedRes.originBlocked) {
+      return {
+        reachable: false,
+        originBlocked: true,
+        origin,
+        version,
+        running: [],
+        installed: [],
+        models: [],
+        error: buildOllamaOriginBlockedMessage()
+      };
+    }
+
+    const running = runningRes.models;
+    const installed = installedRes.models;
+    const models = [...new Set([...running, ...installed])];
+
+    return {
+      reachable: true,
+      originBlocked: false,
+      origin,
+      version,
+      running,
+      installed,
+      models,
+      error: ''
+    };
+  }
+
   async function enhance(prompt, config) {
     const signal = config?.signal;
     const baseUrl = resolveBaseUrl(config);
@@ -184,8 +275,9 @@
         stream: false
       };
 
-      if (transport && typeof transport.execute === 'function') {
-        const result = await transport.execute({
+      const activeTransport = getTransport();
+      if (activeTransport && typeof activeTransport.execute === 'function') {
+        const result = await activeTransport.execute({
           url: generateUrl,
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -258,8 +350,9 @@
       }
     };
 
-    if (transport && typeof transport.stream === 'function') {
-      await transport.stream({
+    const activeTransport = getTransport();
+    if (activeTransport && typeof activeTransport.stream === 'function') {
+      await activeTransport.stream({
         url: generateUrl,
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -276,8 +369,8 @@
           }
         }
       });
-    } else if (transport && typeof transport.execute === 'function') {
-      const result = await transport.execute({
+    } else if (activeTransport && typeof activeTransport.execute === 'function') {
+      const result = await activeTransport.execute({
         url: generateUrl,
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -321,13 +414,20 @@
   }
 
   globalScope.ZeusOllamaMeta = Object.freeze({
+    DEFAULT_OLLAMA_HOST,
     OLLAMA_NOT_RUNNING_MESSAGE,
     OLLAMA_NO_MODEL_MESSAGE,
     getOllamaOrigin,
     buildOllamaCommands,
-    buildOllamaOriginBlockedMessage
+    buildOllamaOriginBlockedMessage,
+    resolveBaseUrl,
+    checkHealth,
+    fetchModels,
+    detectModel,
+    discoverLocalModels
   });
 
   providers.ollama = enhance;
   providers.ollama.suggest = suggest;
+  providers.ollama.discoverModels = discoverLocalModels;
 })(typeof globalThis !== 'undefined' ? globalThis : this);
