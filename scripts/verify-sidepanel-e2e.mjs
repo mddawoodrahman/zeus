@@ -589,9 +589,15 @@ async function main() {
     // Switch openai -> ollama
     await sidepanelPage.locator('#sp-provider').selectOption('ollama');
     await sidepanelPage.locator('#sp-ollama-card').waitFor({ state: 'visible' });
+    await sidepanelPage.waitForFunction(
+      () => document.getElementById('strip-provider')?.textContent?.trim() === 'Ollama'
+    );
     await sidepanelPage.locator('#sp-btn-detect-ollama').click();
     await sidepanelPage.waitForFunction(
-      () => document.querySelectorAll('#sp-ollama-discovered .ollama-chip').length >= 2
+      () =>
+        document.getElementById('sp-ollama-models-label')?.textContent?.trim() === 'DETECTED LOCAL MODELS' &&
+        document.querySelectorAll('#sp-ollama-discovered .ollama-chip').length >= 2 &&
+        document.getElementById('sp-btn-detect-ollama')?.disabled === false
     );
     assert.equal(await sidepanelPage.locator('#sp-ollama-model').inputValue(), 'qwen3:8b');
     await sidepanelPage.locator('#sp-btn-test').click();
