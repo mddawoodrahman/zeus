@@ -281,6 +281,27 @@ async function fixtureCheck(id, url) {
     globalThis.fixtureResponse = text;
   }, expected);
   await page.goto(url);
+  if (id === 'generic') {
+    // deepseek.com is matched by deepseek.js before generic.js; promote generic in this tab so generic.js itself is exercised.
+    await worker.evaluate(async (id) => {
+      await chrome.scripting.executeScript({
+        target: { tabId: id },
+        func: () => {
+          const list = globalThis.ZeusContentAdapters;
+          const idx = Array.isArray(list) ? list.findIndex((a) => a.id === 'generic') : -1;
+          if (idx > 0) {
+            const [genericAdapter] = list.splice(idx, 1);
+            list.unshift(genericAdapter);
+          }
+          globalThis.ZeusContentRuntime?.destroy();
+        }
+      });
+      await chrome.scripting.executeScript({
+        target: { tabId: id },
+        files: ['content.js']
+      });
+    }, tabId);
+  }
   await zoom(1);
   let info = await waitState((s) => s.visible && s.hit, 'Fixture discovery ' + id);
   assert.equal(info.adapter, id);
