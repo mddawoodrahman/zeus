@@ -178,6 +178,15 @@
       }
     };
 
+    const setIfSafe = (key, value) => {
+      if (value === undefined) return;
+      try {
+        error[key] = value;
+      } catch (_) {
+        // Ignore non-writable or frozen error properties
+      }
+    };
+
     if (detail) {
       assignIfSafe('code', detail.code);
       assignIfSafe('category', detail.category);
@@ -191,10 +200,10 @@
     }
 
     if (Array.isArray(metadata.fallbackAttempts) && metadata.fallbackAttempts.length > 0) {
-      assignIfSafe('fallbackAttempts', metadata.fallbackAttempts.slice());
+      setIfSafe('fallbackAttempts', metadata.fallbackAttempts.slice());
     }
     if (Array.isArray(metadata.skippedProviders) && metadata.skippedProviders.length > 0) {
-      assignIfSafe('skippedProviders', metadata.skippedProviders.slice());
+      setIfSafe('skippedProviders', metadata.skippedProviders.slice());
     }
   }
 
@@ -391,6 +400,7 @@
               throw error;
             }
             lastAutoError = error;
+            fallbackAttempts.push(`${provider}:${model || 'auto'} (${String(error?.message || 'failed')})`);
             safelyAttachErrorMetadata(lastAutoError, {
               provider,
               model: model || (provider === 'ollama' ? config.ollama?.model : config.models?.[provider]) || '',
@@ -405,7 +415,6 @@
               intent,
               stage: 'provider-candidate-error'
             });
-            fallbackAttempts.push(`${provider}:${model || 'auto'} (${String(error?.message || 'failed')})`);
           }
         }
 

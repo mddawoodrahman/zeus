@@ -76,8 +76,8 @@
         TIMEOUT: 'Network unavailable',
         PROVIDER_UNAVAILABLE: 'Provider unavailable',
         SERVER_ERROR: 'Provider unavailable',
-        MODEL_UNAVAILABLE: 'Provider unavailable',
-        MODEL_NOT_FOUND: 'Provider unavailable',
+        MODEL_UNAVAILABLE: 'Model unavailable',
+        MODEL_NOT_FOUND: 'Model unavailable',
         OLLAMA_ORIGIN_BLOCKED: 'Origin blocked',
         INVALID_REQUEST: 'Request failed',
         UNKNOWN_ERROR: 'Request failed'
@@ -477,7 +477,12 @@
       function renderReadinessDetail(el, entry) {
         if (!el) return;
         const msg = String(entry?.userMessage || entry?.message || '').trim();
-        const show = Boolean(msg) && (entry?.state === 'error' || entry?.state === 'testing' || entry?.state === 'verified');
+        const show = Boolean(msg) && (
+          entry?.state === 'error' ||
+          entry?.state === 'testing' ||
+          entry?.state === 'verified' ||
+          (entry?.provider === 'ollama' && Boolean(entry?.reachable))
+        );
         el.hidden = !show;
         el.textContent = show ? msg : '';
         el.classList.toggle('is-error', entry?.state === 'error');
@@ -1125,6 +1130,41 @@
         }
       }
 
+      function arePublicSettingsEqual(a, b) {
+        if (!a || !b) return false;
+        if (
+          String(a.provider || '') !== String(b.provider || '') ||
+          Boolean(a.sidePanelEnabled) !== Boolean(b.sidePanelEnabled) ||
+          Boolean(a.copilotEnabled) !== Boolean(b.copilotEnabled) ||
+          String(a.copilotMode || '') !== String(b.copilotMode || '') ||
+          String(a.copilotProvider || '') !== String(b.copilotProvider || '') ||
+          Number(a.copilotMaxTokens ?? 60) !== Number(b.copilotMaxTokens ?? 60) ||
+          Boolean(a.redactionEnabled !== false) !== Boolean(b.redactionEnabled !== false)
+        ) {
+          return false;
+        }
+
+        const patternsA = Array.isArray(a.customRedactionPatterns) ? a.customRedactionPatterns : [];
+        const patternsB = Array.isArray(b.customRedactionPatterns) ? b.customRedactionPatterns : [];
+        if (patternsA.length !== patternsB.length || patternsA.some((val, idx) => val !== patternsB[idx])) {
+          return false;
+        }
+
+        for (const p of CLOUD_PROVIDERS) {
+          if (String(a.models?.[p] || '') !== String(b.models?.[p] || '')) return false;
+          if (Boolean(a.hasApiKey?.[p]) !== Boolean(b.hasApiKey?.[p])) return false;
+        }
+
+        if (
+          String(a.ollama?.host || '') !== String(b.ollama?.host || '') ||
+          String(a.ollama?.model || '') !== String(b.ollama?.model || '')
+        ) {
+          return false;
+        }
+
+        return true;
+      }
+
       async function handleExternalSettingsChange() {
         if (!settingsModule || isApplyingLocalSave) return;
         if (externalSyncInFlight) {
@@ -1139,13 +1179,16 @@
             settingsModule.invalidateCache?.();
             const loaded = await fetchPublicSettings();
             if (!loaded) break;
+            const changed = !arePublicSettingsEqual(currentSettings, loaded);
             const preserved = applyPublicSettingsToUI(loaded, { preserveDirty: true });
-            if (preserved.size > 0) {
+            if (changed && preserved.size > 0) {
               showSyncNotice(preserved);
-            } else {
+            } else if (preserved.size === 0) {
               hideSyncNotice();
             }
-            writeToConsole('EXTERNAL SETTINGS UPDATE SYNCED.');
+            if (changed) {
+              writeToConsole('EXTERNAL SETTINGS UPDATE SYNCED.');
+            }
             await refreshReadiness();
           } while (pendingExternalSync);
         } catch (_) {
@@ -1163,10 +1206,11 @@
           ollama: { ...(currentSettings.ollama || {}), ...(incomingSettings?.ollama || {}) },
           hasApiKey: { ...(currentSettings.hasApiKey || {}), ...(incomingSettings?.hasApiKey || {}) }
         });
+        const changed = !arePublicSettingsEqual(currentSettings, merged);
         const preserved = applyPublicSettingsToUI(merged, { preserveDirty: true });
-        if (preserved.size > 0) {
+        if (changed && preserved.size > 0) {
           showSyncNotice(preserved);
-        } else {
+        } else if (preserved.size === 0) {
           hideSyncNotice();
         }
       }
@@ -1409,6 +1453,78 @@
         }
       }
 
+      function normalizeHostForCompare(value) {
+        if (settingsModule && typeof settingsModule.normalizeOllamaHost === 'function') {
+          return settingsModule.normalizeOllamaHost(value);
+        }
+        const clean = String(value || '').trim().replace(/\/+$/, '');
+        return clean || 'http://localhost:11434';
+      }
+
+      function isOverrideTestResult(provider, payload) {
+        if (!provider || provider === 'auto') return false;
+        if (supportsModelSelection(provider)) {
+          const testedModel = String(payload?.model || '').trim();
+          const savedModel = String(currentSettings.models?.[provider] || '').trim();
+          return Boolean(testedModel && testedModel !== savedModel);
+        }
+        if (provider === 'ollama') {
+          const testedHost = normalizeHostForCompare(payload?.host || currentSettings.ollama?.host);
+          const savedHost = normalizeHostForCompare(currentSettings.ollama?.host);
+          const testedModel = String(payload?.model || '').trim();
+          const savedModel = String(currentSettings.ollama?.model || '').trim();
+          return testedHost !== savedHost || testedModel !== savedModel;
+        }
+        return false;
+      }
+
+      function resultMatchesUnsavedDomDraft(result) {
+        const prov = String(result?.provider || '').trim().toLowerCase();
+        if (!prov || prov === 'auto') return false;
+        if (supportsModelSelection(prov)) {
+          const activeDraft = prov === (aiProviderSelect?.value || '') && providerModelSelect?.value
+            ? String(providerModelSelect.value).trim()
+            : String(draftModels[prov] || '').trim();
+          const savedModel = String(currentSettings.models?.[prov] || '').trim();
+          const resultModel = String(result?.model || '').trim();
+          return Boolean(activeDraft && activeDraft !== savedModel && resultModel === activeDraft);
+        }
+        if (prov === 'ollama') {
+          const domHost = normalizeHostForCompare(ollamaHostInput?.value || currentSettings.ollama?.host);
+          const savedHost = normalizeHostForCompare(currentSettings.ollama?.host);
+          const domModel = String(ollamaModelInput?.value || '').trim();
+          const savedModel = String(currentSettings.ollama?.model || '').trim();
+          if (domHost === savedHost && domModel === savedModel) return false;
+          const resHost = normalizeHostForCompare(result?.host || savedHost);
+          const resModel = String(result?.model || '').trim();
+          return resHost === domHost && resModel === domModel;
+        }
+        return false;
+      }
+
+      function mergeTestResultIntoReadiness(rawReadiness, result, testedProvider) {
+        const summary = rawReadiness
+          ? normalizeReadinessPayload(rawReadiness, currentSettings)
+          : (readinessSummary ? clonePublic(readinessSummary) : deriveFallbackReadiness(currentSettings));
+        if (!result || typeof result !== 'object' || !testedProvider || testedProvider === 'auto') {
+          return summary;
+        }
+        const nextState = String(result.state || (result.ok ? 'verified' : 'error'));
+        const baseEntry = summary.providers?.[testedProvider] || {};
+        const mergedEntry = {
+          ...baseEntry,
+          ...result,
+          state: nextState,
+          usable: result.usable !== undefined
+            ? Boolean(result.usable)
+            : (nextState === 'verified' ? true : Boolean(baseEntry.usable)),
+          userMessage: String(result.userMessage || result.message || '').trim()
+        };
+        mergedEntry.statusLabel = resolveReadinessLabel(mergedEntry);
+        summary.providers[testedProvider] = mergedEntry;
+        return summary;
+      }
+
       async function runTestConnection(targetProvider) {
         const provider = targetProvider || (aiProviderSelect ? aiProviderSelect.value : currentSettings.provider);
 
@@ -1435,24 +1551,25 @@
           if (ollamaModelInput?.value?.trim()) payload.model = ollamaModelInput.value.trim();
         }
 
+        const hasUnsavedOverride = isOverrideTestResult(provider, payload);
+
         try {
-          const response = await sendRuntimeMessage(payload, 10000);
+          const response = await sendRuntimeMessage(payload, 15000);
           testingProviders.delete(provider);
 
           if (response?.readiness) {
-            applyReadinessPayload(response.readiness);
+            if (hasUnsavedOverride && response?.result) {
+              applyReadinessPayload(mergeTestResultIntoReadiness(response.readiness, response.result, provider));
+            } else {
+              applyReadinessPayload(response.readiness);
+            }
           } else if (response?.result) {
-            const currentSummary = readinessSummary || deriveFallbackReadiness(currentSettings);
-            const resultEntry = {
-              ...(currentSummary.providers?.[provider] || {}),
-              ...response.result,
-              state: response.result.state || (response.success ? 'verified' : 'error')
-            };
-            currentSummary.providers[provider] = {
-              ...resultEntry,
-              statusLabel: resolveReadinessLabel(resultEntry)
-            };
-            applyReadinessPayload(currentSummary);
+            if (provider === 'auto') {
+              const currentSummary = readinessSummary || deriveFallbackReadiness(currentSettings);
+              applyReadinessPayload({ ...currentSummary, ...response.result });
+            } else {
+              applyReadinessPayload(mergeTestResultIntoReadiness(null, response.result, provider));
+            }
           } else if (response && response.success === true) {
             const currentSummary = readinessSummary || deriveFallbackReadiness(currentSettings);
             currentSummary.providers[provider] = {
@@ -1498,7 +1615,7 @@
 
         try {
           const host = ollamaHostInput?.value?.trim() || currentSettings.ollama?.host || 'http://localhost:11434';
-          const response = await sendRuntimeMessage({ action: 'discoverOllamaModels', host }, 8000);
+          const response = await sendRuntimeMessage({ action: 'discoverOllamaModels', host }, 12000);
 
           if (ollamaDiscoveredModels) {
             ollamaDiscoveredModels.replaceChildren();
@@ -1698,6 +1815,16 @@
             dirtyFields.add(`apiKey:${provider}`);
           } else {
             dirtyFields.delete(`apiKey:${provider}`);
+          }
+        });
+        cfg.apiKeyInput?.addEventListener('keydown', (event) => {
+          if (event.key === 'Enter') {
+            event.preventDefault();
+            if (cfg.saveKeyBtn) {
+              cfg.saveKeyBtn.click();
+            } else {
+              saveProviderKey(provider);
+            }
           }
         });
         cfg.saveKeyBtn?.addEventListener('click', () => saveProviderKey(provider));
@@ -1914,7 +2041,11 @@
             }
           } else if (action === 'readinessUpdated') {
             if (message?.readiness) {
-              applyReadinessPayload(message.readiness);
+              if (message?.result && resultMatchesUnsavedDomDraft(message.result)) {
+                applyReadinessPayload(mergeTestResultIntoReadiness(message.readiness, message.result, message.result.provider));
+              } else {
+                applyReadinessPayload(message.readiness);
+              }
             } else {
               refreshReadiness();
             }

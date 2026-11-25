@@ -77,13 +77,16 @@
 
   // In-memory cache & migration concurrency lock
   let cachedSettings = null;
+  let cacheEpoch = 0;
   let migrationPromise = null;
+  let migrationEpoch = 0;
   let storageListenerInstalled = false;
   let lastSeenStorageSync = null;
   let lastSeenStorageLocal = null;
 
   function invalidateCache() {
     cachedSettings = null;
+    cacheEpoch += 1;
   }
 
   function checkStorageInstanceChanged() {
@@ -391,10 +394,6 @@
     syncArea.__zeus_sync_guard_installed = true;
   }
 
-  function invalidateCache() {
-    cachedSettings = null;
-  }
-
   function initStorageListener() {
     checkStorageInstanceChanged();
     const onChanged = globalScope?.chrome?.storage?.onChanged;
@@ -461,25 +460,38 @@
     installStorageSyncGuard();
     initStorageListener();
 
-    if (!forceFresh && cachedSettings) {
-      return deepClone(cachedSettings);
-    }
-
-    if (migrationPromise) {
-      return await migrationPromise;
-    }
-
-    migrationPromise = (async () => {
-      try {
-        const normalized = await executeLoadSettings();
-        cachedSettings = deepClone(normalized);
-        return deepClone(normalized);
-      } finally {
-        migrationPromise = null;
+    while (true) {
+      if (!forceFresh && cachedSettings) {
+        return deepClone(cachedSettings);
       }
-    })();
 
-    return migrationPromise;
+      if (migrationPromise) {
+        if (!forceFresh && migrationEpoch === cacheEpoch) {
+          return await migrationPromise;
+        }
+        await migrationPromise.catch(() => {});
+        continue;
+      }
+
+      const loadEpoch = cacheEpoch;
+      migrationEpoch = loadEpoch;
+      const currentLoad = (async () => {
+        try {
+          const normalized = await executeLoadSettings();
+          if (loadEpoch === cacheEpoch) {
+            cachedSettings = deepClone(normalized);
+          }
+          return deepClone(normalized);
+        } finally {
+          if (migrationPromise === currentLoad) {
+            migrationPromise = null;
+          }
+        }
+      })();
+      migrationPromise = currentLoad;
+
+      return await currentLoad;
+    }
   }
 
   async function update(diff) {
@@ -545,9 +557,18 @@
 
     const syncPayload = serializeSettings(normalized);
     const localPayload = { apiKeys: { ...normalized.apiKeys } };
+    const hasExplicitApiKeys = Boolean(inputKeys && typeof inputKeys === 'object');
+    const apiKeysChanged = API_KEY_PROVIDERS.some(
+      (p) => sanitizeString(existingLocalKeys[p]) !== normalized.apiKeys[p]
+    ) || (hasExplicitApiKeys && API_KEY_PROVIDERS.some(
+      (p) => (p in inputKeys) && existingLocalKeys[p] !== normalized.apiKeys[p]
+    ));
+    const shouldWriteLocal = apiKeysChanged || (hasExplicitApiKeys && !currentLocal?.apiKeys);
 
-    // Write-before-delete ordering: local first, then cleanup and write sync
-    await storageSet(localArea, localPayload);
+    // Write-before-delete ordering: local first (when changed), then cleanup and write sync
+    if (shouldWriteLocal) {
+      await storageSet(localArea, localPayload);
+    }
 
     // Ensure all legacy keys are purged from sync
     const keysToRemove = Array.from(new Set([
@@ -558,7 +579,8 @@
 
     await storageSet(syncArea, syncPayload);
 
-    // Update in-memory cache
+    // Advance epoch so any older in-flight get() cannot overwrite cache, then update cache
+    cacheEpoch += 1;
     cachedSettings = deepClone(normalized);
 
     return { settings: deepClone(normalized), payload: syncPayload };

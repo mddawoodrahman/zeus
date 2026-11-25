@@ -24,8 +24,25 @@
 
   // Ephemeral in-memory non-secret status cache keyed by provider ID
   const statusCache = new Map();
-  const inFlightTesting = new Set();
+  const inFlightTesting = new Map();
   const providerGenerations = new Map();
+
+  function isProviderTesting(provider) {
+    return (inFlightTesting.get(provider) || 0) > 0;
+  }
+
+  function beginProviderTesting(provider) {
+    inFlightTesting.set(provider, (inFlightTesting.get(provider) || 0) + 1);
+  }
+
+  function endProviderTesting(provider) {
+    const next = (inFlightTesting.get(provider) || 0) - 1;
+    if (next <= 0) {
+      inFlightTesting.delete(provider);
+    } else {
+      inFlightTesting.set(provider, next);
+    }
+  }
 
   function getSettingsStore() {
     if (globalScope.ZeusSettingsStore) return globalScope.ZeusSettingsStore;
@@ -215,7 +232,7 @@
       const cached = statusCache.get('ollama');
       const hasValidCache = Boolean(cached && cached.configSignature === configSignature);
 
-      if (inFlightTesting.has('ollama')) {
+      if (isProviderTesting('ollama')) {
         return {
           provider: 'ollama',
           label,
@@ -241,17 +258,18 @@
         const isVerified = cached.state === STATE.VERIFIED;
         const isError = cached.state === STATE.ERROR;
         const isNotConfigured = cached.state === STATE.NOT_CONFIGURED;
+        const hasEffectiveModel = Boolean(model);
         const usable = isVerified
-          ? Boolean(configured || (cached.reachable && cached.availableModels?.length > 0))
-          : (configured && !isError && !isNotConfigured);
+          ? hasEffectiveModel
+          : (hasEffectiveModel && !isError && !isNotConfigured);
 
         return {
           provider: 'ollama',
           label,
-          configured: Boolean(configured || (isVerified && cached.reachable && cached.availableModels?.length > 0)),
+          configured: hasEffectiveModel,
           hasApiKey: false,
           host,
-          model: model || cached.model || '',
+          model,
           state: cached.state,
           statusLabel: cached.statusLabel,
           code: cached.code,
@@ -336,7 +354,7 @@
       };
     }
 
-    if (inFlightTesting.has(provider)) {
+    if (isProviderTesting(provider)) {
       return {
         provider,
         label,
@@ -414,6 +432,22 @@
       return store.createDefaultSettings();
     }
     return { provider: 'gemini', apiKeys: {}, models: {}, ollama: { host: 'http://localhost:11434', model: '' } };
+  }
+
+  async function loadFreshSettings(fallbackSettings) {
+    const store = getSettingsStore();
+    if (store && typeof store.get === 'function') {
+      return await store.get(true);
+    }
+    if (store && typeof store.loadSettings === 'function') {
+      return await store.loadSettings();
+    }
+    if (fallbackSettings && typeof fallbackSettings === 'object') {
+      return store && typeof store.normalizeSettings === 'function'
+        ? store.normalizeSettings(fallbackSettings)
+        : fallbackSettings;
+    }
+    return await loadResolvedSettings();
   }
 
   async function getReadinessSummary(settingsInput) {
@@ -605,7 +639,7 @@
       const startedGen = getGeneration('ollama');
       const ollamaMeta = getOllamaMeta();
 
-      inFlightTesting.add('ollama');
+      beginProviderTesting('ollama');
       try {
         let discovery;
         if (ollamaMeta && typeof ollamaMeta.discoverLocalModels === 'function') {
@@ -635,23 +669,30 @@
         }
 
         const testedAt = Date.now();
+        const latestSettings = await loadFreshSettings(settings);
+        const canCache = computeConfigSignature('ollama', latestSettings, {
+          model: modelOverride,
+          host: hostOverride
+        }) === configSignature;
 
         if (discovery.originBlocked) {
           const userMessage = discovery.error || ollamaMeta?.buildOllamaOriginBlockedMessage?.() || 'Ollama blocked extension origin.';
-          cacheEntryIfCurrent('ollama', startedGen, {
-            configSignature,
-            state: STATE.ERROR,
-            statusLabel: 'Origin blocked',
-            code: 'OLLAMA_ORIGIN_BLOCKED',
-            userMessage,
-            retryable: false,
-            testedAt,
-            originBlocked: true,
-            reachable: false,
-            version: '',
-            availableModels: [],
-            model: targetModel
-          });
+          if (canCache) {
+            cacheEntryIfCurrent('ollama', startedGen, {
+              configSignature,
+              state: STATE.ERROR,
+              statusLabel: 'Origin blocked',
+              code: 'OLLAMA_ORIGIN_BLOCKED',
+              userMessage,
+              retryable: false,
+              testedAt,
+              originBlocked: true,
+              reachable: false,
+              version: '',
+              availableModels: [],
+              model: targetModel
+            });
+          }
           return {
             ok: false,
             provider: 'ollama',
@@ -660,6 +701,7 @@
             state: STATE.ERROR,
             statusLabel: 'Origin blocked',
             code: 'OLLAMA_ORIGIN_BLOCKED',
+            usable: false,
             userMessage,
             retryable: false,
             status: 403,
@@ -673,20 +715,22 @@
 
         if (!discovery.reachable) {
           const userMessage = discovery.error || ollamaMeta?.OLLAMA_NOT_RUNNING_MESSAGE || 'Ollama not running.';
-          cacheEntryIfCurrent('ollama', startedGen, {
-            configSignature,
-            state: STATE.ERROR,
-            statusLabel: 'Network unavailable',
-            code: 'NETWORK_UNAVAILABLE',
-            userMessage,
-            retryable: true,
-            testedAt,
-            originBlocked: false,
-            reachable: false,
-            version: '',
-            availableModels: [],
-            model: targetModel
-          });
+          if (canCache) {
+            cacheEntryIfCurrent('ollama', startedGen, {
+              configSignature,
+              state: STATE.ERROR,
+              statusLabel: 'Network unavailable',
+              code: 'NETWORK_UNAVAILABLE',
+              userMessage,
+              retryable: true,
+              testedAt,
+              originBlocked: false,
+              reachable: false,
+              version: '',
+              availableModels: [],
+              model: targetModel
+            });
+          }
           return {
             ok: false,
             provider: 'ollama',
@@ -695,6 +739,7 @@
             state: STATE.ERROR,
             statusLabel: 'Network unavailable',
             code: 'NETWORK_UNAVAILABLE',
+            usable: false,
             userMessage,
             retryable: true,
             status: 0,
@@ -709,20 +754,22 @@
         const models = Array.isArray(discovery.models) ? discovery.models : [];
         if (models.length === 0) {
           const userMessage = ollamaMeta?.OLLAMA_NO_MODEL_MESSAGE || 'No local Ollama model detected. Start one with: ollama run qwen3:8b';
-          cacheEntryIfCurrent('ollama', startedGen, {
-            configSignature,
-            state: STATE.NOT_CONFIGURED,
-            statusLabel: 'Not configured',
-            code: 'NOT_CONFIGURED',
-            userMessage,
-            retryable: false,
-            testedAt,
-            originBlocked: false,
-            reachable: true,
-            version: discovery.version || '',
-            availableModels: [],
-            model: targetModel
-          });
+          if (canCache) {
+            cacheEntryIfCurrent('ollama', startedGen, {
+              configSignature,
+              state: STATE.NOT_CONFIGURED,
+              statusLabel: 'Not configured',
+              code: 'NOT_CONFIGURED',
+              userMessage,
+              retryable: false,
+              testedAt,
+              originBlocked: false,
+              reachable: true,
+              version: discovery.version || '',
+              availableModels: [],
+              model: targetModel
+            });
+          }
           return {
             ok: false,
             provider: 'ollama',
@@ -731,6 +778,7 @@
             state: STATE.NOT_CONFIGURED,
             statusLabel: 'Not configured',
             code: 'NOT_CONFIGURED',
+            usable: false,
             userMessage,
             retryable: false,
             status: 200,
@@ -742,22 +790,63 @@
           };
         }
 
-        if (targetModel && !models.some((m) => matchesOllamaModel(m, targetModel))) {
-          const userMessage = `Ollama is reachable, but model '${targetModel}' was not found locally. Available: ${models.slice(0, 5).join(', ')}.`;
-          cacheEntryIfCurrent('ollama', startedGen, {
-            configSignature,
-            state: STATE.ERROR,
-            statusLabel: 'Model unavailable',
-            code: 'MODEL_UNAVAILABLE',
+        if (!targetModel) {
+          const versionSuffix = discovery.version ? ` v${discovery.version}` : '';
+          const userMessage = `Ollama${versionSuffix} is reachable (${models.length} local model${models.length === 1 ? '' : 's'} available). Select or save a model (e.g., ${models[0]}) to enable requests.`;
+          if (canCache) {
+            cacheEntryIfCurrent('ollama', startedGen, {
+              configSignature,
+              state: STATE.NOT_CONFIGURED,
+              statusLabel: 'Ollama reachable, select a model',
+              code: 'NOT_CONFIGURED',
+              userMessage,
+              retryable: false,
+              testedAt,
+              originBlocked: false,
+              reachable: true,
+              version: discovery.version || '',
+              availableModels: models,
+              model: ''
+            });
+          }
+          return {
+            ok: false,
+            provider: 'ollama',
+            host: targetHost,
+            model: '',
+            state: STATE.NOT_CONFIGURED,
+            statusLabel: 'Ollama reachable, select a model',
+            code: 'NOT_CONFIGURED',
+            usable: false,
             userMessage,
             retryable: false,
+            status: 200,
             testedAt,
             originBlocked: false,
             reachable: true,
             version: discovery.version || '',
-            availableModels: models,
-            model: targetModel
-          });
+            availableModels: models
+          };
+        }
+
+        if (!models.some((m) => matchesOllamaModel(m, targetModel))) {
+          const userMessage = `Ollama is reachable, but model '${targetModel}' was not found locally. Available: ${models.slice(0, 5).join(', ')}.`;
+          if (canCache) {
+            cacheEntryIfCurrent('ollama', startedGen, {
+              configSignature,
+              state: STATE.ERROR,
+              statusLabel: 'Model unavailable',
+              code: 'MODEL_UNAVAILABLE',
+              userMessage,
+              retryable: false,
+              testedAt,
+              originBlocked: false,
+              reachable: true,
+              version: discovery.version || '',
+              availableModels: models,
+              model: targetModel
+            });
+          }
           return {
             ok: false,
             provider: 'ollama',
@@ -766,6 +855,7 @@
             state: STATE.ERROR,
             statusLabel: 'Model unavailable',
             code: 'MODEL_UNAVAILABLE',
+            usable: false,
             userMessage,
             retryable: false,
             status: 404,
@@ -777,33 +867,35 @@
           };
         }
 
-        const resolvedModel = targetModel || models[0];
         const versionSuffix = discovery.version ? ` v${discovery.version}` : '';
         const userMessage = `Ollama${versionSuffix} connected (${models.length} local model${models.length === 1 ? '' : 's'} available).`;
 
-        cacheEntryIfCurrent('ollama', startedGen, {
-          configSignature,
-          state: STATE.VERIFIED,
-          statusLabel: 'Connection verified',
-          code: 'OK',
-          userMessage,
-          retryable: false,
-          testedAt,
-          originBlocked: false,
-          reachable: true,
-          version: discovery.version || '',
-          availableModels: models,
-          model: resolvedModel
-        });
+        if (canCache) {
+          cacheEntryIfCurrent('ollama', startedGen, {
+            configSignature,
+            state: STATE.VERIFIED,
+            statusLabel: 'Connection verified',
+            code: 'OK',
+            userMessage,
+            retryable: false,
+            testedAt,
+            originBlocked: false,
+            reachable: true,
+            version: discovery.version || '',
+            availableModels: models,
+            model: targetModel
+          });
+        }
 
         return {
           ok: true,
           provider: 'ollama',
           host: targetHost,
-          model: resolvedModel,
+          model: targetModel,
           state: STATE.VERIFIED,
           statusLabel: 'Connection verified',
           code: 'OK',
+          usable: true,
           userMessage,
           retryable: false,
           status: 200,
@@ -817,20 +909,27 @@
         const detail = classifyDiagnosticError(err, 'ollama', targetModel);
         const statusLabel = mapErrorCodeToStatusLabel(detail.code);
         const testedAt = Date.now();
-        cacheEntryIfCurrent('ollama', startedGen, {
-          configSignature,
-          state: STATE.ERROR,
-          statusLabel,
-          code: detail.code,
-          userMessage: detail.userMessage,
-          retryable: detail.retryable,
-          testedAt,
-          originBlocked: detail.code === 'OLLAMA_ORIGIN_BLOCKED',
-          reachable: false,
-          version: '',
-          availableModels: [],
-          model: targetModel
-        });
+        const latestSettings = await loadFreshSettings(settings).catch(() => settings);
+        const canCache = computeConfigSignature('ollama', latestSettings, {
+          model: modelOverride,
+          host: hostOverride
+        }) === configSignature;
+        if (canCache) {
+          cacheEntryIfCurrent('ollama', startedGen, {
+            configSignature,
+            state: STATE.ERROR,
+            statusLabel,
+            code: detail.code,
+            userMessage: detail.userMessage,
+            retryable: detail.retryable,
+            testedAt,
+            originBlocked: detail.code === 'OLLAMA_ORIGIN_BLOCKED',
+            reachable: false,
+            version: '',
+            availableModels: [],
+            model: targetModel
+          });
+        }
         return {
           ok: false,
           provider: 'ollama',
@@ -839,6 +938,7 @@
           state: STATE.ERROR,
           statusLabel,
           code: detail.code,
+          usable: false,
           userMessage: detail.userMessage,
           retryable: detail.retryable,
           status: detail.status,
@@ -849,7 +949,7 @@
           availableModels: []
         };
       } finally {
-        inFlightTesting.delete('ollama');
+        endProviderTesting('ollama');
       }
     }
 
@@ -890,26 +990,48 @@
     const configSignature = `${keyFingerprint}|${targetModel}`;
     const startedGen = getGeneration(provider);
 
-    inFlightTesting.add(provider);
+    beginProviderTesting(provider);
     try {
       const response = await executeCloudProbe(provider, apiKey, targetModel, options?.signal);
       const testedAt = Date.now();
+      const latestSettings = await loadFreshSettings(settings);
+      const latestKey = String(latestSettings?.apiKeys?.[provider] || '').trim();
+      if (!latestKey) {
+        statusCache.delete(provider);
+        return {
+          ok: false,
+          provider,
+          model: targetModel,
+          state: STATE.NOT_CONFIGURED,
+          statusLabel: 'Not configured',
+          code: 'NOT_CONFIGURED',
+          usable: false,
+          userMessage: `Missing ${label} API key. Add your key in Zeus settings.`,
+          retryable: false,
+          status: 0,
+          testedAt: null
+        };
+      }
+
+      const canCache = computeConfigSignature(provider, latestSettings, { model: modelOverride }) === configSignature;
 
       if (response.ok) {
         const userMessage = `${label} connection verified${targetModel ? ` (${targetModel})` : ''}.`;
-        cacheEntryIfCurrent(provider, startedGen, {
-          keyFingerprint,
-          configSignature,
-          state: STATE.VERIFIED,
-          statusLabel: 'Connection verified',
-          code: 'OK',
-          userMessage,
-          retryable: false,
-          status: response.status,
-          testedAt,
-          reachable: true,
-          model: targetModel
-        });
+        if (canCache) {
+          cacheEntryIfCurrent(provider, startedGen, {
+            keyFingerprint,
+            configSignature,
+            state: STATE.VERIFIED,
+            statusLabel: 'Connection verified',
+            code: 'OK',
+            userMessage,
+            retryable: false,
+            status: response.status,
+            testedAt,
+            reachable: true,
+            model: targetModel
+          });
+        }
 
         return {
           ok: true,
@@ -918,6 +1040,7 @@
           state: STATE.VERIFIED,
           statusLabel: 'Connection verified',
           code: 'OK',
+          usable: true,
           userMessage,
           retryable: false,
           status: response.status,
@@ -938,19 +1061,21 @@
       const detail = classifyDiagnosticError(httpErr, provider, targetModel);
       const statusLabel = mapErrorCodeToStatusLabel(detail.code);
 
-      cacheEntryIfCurrent(provider, startedGen, {
-        keyFingerprint,
-        configSignature,
-        state: STATE.ERROR,
-        statusLabel,
-        code: detail.code,
-        userMessage: detail.userMessage,
-        retryable: detail.retryable,
-        status: detail.status,
-        testedAt,
-        reachable: false,
-        model: targetModel
-      });
+      if (canCache) {
+        cacheEntryIfCurrent(provider, startedGen, {
+          keyFingerprint,
+          configSignature,
+          state: STATE.ERROR,
+          statusLabel,
+          code: detail.code,
+          userMessage: detail.userMessage,
+          retryable: detail.retryable,
+          status: detail.status,
+          testedAt,
+          reachable: false,
+          model: targetModel
+        });
+      }
 
       return {
         ok: false,
@@ -959,6 +1084,7 @@
         state: STATE.ERROR,
         statusLabel,
         code: detail.code,
+        usable: !isHardBlockingErrorCode(detail.code),
         userMessage: detail.userMessage,
         retryable: detail.retryable,
         status: detail.status,
@@ -968,20 +1094,40 @@
       const detail = classifyDiagnosticError(err, provider, targetModel);
       const statusLabel = mapErrorCodeToStatusLabel(detail.code);
       const testedAt = Date.now();
+      const latestSettings = await loadFreshSettings(settings).catch(() => settings);
+      const latestKey = String(latestSettings?.apiKeys?.[provider] || '').trim();
+      if (!latestKey) {
+        statusCache.delete(provider);
+        return {
+          ok: false,
+          provider,
+          model: targetModel,
+          state: STATE.NOT_CONFIGURED,
+          statusLabel: 'Not configured',
+          code: 'NOT_CONFIGURED',
+          usable: false,
+          userMessage: `Missing ${label} API key. Add your key in Zeus settings.`,
+          retryable: false,
+          status: 0,
+          testedAt: null
+        };
+      }
 
-      cacheEntryIfCurrent(provider, startedGen, {
-        keyFingerprint,
-        configSignature,
-        state: STATE.ERROR,
-        statusLabel,
-        code: detail.code,
-        userMessage: detail.userMessage,
-        retryable: detail.retryable,
-        status: detail.status,
-        testedAt,
-        reachable: false,
-        model: targetModel
-      });
+      if (computeConfigSignature(provider, latestSettings, { model: modelOverride }) === configSignature) {
+        cacheEntryIfCurrent(provider, startedGen, {
+          keyFingerprint,
+          configSignature,
+          state: STATE.ERROR,
+          statusLabel,
+          code: detail.code,
+          userMessage: detail.userMessage,
+          retryable: detail.retryable,
+          status: detail.status,
+          testedAt,
+          reachable: false,
+          model: targetModel
+        });
+      }
 
       return {
         ok: false,
@@ -990,13 +1136,14 @@
         state: STATE.ERROR,
         statusLabel,
         code: detail.code,
+        usable: !isHardBlockingErrorCode(detail.code),
         userMessage: detail.userMessage,
         retryable: detail.retryable,
         status: detail.status,
         testedAt
       };
     } finally {
-      inFlightTesting.delete(provider);
+      endProviderTesting(provider);
     }
   }
 
@@ -1036,8 +1183,12 @@
         targets.map(async (id) => [id, await testSingleProvider(id, settings, { signal: options?.signal })])
       );
       const results = Object.fromEntries(settled);
-      const readiness = await getReadinessSummary(settings);
-      const ok = Boolean(readiness.usable && targets.some((id) => results[id]?.ok));
+      const latestSettings = await loadFreshSettings(settings);
+      const readiness = await getReadinessSummary(latestSettings);
+      const ok = Boolean(
+        readiness.usable &&
+        targets.some((id) => results[id]?.ok && readiness.providers?.[id]?.state === STATE.VERIFIED)
+      );
 
       return {
         ok,
@@ -1056,7 +1207,8 @@
     }
 
     const result = await testSingleProvider(requestedProvider, settings, options);
-    const readiness = await getReadinessSummary(settings);
+    const latestSettings = await loadFreshSettings(settings);
+    const readiness = await getReadinessSummary(latestSettings);
     return {
       ...result,
       readiness

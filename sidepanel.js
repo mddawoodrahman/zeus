@@ -189,6 +189,7 @@
     let currentTemplates = [];
     let editingTemplateIndex = -1;
     let currentFillingTemplateText = '';
+    let lastModalTriggerEl = null;
     let capturedSourceUrl = '';
     let activeTab = 'editor';
     let lastWorkbenchTab = 'editor';
@@ -201,6 +202,8 @@
     let isTestingConnection = false;
     let internalSaveDepth = 0;
     let settingsSyncSeq = 0;
+    let externalSyncInFlight = false;
+    let pendingExternalSync = false;
 
     const dirtyFields = {
       apiKey: false,
@@ -540,10 +543,12 @@
           return 'Network unavailable';
         case 'PROVIDER_UNAVAILABLE':
         case 'SERVER_ERROR':
+          return 'Provider unavailable';
         case 'MODEL_UNAVAILABLE':
         case 'MODEL_NOT_FOUND':
+          return 'Model unavailable';
         case 'OLLAMA_ORIGIN_BLOCKED':
-          return 'Provider unavailable';
+          return 'Origin blocked';
         default:
           return 'Request failed';
       }
@@ -565,19 +570,57 @@
     }
 
     function normalizeProviderEntry(id, entry, settings) {
+      const hasSettings = Boolean(settings && typeof settings === 'object');
       const hasKey = Boolean(settings?.hasApiKey?.[id]);
       const ollamaModel = String(settings?.ollama?.model || '').trim();
-      const configured = entry?.configured !== undefined
-        ? Boolean(entry.configured)
-        : (id === 'ollama' ? Boolean(ollamaModel) : hasKey);
+      const baseConfigured = id === 'ollama' ? Boolean(ollamaModel) : hasKey;
 
-      const state = String(entry?.state || entry?.status || (configured ? 'configured_untested' : 'not_configured'));
-      const code = String(entry?.code || (configured ? '' : 'NOT_CONFIGURED'));
-      const usable = entry?.usable !== undefined
-        ? Boolean(entry.usable)
-        : (state !== 'not_configured' && configured);
-      const statusLabel = mapStateAndCodeToLabel(state, code, entry?.statusLabel || entry?.label);
-      const userMessage = String(entry?.userMessage || entry?.message || '');
+      if (!entry || typeof entry !== 'object') {
+        const state = baseConfigured ? 'configured_untested' : 'not_configured';
+        const code = baseConfigured ? '' : 'NOT_CONFIGURED';
+        return {
+          provider: id,
+          configured: baseConfigured,
+          state,
+          code,
+          usable: baseConfigured,
+          statusLabel: mapStateAndCodeToLabel(state, code),
+          userMessage: '',
+          originBlocked: false,
+          models: []
+        };
+      }
+
+      const rawState = String(entry.state || entry.status || (baseConfigured ? 'configured_untested' : 'not_configured'));
+      if (hasSettings && !baseConfigured && (
+        rawState === 'verified' ||
+        (CLOUD_PROVIDERS.includes(id) && (entry.configured || rawState !== 'not_configured'))
+      )) {
+        return {
+          provider: id,
+          configured: false,
+          state: 'not_configured',
+          code: 'NOT_CONFIGURED',
+          usable: false,
+          statusLabel: 'Not configured',
+          userMessage: id === 'ollama'
+            ? 'No local Ollama model configured. Detect or enter a local model in Zeus settings.'
+            : `Missing ${PROVIDER_LABELS[id] || id} API key. Add your key in Zeus settings.`,
+          originBlocked: false,
+          models: []
+        };
+      }
+
+      const configured = hasSettings
+        ? baseConfigured
+        : (entry.configured !== undefined ? Boolean(entry.configured) : baseConfigured);
+      const state = rawState;
+      const code = String(entry.code || (configured ? '' : 'NOT_CONFIGURED'));
+      const usable = (hasSettings && !baseConfigured && state === 'not_configured')
+        ? false
+        : (entry.usable !== undefined ? Boolean(entry.usable) : (state !== 'not_configured' && configured));
+      const statusLabel = mapStateAndCodeToLabel(state, code, entry.statusLabel || entry.label);
+      const userMessage = String(entry.userMessage || entry.message || '');
 
       return {
         provider: id,
@@ -587,8 +630,8 @@
         usable,
         statusLabel,
         userMessage,
-        originBlocked: Boolean(entry?.originBlocked || code === 'OLLAMA_ORIGIN_BLOCKED'),
-        models: Array.isArray(entry?.models) ? entry.models : []
+        originBlocked: Boolean(entry.originBlocked || code === 'OLLAMA_ORIGIN_BLOCKED'),
+        models: Array.isArray(entry.models) ? entry.models : []
       };
     }
 
@@ -641,27 +684,96 @@
         return { readiness: deriveFallbackReadiness(settings), fromBackend: false };
       }
 
+      const hasSettings = Boolean(settings && typeof settings === 'object');
       const activeProvider = String(candidate.activeProvider || settings?.provider || 'gemini').toLowerCase();
       const providers = {};
       for (const id of ALL_PROVIDERS) {
         providers[id] = normalizeProviderEntry(id, candidate.providers?.[id], settings);
       }
 
+      if (activeProvider === 'auto') {
+        const usableList = ALL_PROVIDERS.filter((id) => providers[id].usable);
+        const usable = usableList.length > 0;
+        const verifiedList = usableList.filter((id) => providers[id].state === 'verified');
+        const testingAny = usableList.some((id) => providers[id].state === 'testing');
+
+        let activeState = String(candidate.activeState || candidate.state || (usable ? 'configured_untested' : 'not_configured'));
+        let code = String(candidate.code || '');
+        let statusLabel = mapStateAndCodeToLabel(activeState, code, candidate.statusLabel || candidate.label);
+        let userMessage = String(candidate.userMessage || candidate.message || '');
+
+        if (hasSettings) {
+          if (!usable) {
+            const configuredList = ALL_PROVIDERS.filter((id) => providers[id].configured);
+            if (configuredList.length > 0) {
+              const first = providers[configuredList[0]];
+              activeState = first.state;
+              code = first.code;
+              statusLabel = first.statusLabel;
+              userMessage = first.userMessage;
+            } else {
+              activeState = 'not_configured';
+              code = 'NOT_CONFIGURED';
+              statusLabel = 'Not configured';
+              userMessage = 'No AI provider is configured for Auto mode. Add a cloud API key or configure a local Ollama model.';
+            }
+          } else if (testingAny) {
+            activeState = 'testing';
+            code = 'TESTING';
+            statusLabel = 'Testing';
+            if (!userMessage) userMessage = 'Testing configured Auto mode providers...';
+          } else if (verifiedList.length > 0) {
+            activeState = 'verified';
+            code = 'OK';
+            statusLabel = 'Connection verified';
+            userMessage = `Auto mode ready via ${verifiedList.map((id) => PROVIDER_LABELS[id] || id).join(', ')}.`;
+          } else {
+            activeState = 'configured_untested';
+            code = 'UNTESTED';
+            statusLabel = 'Configured, not tested';
+            userMessage = `Auto mode ready (${usableList.map((id) => PROVIDER_LABELS[id] || id).join(', ')} configured, not yet tested).`;
+          }
+        }
+
+        return {
+          readiness: {
+            activeProvider: 'auto',
+            activeState,
+            usable: hasSettings ? usable : Boolean(candidate.usable ?? usable),
+            statusLabel,
+            userMessage,
+            code,
+            providers
+          },
+          fromBackend: true
+        };
+      }
+
       const activeEntry = providers[activeProvider];
-      const activeState = String(
-        candidate.activeState ||
-        candidate.state ||
-        activeEntry?.state ||
-        (candidate.usable ? 'configured_untested' : 'not_configured')
+      const useEntryOverride = Boolean(
+        hasSettings &&
+        activeEntry &&
+        activeEntry.state === 'not_configured' &&
+        (candidate.activeState === 'verified' || candidate.state === 'verified' || !activeEntry.configured)
       );
-      const code = String(candidate.code || activeEntry?.code || '');
-      const usable = candidate.usable !== undefined
-        ? Boolean(candidate.usable)
-        : (activeProvider === 'auto'
-          ? ALL_PROVIDERS.some((id) => providers[id].usable)
-          : Boolean(activeEntry?.usable));
-      const statusLabel = mapStateAndCodeToLabel(activeState, code, candidate.statusLabel || candidate.label);
-      const userMessage = String(candidate.userMessage || candidate.message || activeEntry?.userMessage || '');
+      const activeState = useEntryOverride
+        ? activeEntry.state
+        : String(
+          candidate.activeState ||
+          candidate.state ||
+          activeEntry?.state ||
+          (candidate.usable ? 'configured_untested' : 'not_configured')
+        );
+      const code = useEntryOverride ? activeEntry.code : String(candidate.code || activeEntry?.code || '');
+      const usable = useEntryOverride
+        ? activeEntry.usable
+        : (candidate.usable !== undefined ? Boolean(candidate.usable) : Boolean(activeEntry?.usable));
+      const statusLabel = useEntryOverride
+        ? activeEntry.statusLabel
+        : mapStateAndCodeToLabel(activeState, code, candidate.statusLabel || candidate.label);
+      const userMessage = useEntryOverride
+        ? activeEntry.userMessage
+        : String(candidate.userMessage || candidate.message || activeEntry?.userMessage || '');
 
       return {
         readiness: {
@@ -699,6 +811,41 @@
 
       const directRes = await sendRuntimeMessage({ action: 'getSettings' });
       return directRes?.settings || null;
+    }
+
+    function arePublicSettingsEqual(a, b) {
+      if (!a || !b) return false;
+      if (
+        String(a.provider || '') !== String(b.provider || '') ||
+        Boolean(a.sidePanelEnabled) !== Boolean(b.sidePanelEnabled) ||
+        Boolean(a.copilotEnabled) !== Boolean(b.copilotEnabled) ||
+        String(a.copilotMode || '') !== String(b.copilotMode || '') ||
+        String(a.copilotProvider || '') !== String(b.copilotProvider || '') ||
+        Number(a.copilotMaxTokens ?? 60) !== Number(b.copilotMaxTokens ?? 60) ||
+        Boolean(a.redactionEnabled !== false) !== Boolean(b.redactionEnabled !== false)
+      ) {
+        return false;
+      }
+
+      const patternsA = Array.isArray(a.customRedactionPatterns) ? a.customRedactionPatterns : [];
+      const patternsB = Array.isArray(b.customRedactionPatterns) ? b.customRedactionPatterns : [];
+      if (patternsA.length !== patternsB.length || patternsA.some((val, idx) => val !== patternsB[idx])) {
+        return false;
+      }
+
+      for (const p of CLOUD_PROVIDERS) {
+        if (String(a.models?.[p] || '') !== String(b.models?.[p] || '')) return false;
+        if (Boolean(a.hasApiKey?.[p]) !== Boolean(b.hasApiKey?.[p])) return false;
+      }
+
+      if (
+        String(a.ollama?.host || '') !== String(b.ollama?.host || '') ||
+        String(a.ollama?.model || '') !== String(b.ollama?.model || '')
+      ) {
+        return false;
+      }
+
+      return true;
     }
 
     function toPublicSnapshot(settingsObj) {
@@ -988,12 +1135,15 @@
     function renderKeyCard(settings) {
       if (!spKeyCard) return;
       const activeProvider = String(settings?.provider || 'gemini').toLowerCase();
+      const hasKeyDraft = Boolean(dirtyFields.apiKey || spApiKeyInput?.value?.length > 0);
 
-      if (CLOUD_PROVIDERS.includes(activeProvider)) {
+      if (CLOUD_PROVIDERS.includes(activeProvider) && !hasKeyDraft) {
         keyTargetProvider = activeProvider;
       }
 
-      const showCard = CLOUD_PROVIDERS.includes(activeProvider) || activeProvider === 'auto';
+      const showCard = CLOUD_PROVIDERS.includes(activeProvider) ||
+        activeProvider === 'auto' ||
+        (hasKeyDraft && CLOUD_PROVIDERS.includes(keyTargetProvider));
       spKeyCard.style.display = showCard ? 'block' : 'none';
       if (!showCard) return;
 
@@ -1143,8 +1293,10 @@
     }
 
     async function refreshReadinessFromBackend(settingsOverride) {
+      const seq = settingsSyncSeq;
       const settings = settingsOverride || currentPublicSettings;
       const response = await sendRuntimeMessage({ action: 'getProviderReadiness' });
+      if (seq !== settingsSyncSeq) return currentReadiness;
       const { readiness, fromBackend } = normalizeReadiness(response, settings);
       hasBackendReadiness = fromBackend;
       currentReadiness = readiness;
@@ -1198,7 +1350,11 @@
 
     if (spApiKeyInput) {
       spApiKeyInput.addEventListener('input', () => {
+        const wasDirty = dirtyFields.apiKey;
         dirtyFields.apiKey = spApiKeyInput.value.length > 0;
+        if (wasDirty && !dirtyFields.apiKey && currentPublicSettings) {
+          renderKeyCard(currentPublicSettings);
+        }
       });
       spApiKeyInput.addEventListener('keydown', (event) => {
         if (event.key === 'Enter') {
@@ -1395,10 +1551,14 @@
 
       try {
         const payload = { action: 'testConnection', provider };
+        let hasUnsavedOverride = false;
         if (provider === 'ollama') {
           payload.host = normalizeOllamaHostValue(spOllamaHostInput?.value || currentPublicSettings?.ollama?.host);
           const modelVal = String(spOllamaModelInput?.value || currentPublicSettings?.ollama?.model || '').trim();
           if (modelVal) payload.model = modelVal;
+          const savedHost = normalizeOllamaHostValue(currentPublicSettings?.ollama?.host);
+          const savedModel = String(currentPublicSettings?.ollama?.model || '').trim();
+          hasUnsavedOverride = payload.host !== savedHost || modelVal !== savedModel;
         } else if (CLOUD_PROVIDERS.includes(provider)) {
           const modelVal = String(
             (provider === spProviderSelect?.value ? spModelSelect?.value : '') ||
@@ -1406,6 +1566,8 @@
             ''
           ).trim();
           if (modelVal) payload.model = modelVal;
+          const savedModel = String(currentPublicSettings?.models?.[provider] || '').trim();
+          hasUnsavedOverride = Boolean(modelVal && modelVal !== savedModel);
         }
 
         const res = await sendRuntimeMessage(payload);
@@ -1415,12 +1577,35 @@
         }
 
         const { readiness, fromBackend } = normalizeReadiness(res, currentPublicSettings);
-        if (fromBackend) {
-          hasBackendReadiness = true;
+        const targetResult = res.result || res;
+
+        if (hasUnsavedOverride && provider !== 'auto' && targetResult && typeof targetResult === 'object') {
+          const overrideState = String(targetResult.state || (targetResult.ok ? 'verified' : 'error'));
+          const overrideCode = String(targetResult.code || (overrideState === 'verified' ? 'OK' : ''));
+          const overrideEntry = {
+            ...(readiness.providers?.[provider] || {}),
+            ...targetResult,
+            state: overrideState,
+            code: overrideCode,
+            statusLabel: mapStateAndCodeToLabel(overrideState, overrideCode, targetResult.statusLabel),
+            usable: targetResult.usable !== undefined ? Boolean(targetResult.usable) : overrideState === 'verified',
+            userMessage: String(targetResult.userMessage || targetResult.message || '')
+          };
+          readiness.providers[provider] = overrideEntry;
+          if (readiness.activeProvider === provider) {
+            readiness.activeState = overrideEntry.state;
+            readiness.statusLabel = overrideEntry.statusLabel;
+            readiness.code = overrideEntry.code;
+            readiness.usable = overrideEntry.usable;
+            readiness.userMessage = overrideEntry.userMessage;
+          }
+        }
+
+        if (fromBackend || hasUnsavedOverride) {
+          hasBackendReadiness = fromBackend;
           currentReadiness = readiness;
         }
 
-        const targetResult = res.result || res;
         const targetEntry = readiness.providers?.[provider];
         const originBlocked = Boolean(targetResult?.originBlocked || targetEntry?.originBlocked || targetResult?.code === 'OLLAMA_ORIGIN_BLOCKED');
 
@@ -1433,7 +1618,8 @@
           showToast(targetResult?.statusLabel || readiness.statusLabel || 'Connection verified', 'success', 2400);
         } else {
           const errMsg = targetResult?.userMessage || targetEntry?.userMessage || readiness.userMessage || readiness.statusLabel;
-          showToast(errMsg, 'error', 3500);
+          const toastType = (targetResult?.state === 'not_configured' && targetResult?.reachable) ? 'warning' : 'error';
+          showToast(errMsg, toastType, 3500);
         }
       } finally {
         isTestingConnection = false;
@@ -1809,13 +1995,13 @@
           div.appendChild(preview);
 
           div.addEventListener('click', () => {
-            executeTemplate(tpl);
+            executeTemplate(tpl, div);
           });
 
           div.addEventListener('keydown', (event) => {
             if (event.key === 'Enter' || event.key === ' ') {
               event.preventDefault();
-              executeTemplate(tpl);
+              executeTemplate(tpl, div);
             }
           });
 
@@ -1829,7 +2015,17 @@
       });
     }
 
-    function executeTemplate(tpl) {
+    function closeFillVariablesModal() {
+      if (modalFillVariables) {
+        modalFillVariables.style.display = 'none';
+      }
+      if (lastModalTriggerEl && lastModalTriggerEl.isConnected && typeof lastModalTriggerEl.focus === 'function') {
+        lastModalTriggerEl.focus();
+      }
+      lastModalTriggerEl = null;
+    }
+
+    function executeTemplate(tpl, triggerEl) {
       const varsRegex = /{{\s*([\w]+)\s*}}/g;
       const variables = [];
       let match;
@@ -1848,6 +2044,7 @@
         return;
       }
 
+      lastModalTriggerEl = triggerEl || (document.activeElement instanceof HTMLElement ? document.activeElement : null);
       currentFillingTemplateText = tpl.template;
       modalVariablesInputs.replaceChildren();
 
@@ -1891,15 +2088,14 @@
         capturedSourceUrl = '';
         if (originalInput) originalInput.value = text;
         if (modalFillVariables) modalFillVariables.style.display = 'none';
+        lastModalTriggerEl = null;
         switchTab('editor');
         showToast('PATTERN VARIABLES COMPILED & INJECTED', 'success', 2000);
       });
     }
 
     if (btnModalClose) {
-      btnModalClose.addEventListener('click', () => {
-        if (modalFillVariables) modalFillVariables.style.display = 'none';
-      });
+      btnModalClose.addEventListener('click', closeFillVariablesModal);
     }
 
     if (btnNewTemplate) {
@@ -1992,7 +2188,7 @@
     document.addEventListener('keydown', (event) => {
       if (event.key !== 'Escape') return;
       if (modalFillVariables && modalFillVariables.style.display === 'flex') {
-        modalFillVariables.style.display = 'none';
+        closeFillVariablesModal();
         return;
       }
       if (spRemoveKeyConfirm && spRemoveKeyConfirm.style.display === 'block') {
@@ -2013,6 +2209,41 @@
         dirtyFields.ollamaModel ||
         dirtyFields.copilotMaxTokens
       );
+    }
+
+    async function handleExternalSettingsChange() {
+      if (internalSaveDepth > 0) return;
+      if (externalSyncInFlight) {
+        pendingExternalSync = true;
+        return;
+      }
+
+      externalSyncInFlight = true;
+      try {
+        do {
+          pendingExternalSync = false;
+          const seq = ++settingsSyncSeq;
+          const store = getSettingsStore();
+          if (store && typeof store.invalidateCache === 'function') {
+            store.invalidateCache();
+          }
+
+          const updated = await fetchPublicSettings();
+          if (seq !== settingsSyncSeq || !updated) {
+            continue;
+          }
+
+          const changed = !arePublicSettingsEqual(currentPublicSettings, updated);
+          applyPublicSettingsToUI(updated, { preserveKeyDraft: true });
+          if (changed && activeTab === 'settings' && hasAnyDirtySettingsInput()) {
+            showToast('External settings updated — unsaved input draft preserved', 'info', 2500);
+          }
+          await refreshReadinessFromBackend(updated);
+        } while (pendingExternalSync);
+      } catch (_) {
+      } finally {
+        externalSyncInFlight = false;
+      }
     }
 
     // Cross-UI live sync listeners (preserve unsaved editor text and dirty settings inputs)
@@ -2039,20 +2270,7 @@
           : keys.some((k) => RELEVANT_SYNC_KEYS.has(k));
 
         if (!isRelevant || internalSaveDepth > 0) return;
-        const seq = ++settingsSyncSeq;
-        const store = getSettingsStore();
-        if (store && typeof store.invalidateCache === 'function') {
-          store.invalidateCache();
-        }
-
-        fetchPublicSettings().then((updated) => {
-          if (seq !== settingsSyncSeq || !updated) return null;
-          applyPublicSettingsToUI(updated, { preserveKeyDraft: true });
-          if (activeTab === 'settings' && hasAnyDirtySettingsInput()) {
-            showToast('External settings updated — unsaved input draft preserved', 'info', 2500);
-          }
-          return refreshReadinessFromBackend(updated);
-        }).catch(() => {});
+        handleExternalSettingsChange();
       });
     }
 
@@ -2061,6 +2279,10 @@
         const action = message?.action || message?.type;
         if (action === 'settingsUpdated') {
           if (internalSaveDepth > 0) return false;
+          if (externalSyncInFlight) {
+            pendingExternalSync = true;
+            return false;
+          }
           settingsSyncSeq += 1;
           if (message?.settings && typeof message.settings === 'object') {
             const merged = currentPublicSettings && !message.settings.hasApiKey
@@ -2077,7 +2299,7 @@
               refreshReadinessFromBackend(publicSettings);
             }
           } else {
-            bootstrapSettingsAndReadiness();
+            handleExternalSettingsChange();
           }
         } else if (action === 'readinessUpdated' && message?.readiness) {
           const normalized = normalizeReadiness(message.readiness, currentPublicSettings);
