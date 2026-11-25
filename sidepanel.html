@@ -13,32 +13,111 @@
 
     <!-- Header -->
     <header class="sidepanel-header">
-      <div class="logo">
-        <span class="logo-text">ZEUS</span>
-        <span class="logo-version">v2.0_WORKBENCH</span>
+      <div class="header-main-row">
+        <div class="logo">
+          <span class="logo-text">ZEUS</span>
+          <span class="logo-version">v2.0_WORKBENCH</span>
+        </div>
+        <div class="header-actions">
+          <button
+            id="btn-open-settings"
+            type="button"
+            class="header-settings-btn"
+            title="Open Settings"
+            aria-label="Open Settings"
+            aria-expanded="false"
+            aria-controls="tab-settings"
+          >
+            <svg class="settings-gear-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="3"></circle>
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+            </svg>
+            <span class="settings-btn-text">Settings</span>
+          </button>
+          <button id="btn-close-panel" type="button" class="close-panel-btn" title="Close Workbench" aria-label="Close Workbench">
+            <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+              <path d="M4 4l8 8M12 4l-8 8"></path>
+            </svg>
+          </button>
+        </div>
       </div>
-      <button id="btn-close-panel" class="close-panel-btn" title="Close Workbench">✕</button>
+      <div class="header-status-row">
+        <button id="sidepanel-readiness-pill" type="button" class="readiness-pill state-unconfigured" title="Active provider readiness status">
+          <span class="readiness-dot" aria-hidden="true"></span>
+          <span id="sidepanel-readiness-text" class="readiness-pill-text">Checking provider...</span>
+        </button>
+      </div>
     </header>
 
-    <!-- Navigation / Tab Bar -->
-    <nav class="sidepanel-tabs">
-      <button class="tab-btn active" data-tab="editor">/// ENHANCE</button>
-      <button class="tab-btn" data-tab="history">/// HISTORY</button>
-      <button class="tab-btn" data-tab="templates">/// TEMPLATES</button>
+    <!-- Primary 3-Tab Navigation Bar -->
+    <nav class="sidepanel-tabs" role="tablist" aria-label="Workbench Sections">
+      <button class="tab-btn active" type="button" role="tab" aria-selected="true" data-tab="editor">/// ENHANCE</button>
+      <button class="tab-btn" type="button" role="tab" aria-selected="false" data-tab="history">/// HISTORY</button>
+      <button class="tab-btn" type="button" role="tab" aria-selected="false" data-tab="templates">/// TEMPLATES</button>
     </nav>
 
     <!-- Tab Content Area -->
     <main class="sidepanel-content">
-      
+
       <!-- Editor / Enhance Tab -->
       <section id="tab-editor" class="tab-section active">
+        <!-- Active Backend Summary Strip -->
+        <div id="editor-backend-strip" class="backend-status-strip">
+          <div class="backend-strip-info">
+            <div class="strip-metric">
+              <span class="strip-label">PROVIDER</span>
+              <span id="strip-provider" class="strip-value">Gemini</span>
+            </div>
+            <div class="strip-metric">
+              <span class="strip-label">MODEL</span>
+              <span id="strip-model" class="strip-value">Default</span>
+            </div>
+            <div class="strip-metric">
+              <span class="strip-label">CONFIG</span>
+              <span id="strip-status" class="strip-value strip-status-value">Checking...</span>
+            </div>
+          </div>
+          <button id="btn-strip-settings" type="button" class="strip-action-btn">Configure</button>
+        </div>
+
+        <!-- Conditional First-Run / Unconfigured Setup Card -->
+        <div id="setup-required-card" class="zeus-terminal-card setup-card" data-variant="yellow" style="display: none;">
+          <div class="card-accent"></div>
+          <div class="setup-card-header">
+            <span class="setup-badge">SETUP</span>
+            <strong class="setup-title">ZEUS SETUP REQUIRED</strong>
+          </div>
+          <p id="setup-required-message" class="card-message">Configure an AI provider before optimizing prompts.</p>
+          <div class="button-row">
+            <button id="btn-setup-configure" type="button" class="zeus-btn zeus-btn-yellow">Configure Provider</button>
+            <button id="btn-setup-advanced" type="button" class="zeus-btn zeus-btn-cyan">Open Advanced Settings</button>
+          </div>
+        </div>
+
+        <!-- Actionable Error Card -->
+        <div id="enhance-error-card" class="zeus-terminal-card error-card" data-variant="red" style="display: none;" role="alert">
+          <div class="card-accent"></div>
+          <div class="error-card-header">
+            <strong id="enhance-error-title" class="error-title">REQUEST FAILED</strong>
+            <button id="btn-error-dismiss" type="button" class="error-dismiss-btn" aria-label="Dismiss error">×</button>
+          </div>
+          <p id="enhance-error-message" class="card-message"></p>
+          <div class="button-row">
+            <button id="btn-error-settings" type="button" class="zeus-btn zeus-btn-cyan">Open Settings</button>
+            <button id="btn-error-retry" type="button" class="zeus-btn zeus-btn-yellow">Retry</button>
+          </div>
+        </div>
+
         <div class="zeus-terminal-card" data-variant="cyan">
           <div class="card-accent"></div>
-          <label class="zeus-label" for="original-input">/// INPUT PAYLOAD</label>
-          <textarea id="original-input" class="zeus-input" placeholder="Capture or type a prompt..."></textarea>
+          <div class="label-row">
+            <label class="zeus-label" for="original-input">/// INPUT PAYLOAD</label>
+            <span class="shortcut-hint">Ctrl+Enter</span>
+          </div>
+          <textarea id="original-input" class="zeus-input" placeholder="Capture from active chat or type a prompt..."></textarea>
           <div class="button-row">
-            <button id="btn-capture" class="zeus-btn zeus-btn-cyan">CAPTURE FROM PAGE</button>
-            <button id="btn-enhance" class="zeus-btn zeus-btn-yellow">OPTIMIZE PROMPT</button>
+            <button id="btn-capture" type="button" class="zeus-btn zeus-btn-cyan">CAPTURE FROM PAGE</button>
+            <button id="btn-enhance" type="button" class="zeus-btn zeus-btn-yellow">OPTIMIZE PROMPT</button>
           </div>
         </div>
 
@@ -51,17 +130,18 @@
         <div class="zeus-terminal-card" data-variant="green">
           <div class="card-accent"></div>
           <label class="zeus-label" for="enhanced-output">/// OPTIMIZED OUTPUT</label>
+          <p id="editor-empty-guidance" class="empty-guidance-text">Capture a draft from any supported chat tab or enter text above, then click Optimize Prompt to compare and inject.</p>
           <textarea id="enhanced-output" class="zeus-input" readonly placeholder="Optimized result will appear here..."></textarea>
           <div class="button-row">
-            <button id="btn-insert" class="zeus-btn zeus-btn-yellow">INSERT INTO CHAT</button>
-            <button id="btn-copy" class="zeus-btn zeus-btn-cyan">COPY TO CLIPBOARD</button>
+            <button id="btn-insert" type="button" class="zeus-btn zeus-btn-yellow">INSERT INTO CHAT</button>
+            <button id="btn-copy" type="button" class="zeus-btn zeus-btn-cyan">COPY TO CLIPBOARD</button>
           </div>
         </div>
       </section>
 
       <!-- History Tab -->
       <section id="tab-history" class="tab-section">
-        <div class="zeus-terminal-card" data-variant="red">
+        <div class="zeus-terminal-card" data-variant="cyan">
           <div class="card-accent"></div>
           <label class="zeus-label">/// INJECTION ARCHIVE</label>
           <div id="history-list" class="history-list-container"></div>
@@ -76,7 +156,7 @@
             <div class="card-accent"></div>
             <label class="zeus-label">/// ACTIVE PATTERNS</label>
             <div id="template-list" class="template-list-container"></div>
-            <button id="btn-new-template" class="zeus-btn zeus-btn-yellow" style="width: 100%; margin-top: 15px;">CREATE NEW TEMPLATE</button>
+            <button id="btn-new-template" type="button" class="zeus-btn zeus-btn-yellow full-width-btn">CREATE NEW TEMPLATE</button>
           </div>
         </div>
 
@@ -85,22 +165,197 @@
           <div class="zeus-terminal-card" data-variant="yellow">
             <div class="card-accent"></div>
             <label class="zeus-label">/// PATTERN EDITOR</label>
-            
+
             <div class="form-group">
               <label class="zeus-label" for="template-name">PATTERN ID</label>
               <input type="text" id="template-name" class="zeus-input" placeholder="e.g., Code Refactor">
             </div>
 
-            <div class="form-group" style="margin-top: 12px;">
+            <div class="form-group">
               <label class="zeus-label" for="template-text">TEMPLATE PAYLOAD (use {{var}} for variables)</label>
-              <textarea id="template-text" class="zeus-input" placeholder="e.g., Please refactor the following {{language}} code: {{code}}" style="height: 120px;"></textarea>
+              <textarea id="template-text" class="zeus-input template-textarea" placeholder="e.g., Please refactor the following {{language}} code: {{code}}"></textarea>
             </div>
 
-            <div class="button-row" style="margin-top: 15px;">
-              <button id="btn-save-template" class="zeus-btn zeus-btn-yellow">SAVE PATTERN</button>
-              <button id="btn-delete-template" class="zeus-btn zeus-btn-red">DELETE</button>
-              <button id="btn-cancel-template" class="zeus-btn zeus-btn-ghost">CANCEL</button>
+            <div class="button-row">
+              <button id="btn-save-template" type="button" class="zeus-btn zeus-btn-yellow">SAVE PATTERN</button>
+              <button id="btn-delete-template" type="button" class="zeus-btn zeus-btn-red">DELETE</button>
+              <button id="btn-cancel-template" type="button" class="zeus-btn zeus-btn-ghost">CANCEL</button>
             </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Dedicated Settings View -->
+      <section id="tab-settings" class="tab-section" aria-label="Settings">
+        <div class="settings-top-bar">
+          <button id="btn-back-to-enhance" type="button" class="zeus-btn zeus-btn-cyan back-to-enhance-btn">← Back to Enhance</button>
+          <span class="settings-view-title">/// WORKBENCH SETTINGS</span>
+        </div>
+
+        <!-- Readiness Banner -->
+        <div id="sp-readiness-banner" class="zeus-terminal-card readiness-banner" data-variant="cyan">
+          <div class="card-accent"></div>
+          <div class="readiness-banner-head">
+            <div class="readiness-banner-meta">
+              <span class="zeus-label">/// PROVIDER READINESS</span>
+              <div class="readiness-state-row">
+                <span id="sp-readiness-dot" class="readiness-dot" aria-hidden="true"></span>
+                <strong id="sp-readiness-label" class="readiness-state-label">Not configured</strong>
+              </div>
+            </div>
+            <button id="sp-btn-test" type="button" class="zeus-btn zeus-btn-cyan">TEST CONNECTION</button>
+          </div>
+          <p id="sp-readiness-detail" class="helper-text"></p>
+        </div>
+
+        <!-- AI Provider & Model Selector -->
+        <div class="zeus-terminal-card" data-variant="cyan">
+          <div class="card-accent"></div>
+          <div class="form-group">
+            <label class="zeus-label" for="sp-provider">/// AI PROVIDER</label>
+            <select id="sp-provider" class="zeus-input zeus-select">
+              <option value="gemini">Gemini</option>
+              <option value="openai">OpenAI</option>
+              <option value="claude">Claude</option>
+              <option value="openrouter">OpenRouter</option>
+              <option value="ollama">Ollama (Local)</option>
+              <option value="auto">Auto (Smart Routing)</option>
+            </select>
+            <p id="sp-provider-helper" class="helper-text"></p>
+          </div>
+
+          <div id="sp-model-group" class="form-group">
+            <label class="zeus-label" for="sp-model">/// MODEL</label>
+            <select id="sp-model" class="zeus-input zeus-select"></select>
+            <p id="sp-model-empty" class="helper-text" style="display: none;">No catalog models available for this provider.</p>
+            <div id="sp-model-meta" class="model-meta-box" style="display: none;">
+              <div class="model-meta-title-row">
+                <span id="sp-model-display-name" class="model-meta-name"></span>
+                <span id="sp-model-badge" class="model-meta-badge"></span>
+              </div>
+              <p id="sp-model-tags" class="helper-text"></p>
+            </div>
+          </div>
+
+          <div id="sp-auto-explanation" class="auto-explanation-box" style="display: none;">
+            <span class="zeus-label">/// SMART ROUTING</span>
+            <p class="helper-text">Automatically routes prompts across configured backends: coding tasks prefer OpenAI Codex, long-form analysis prefers Claude, quick rewrites prefer Gemini Flash, with fallback to OpenRouter and local Ollama.</p>
+          </div>
+        </div>
+
+        <!-- Auto Mode Per-Provider Readiness -->
+        <div id="sp-auto-card" class="zeus-terminal-card" data-variant="cyan" style="display: none;">
+          <div class="card-accent"></div>
+          <label class="zeus-label">/// AUTO ROUTE PROVIDERS</label>
+          <p class="helper-text">Configure at least one cloud API key or local Ollama model for Auto mode.</p>
+          <div id="sp-auto-providers" class="auto-provider-list"></div>
+        </div>
+
+        <!-- Secure Cloud API Key Card -->
+        <div id="sp-key-card" class="zeus-terminal-card" data-variant="yellow">
+          <div class="card-accent"></div>
+          <div class="key-card-header">
+            <label id="sp-key-title" class="zeus-label" for="sp-api-key">/// GEMINI API KEY</label>
+            <span id="sp-key-status" class="key-status-pill unconfigured">Not configured</span>
+          </div>
+          <p id="sp-key-helper" class="helper-text">Saved keys remain private in local storage and are never shown back in inputs.</p>
+          <div class="key-input-row">
+            <input id="sp-api-key" type="password" class="zeus-input" autocomplete="off" spellcheck="false" placeholder="Enter API key...">
+            <button id="sp-btn-toggle-key" type="button" class="zeus-btn zeus-btn-cyan key-toggle-btn" aria-pressed="false" aria-label="Show API key input">Show</button>
+          </div>
+          <div class="button-row">
+            <button id="sp-btn-save-key" type="button" class="zeus-btn zeus-btn-yellow">Save Key</button>
+            <button id="sp-btn-remove-key" type="button" class="zeus-btn zeus-btn-red" style="display: none;">Remove Key</button>
+          </div>
+          <div id="sp-remove-key-confirm" class="confirm-inline-box" style="display: none;" role="alertdialog" aria-label="Confirm key removal">
+            <p id="sp-remove-confirm-text" class="confirm-inline-text">Remove the saved API key for this provider?</p>
+            <div class="button-row">
+              <button id="sp-btn-confirm-remove" type="button" class="zeus-btn zeus-btn-red">Confirm Remove</button>
+              <button id="sp-btn-cancel-remove" type="button" class="zeus-btn zeus-btn-ghost">Cancel</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Local Ollama Card -->
+        <div id="sp-ollama-card" class="zeus-terminal-card" data-variant="green" style="display: none;">
+          <div class="card-accent"></div>
+          <label class="zeus-label">/// LOCAL OLLAMA CONFIGURATION</label>
+          <div class="form-group">
+            <label class="zeus-label" for="sp-ollama-host">HOST URL</label>
+            <input id="sp-ollama-host" type="text" class="zeus-input" placeholder="http://localhost:11434">
+          </div>
+          <div class="form-group">
+            <label class="zeus-label" for="sp-ollama-model">ACTIVE MODEL</label>
+            <input id="sp-ollama-model" type="text" class="zeus-input" placeholder="e.g., qwen3:8b">
+          </div>
+          <div class="button-row">
+            <button id="sp-btn-detect-ollama" type="button" class="zeus-btn zeus-btn-cyan">Detect Models</button>
+            <button id="sp-btn-save-ollama" type="button" class="zeus-btn zeus-btn-yellow">Save Ollama</button>
+            <button id="sp-btn-ollama-test" type="button" class="zeus-btn zeus-btn-cyan">Test Connection</button>
+          </div>
+          <div id="sp-ollama-models-wrap" class="ollama-models-wrap">
+            <span id="sp-ollama-models-label" class="zeus-label">DISCOVERED / SUGGESTED MODELS</span>
+            <div id="sp-ollama-discovered" class="ollama-chip-list"></div>
+          </div>
+          <div id="sp-ollama-cors-help" class="cors-guidance-box" style="display: none;" role="alert">
+            <p id="sp-ollama-cors-text" class="card-message"></p>
+            <div class="key-input-row">
+              <input id="sp-ollama-cors-cmd" type="text" class="zeus-input" readonly aria-label="Scoped Ollama origins command">
+              <button id="sp-btn-copy-cors" type="button" class="zeus-btn zeus-btn-cyan key-toggle-btn">Copy</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Preferences & Behavior -->
+        <div id="sp-preferences-card" class="zeus-terminal-card" data-variant="cyan">
+          <div class="card-accent"></div>
+          <label class="zeus-label">/// PREFERENCES &amp; BEHAVIOR</label>
+
+          <div class="pref-list">
+            <div class="pref-row">
+              <label class="pref-label" for="sp-copilot-enabled">Copilot Inline Suggestions</label>
+              <input id="sp-copilot-enabled" type="checkbox" class="pref-checkbox">
+            </div>
+
+            <div class="pref-field">
+              <label class="zeus-label" for="sp-copilot-provider">COPILOT PROVIDER</label>
+              <select id="sp-copilot-provider" class="zeus-input zeus-select">
+                <option value="auto">Auto (Best Available)</option>
+                <option value="gemini">Gemini</option>
+                <option value="openai">OpenAI</option>
+                <option value="claude">Claude</option>
+                <option value="openrouter">OpenRouter</option>
+                <option value="ollama">Ollama (Local)</option>
+              </select>
+            </div>
+
+            <div class="pref-grid">
+              <div class="pref-field">
+                <label class="zeus-label" for="sp-copilot-mode">COPILOT MODE</label>
+                <select id="sp-copilot-mode" class="zeus-input zeus-select">
+                  <option value="conservative">Conservative</option>
+                  <option value="aggressive">Aggressive</option>
+                </select>
+              </div>
+              <div class="pref-field">
+                <label class="zeus-label" for="sp-copilot-max-tokens">MAX TOKENS (10-250)</label>
+                <input id="sp-copilot-max-tokens" type="number" class="zeus-input" min="10" max="250" step="1" value="60">
+              </div>
+            </div>
+
+            <div class="pref-row">
+              <label class="pref-label" for="sp-redaction-enabled">Sensitive Data Redaction</label>
+              <input id="sp-redaction-enabled" type="checkbox" class="pref-checkbox" checked>
+            </div>
+
+            <div class="pref-row">
+              <label class="pref-label" for="sp-sidepanel-enabled">Side Panel on Toolbar Click</label>
+              <input id="sp-sidepanel-enabled" type="checkbox" class="pref-checkbox" checked>
+            </div>
+          </div>
+
+          <div class="settings-footer-actions">
+            <button id="sp-btn-open-options" type="button" class="zeus-btn zeus-btn-cyan full-width-btn">Open Advanced Settings</button>
           </div>
         </div>
       </section>
@@ -113,20 +368,21 @@
         <div class="card-accent"></div>
         <label class="zeus-label">/// COMPILE VARIABLES</label>
         <div id="modal-variables-inputs" class="modal-inputs-container"></div>
-        <div class="button-row" style="margin-top: 15px;">
-          <button id="btn-modal-fill" class="zeus-btn zeus-btn-yellow">INJECT LOADOUT</button>
-          <button id="btn-modal-close" class="zeus-btn zeus-btn-ghost">ABORT</button>
+        <div class="button-row">
+          <button id="btn-modal-fill" type="button" class="zeus-btn zeus-btn-yellow">INJECT LOADOUT</button>
+          <button id="btn-modal-close" type="button" class="zeus-btn zeus-btn-ghost">ABORT</button>
         </div>
       </div>
     </div>
 
     <!-- Status toast element -->
-    <div id="sidepanel-toast-holder" style="position: absolute; bottom: 10px; right: 10px; z-index: 10000; pointer-events: none;"></div>
+    <div id="sidepanel-toast-holder" aria-live="polite"></div>
   </div>
 
   <script src="core/redactor.js"></script>
   <script src="core/safeDom.js"></script>
   <script src="core/providerTransport.js"></script>
+  <script src="model-registry.js"></script>
   <script src="settings/settingsStore.js"></script>
   <script src="settings/settings.js"></script>
   <script src="core/promptClient.js"></script>
