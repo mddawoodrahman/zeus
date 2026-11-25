@@ -88,6 +88,15 @@
 
   let editingTemplateIndex = -1; // -1 means creating new
   let currentFillingTemplateText = '';
+  let capturedSourceUrl = '';
+
+  if (originalInput) {
+    originalInput.addEventListener('input', () => {
+      if (!originalInput.value.trim()) {
+        capturedSourceUrl = '';
+      }
+    });
+  }
 
   // Tab switching
   tabButtons.forEach(btn => {
@@ -111,18 +120,25 @@
 
   // Toast helper
   function showToast(message, type = 'info', durationMs = 3000) {
-    if (!toastHolder) return;
+    if (!toastHolder) return null;
     const toast = document.createElement('div');
     toast.className = `zeus-toast ${type}`;
     toast.textContent = `> ${message}`;
     toastHolder.appendChild(toast);
 
-    setTimeout(() => {
+    const dismiss = () => {
+      if (!toast.isConnected) return;
       toast.style.opacity = '0';
       setTimeout(() => {
         toast.remove();
       }, 300);
-    }, durationMs);
+    };
+
+    if (Number(durationMs) > 0) {
+      setTimeout(dismiss, durationMs);
+    }
+
+    return { element: toast, dismiss };
   }
 
   // Capture input from page
@@ -134,6 +150,7 @@
       chrome.runtime.sendMessage({ type: 'sidePanel:getCurrentInput' }, (response) => {
         btnCapture.disabled = false;
         if (response && response.value !== undefined) {
+          capturedSourceUrl = typeof response.url === 'string' ? response.url : '';
           if (originalInput) originalInput.value = response.value;
           if (response.value) {
             showToast('INPUT RETRIEVED SUCCESSFULLY', 'success', 2000);
@@ -158,7 +175,7 @@
 
       btnEnhance.disabled = true;
       btnEnhance.textContent = 'ESTABLISHING NEURAL LINK...';
-      showToast('ROUTING TO COGNITIVE LOADOUT...', 'info', 0);
+      const loadingToast = showToast('ROUTING TO COGNITIVE LOADOUT...', 'info', 0);
 
       try {
         const promptClient = window.ZeusPromptClient || globalThis.ZeusPromptClient;
@@ -166,11 +183,29 @@
           throw new Error('ZeusPromptClient is not available');
         }
 
-        const result = await promptClient.enhance(text);
+        const enhanceOptions = { timeoutMs: 20000 };
+        const settingsModule = window.ZeusSettingsStore || globalThis.ZeusSettingsStore || window.ZeusSettings || globalThis.ZeusSettings;
+        let loadedSettings = null;
+        if (settingsModule && typeof settingsModule.getPublic === 'function') {
+          loadedSettings = await settingsModule.getPublic().catch(() => null);
+        } else if (settingsModule && typeof settingsModule.getPublicSettings === 'function') {
+          loadedSettings = await settingsModule.getPublicSettings().catch(() => null);
+        } else if (typeof promptClient.dispatchMessage === 'function') {
+          const settingsResponse = await promptClient.dispatchMessage({ action: 'getSettings' }, 3000).catch(() => null);
+          loadedSettings = settingsResponse?.settings || null;
+        }
+        if (loadedSettings) {
+          enhanceOptions.redactionEnabled = loadedSettings.redactionEnabled;
+          enhanceOptions.customRedactionPatterns = loadedSettings.customRedactionPatterns;
+        }
 
+        const result = await promptClient.enhance(text, enhanceOptions);
+
+        loadingToast?.dismiss();
         showToast('INJECTION COMPLETE', 'success', 2000);
 
-        if (result.warnings && result.warnings.length > 0) {
+        const actionableWarnings = (result.warnings || []).filter((w) => !/^NOTICE:/i.test(String(w || '').trim()));
+        if (actionableWarnings.length > 0) {
           showToast('WARNING: SOME SENSITIVE TOKENS WERE OMITTED BY AI', 'warning', 4000);
         }
 
@@ -186,9 +221,11 @@
         const historyEnhanced = result.meta?.hasRedactions ? (result.meta?.scrubbedEnhanced || result.enhancedText) : result.enhancedText;
         saveCurrentToHistory(historyOriginal, historyEnhanced);
       } catch (err) {
+        loadingToast?.dismiss();
         showToast('LINK FAILURE', 'error', 3000);
         console.error('Enhance failed:', err);
       } finally {
+        loadingToast?.dismiss();
         btnEnhance.disabled = false;
         btnEnhance.textContent = 'OPTIMIZE PROMPT';
       }
@@ -317,7 +354,7 @@
       original,
       enhanced,
       timestamp: Date.now(),
-      url: window.location.href
+      url: capturedSourceUrl
     };
 
     chrome.runtime.sendMessage({ type: 'sidePanel:saveHistory', entry });
@@ -385,6 +422,7 @@
 
     if (variables.length === 0) {
       // Direct loadout injection
+      capturedSourceUrl = '';
       originalInput.value = tpl.template;
       switchTab('editor');
       showToast('PATTERN INJECTED INTO INPUT', 'success', 2000);
@@ -426,9 +464,10 @@
         const variable = input.dataset.variable;
         const value = input.value.trim();
         const regex = new RegExp(`{{\\s*${variable}\\s*}}`, 'g');
-        text = text.replace(regex, value);
+        text = text.replace(regex, () => value);
       });
 
+      capturedSourceUrl = '';
       if (originalInput) originalInput.value = text;
       if (modalFillVariables) modalFillVariables.style.display = 'none';
       switchTab('editor');

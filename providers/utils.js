@@ -108,6 +108,45 @@
     );
   }
 
+  function supportsSamplingTemperature(provider, model) {
+    const providerName = String(provider || '').toLowerCase();
+    const modelName = String(model || '').toLowerCase();
+
+    if (providerName === 'openai') {
+      return !/^(gpt-5|o1|o3|o4)(?:$|[-.])/i.test(modelName);
+    }
+
+    if (providerName === 'openrouter') {
+      const modelParts = modelName.split('/');
+      const family = String(modelParts[0] || '').trim();
+      const familyModel = String(modelParts[1] || modelParts[0] || '').trim();
+      if (family === 'openai') {
+        return !/^(gpt-5|o1|o3|o4)(?:$|[-.])/i.test(familyModel);
+      }
+    }
+
+    return true;
+  }
+
+  function isUnsupportedTemperatureError(errData) {
+    const signal = getErrorSignal(errData);
+    return (
+      (signal.includes('unsupported parameter') || signal.includes('unsupported value')) &&
+      signal.includes('temperature')
+    );
+  }
+
+  function buildChatCompletionOptions(provider, model, { temperature, maxTokens, tokenParam, includeTemperature } = {}) {
+    const resolvedParam = tokenParam || inferChatTokenParam(provider, model);
+    const allowTemp = includeTemperature !== undefined
+      ? includeTemperature
+      : supportsSamplingTemperature(provider, model);
+    return {
+      ...(allowTemp && temperature !== undefined ? { temperature } : {}),
+      ...buildChatTokenLimit(resolvedParam, maxTokens)
+    };
+  }
+
   function buildChatTokenLimit(paramName, value) {
     const normalized = String(paramName || '').trim();
     const limit = Number(value);
@@ -193,6 +232,9 @@
     inferChatTokenParam,
     getAlternateChatTokenParam,
     isUnsupportedTokenParameterError,
+    supportsSamplingTemperature,
+    isUnsupportedTemperatureError,
+    buildChatCompletionOptions,
     buildChatTokenLimit,
     parseSseStream
   });

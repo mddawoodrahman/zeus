@@ -59,14 +59,17 @@ describe('ZeusRouter unit behavior', () => {
     clearZeusGlobals();
   });
 
-  it('detects coding, cheap, long-form, and default intents', () => {
+  it('detects coding, cheap, long-form, and default intents without downgrading domain nouns', () => {
     expect(globalThis.ZeusRouter.detectPromptIntent('debug this python function')).toBe('coding');
     expect(globalThis.ZeusRouter.detectPromptIntent('need a cheap quick rewrite')).toBe('cheap');
+    expect(globalThis.ZeusRouter.detectPromptIntent('give me a low-cost answer')).toBe('cheap');
     expect(globalThis.ZeusRouter.detectPromptIntent('write a comprehensive in-depth article')).toBe('long-form');
+    expect(globalThis.ZeusRouter.detectPromptIntent('build a Q4 marketing budget forecast')).toBe('default');
+    expect(globalThis.ZeusRouter.detectPromptIntent('design a lightweight aluminum frame')).toBe('default');
     expect(globalThis.ZeusRouter.detectPromptIntent('hello there')).toBe('default');
   });
 
-  it('builds de-duplicated auto-route candidates', () => {
+  it('builds de-duplicated auto-route candidates including openrouter', () => {
     const candidates = globalThis.ZeusRouter.buildAutoRouteCandidates({
       provider: 'openai',
       model: 'gpt-5.4-mini'
@@ -75,6 +78,7 @@ describe('ZeusRouter unit behavior', () => {
     const signatures = candidates.map((item) => `${item.provider}:${item.model}`);
     expect(new Set(signatures).size).toBe(signatures.length);
     expect(signatures[0]).toBe('openai:gpt-5.4-mini');
+    expect(candidates.some((item) => item.provider === 'openrouter' && Boolean(item.model))).toBe(true);
   });
 
   it('routes to configured provider when auto mode is disabled', async () => {
@@ -99,5 +103,41 @@ describe('ZeusRouter unit behavior', () => {
     await globalThis.ZeusRouter.streamSuggest('how to', settings, port, abortSignal);
 
     expect(providers.gemini.suggest).toHaveBeenCalledWith('how to', settings, port, abortSignal);
+  });
+
+  it('falls back from unavailable ollama to configured cloud provider in copilot auto mode', async () => {
+    providers.ollama.suggest.mockRejectedValueOnce(new Error('Ollama not running'));
+    providers.gemini.suggest.mockImplementationOnce(async (_text, _settings, port) => {
+      port.postMessage({ type: 'chunk', text: ' cloud fallback' });
+      port.postMessage({ type: 'done' });
+    });
+
+    const port = { postMessage: vi.fn(), disconnect: vi.fn() };
+    const settings = {
+      copilotProvider: 'auto',
+      ollama: { model: 'qwen3:8b' },
+      apiKeys: { gemini: 'gemini-key' }
+    };
+
+    await globalThis.ZeusRouter.streamSuggest('Finish this prompt', settings, port, new AbortController().signal);
+
+    expect(providers.ollama.suggest).toHaveBeenCalledTimes(1);
+    expect(providers.gemini.suggest).toHaveBeenCalledTimes(1);
+    expect(port.postMessage).toHaveBeenCalledWith({ type: 'chunk', text: ' cloud fallback' });
+    expect(port.postMessage).toHaveBeenCalledWith({ type: 'done' });
+  });
+
+  it('posts error and closes port when copilot auto mode has no available provider or keys', async () => {
+    const port = { postMessage: vi.fn(), disconnect: vi.fn() };
+    const settings = {
+      copilotProvider: 'auto',
+      ollama: { model: '' },
+      apiKeys: { gemini: '', openai: '', claude: '', openrouter: '' }
+    };
+
+    await globalThis.ZeusRouter.streamSuggest('Finish this prompt', settings, port, new AbortController().signal);
+
+    expect(port.postMessage).toHaveBeenCalledWith(expect.objectContaining({ type: 'error' }));
+    expect(port.disconnect).toHaveBeenCalledTimes(1);
   });
 });

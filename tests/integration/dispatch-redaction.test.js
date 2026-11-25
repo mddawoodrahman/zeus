@@ -151,6 +151,71 @@ describe('Ticket 3: Redaction across all dispatch surfaces', () => {
       expect(textarea.value).not.toContain('[[ZEUS_SECRET_1]]');
       expect(textarea.value).not.toContain('[[ZEUS_SECRET_2]]');
     });
+
+    it('completes in-place replacement cleanly when redactionEnabled is false across PromptClient, PromptEngine, and content.js', async () => {
+      globalThis.ZeusProviders = {
+        openai: vi.fn().mockImplementation(async (prompt) => `ENHANCED:\n${prompt}`)
+      };
+      globalThis.ZeusSettings = {
+        createDefaultSettings: () => ({ provider: 'openai', redactionEnabled: false }),
+        loadSettings: vi.fn().mockResolvedValue({
+          provider: 'openai',
+          redactionEnabled: false,
+          apiKeys: { openai: 'sk-key' },
+          models: { openai: 'gpt-5.4-mini' }
+        })
+      };
+      loadScript('model-registry.js');
+      loadScript('core/router.js');
+      loadScript('core/redactor.js');
+      loadScript('core/promptEngine.js');
+
+      chromeMock.runtime.sendMessage = (msg, callback) => {
+        runtimeMessages.push(msg);
+        if (msg.action === 'getSettings') {
+          callback({
+            settings: {
+              provider: 'openai',
+              redactionEnabled: false,
+              hasApiKey: { openai: true }
+            }
+          });
+          return;
+        }
+        if (msg.action === 'enhancePrompt') {
+          globalThis.ZeusPromptEngine.execute(msg.prompt, msg.options).then((res) => {
+            callback({
+              success: true,
+              enhancedText: res.enhancedText,
+              enhancedPrompt: res.enhancedText,
+              warnings: res.warnings,
+              meta: res.meta
+            });
+          });
+        }
+      };
+
+      loadScript('core/editorBridge.js');
+      loadScript('core/domUtils.js');
+      loadScript('adapters/chatgpt.js');
+      loadScript('core/useFloatingPosition.js');
+      loadScript('core/injector.js');
+      loadScript('core/observer.js');
+      loadScript('core/promptClient.js');
+      loadScript('content.js');
+      await new Promise((r) => setTimeout(r, 30));
+
+      const textarea = document.createElement('textarea');
+      textarea.id = 'prompt-textarea';
+      withRect(textarea);
+      textarea.value = `Connect to ${FIXTURES.postgresUri}`;
+      document.body.appendChild(textarea);
+      textarea.focus();
+
+      const status = await globalThis.ZeusContentRuntime.enhanceInput(textarea);
+      expect(status).toBe('enhanced');
+      expect(textarea.value).toBe(`ENHANCED:\nConnect to ${FIXTURES.postgresUri}`);
+    });
   });
 
   describe('Dispatch Surface 2: Context Menu (`contextEnhancePrompt`)', () => {

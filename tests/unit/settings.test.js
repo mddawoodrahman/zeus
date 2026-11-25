@@ -616,5 +616,31 @@ describe('ZeusSettings', () => {
       expect(publicSettings.hasApiKey.claude).toBe(true);
       expect(publicSettings.hasApiKey.openai).toBe(false);
     });
+
+    it('normalizes and persists ollama.host with safe URL validation and trailing-slash trimming', async () => {
+      const store = globalThis.ZeusSettingsStore;
+      expect(store.createDefaultSettings().ollama.host).toBe('http://localhost:11434');
+
+      expect(store.normalizeSettings({ ollama: { host: 'http://127.0.0.1:11434/' } }).ollama.host)
+        .toBe('http://127.0.0.1:11434');
+      expect(store.normalizeSettings({ ollama: { host: 'javascript:alert(1)' } }).ollama.host)
+        .toBe('http://localhost:11434');
+
+      await store.update({ ollama: { host: 'http://127.0.0.1:11435/' } });
+      await store.update({ ollama: { model: 'qwen3:8b' } });
+
+      const current = await store.get();
+      expect(current.ollama.host).toBe('http://127.0.0.1:11435');
+      expect(current.ollama.model).toBe('qwen3:8b');
+      expect(env.syncStore.ollama).toEqual({ host: 'http://127.0.0.1:11435', model: 'qwen3:8b' });
+    });
+
+    it('clamps copilotMaxTokens to [10, 250] and defaults invalid values to 60', () => {
+      const store = globalThis.ZeusSettingsStore;
+      expect(store.normalizeSettings({ copilotMaxTokens: 3 }).copilotMaxTokens).toBe(10);
+      expect(store.normalizeSettings({ copilotMaxTokens: 900 }).copilotMaxTokens).toBe(250);
+      expect(store.normalizeSettings({ copilotMaxTokens: -5 }).copilotMaxTokens).toBe(60);
+      expect(store.normalizeSettings({ copilotMaxTokens: 'not-a-number' }).copilotMaxTokens).toBe(60);
+    });
   });
 });

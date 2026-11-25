@@ -97,12 +97,13 @@
         timeoutMs: 20000
       });
       if (!current()) return 'stale';
+      const blockingWarnings = (warnings || []).filter((w) => !/^NOTICE:/i.test(String(w || '').trim()));
       const changed =
         bridge.isComposing(el) || revision !== bridge.version(el) || original !== site.readText(el);
-      if (changed || !site.getCapabilities(el).canReplace || warnings?.length) {
+      if (changed || !site.getCapabilities(el).canReplace || blockingWarnings.length) {
         const reason = changed
           ? 'Your draft changed.'
-          : warnings?.length
+          : blockingWarnings.length
             ? 'The provider returned a warning. Check for omitted placeholders before copying.'
             : 'This editor supports preview and copy.';
         ui.state('idle', reason, 0, enhancedText);
@@ -124,18 +125,16 @@
       return 'enhanced';
     } catch (err) {
       if (current()) {
-        const detail = String(err?.message || '');
+        const detail = String(err?.message || '').trim();
         let message = 'Enhancement failed. Check the provider in Zeus settings and retry.';
-        if (/^Model '.*?' may not be available for Gemini\./i.test(detail)) {
-          message = 'Choose a Gemini model available to your account in Zeus settings.';
-        } else if (/timeout|timed out/i.test(detail)) {
-          message = 'The provider timed out. Try again.';
-        } else if (/key|token|401|403|credential/i.test(detail)) {
-          message = 'Check the provider API key in Zeus settings.';
-        } else if (/empty|enter a prompt/i.test(detail)) {
+        if (/empty|enter a prompt/i.test(detail)) {
           message = 'Enter a prompt first.';
-        } else if (/network|fetch|offline/i.test(detail)) {
-          message = 'Couldn’t reach the provider. Check your connection and retry.';
+        } else if (/^Enhancement request timed out after\b/i.test(detail) || /^Request timed out\b/i.test(detail)) {
+          message = 'The provider timed out. Try again.';
+        } else if (/^Failed to communicate with background/i.test(detail)) {
+          message = 'Couldn’t reach Zeus background service. Retry in a moment.';
+        } else if (detail && !/^(Error|TypeError|SyntaxError):/i.test(detail)) {
+          message = detail;
         }
         ui.state('error', message, 4500);
       }

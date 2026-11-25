@@ -20,7 +20,6 @@ document.addEventListener('DOMContentLoaded', () => {
   const modelBadge = document.getElementById('model-badge');
   const modelTags = document.getElementById('model-tags');
   const ollamaSuggestions = document.getElementById('ollama-suggestions');
-  const darkModeToggle = document.getElementById('darkModeToggle');
   const saveBtn = document.getElementById('saveBtn');
   const statusEl = document.getElementById('status');
   const sidePanelEnabledCheckbox = document.getElementById('sidePanelEnabled');
@@ -142,38 +141,14 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  function initializeDarkMode() {
-    chrome.storage.sync.get(['zeus_dark_mode_preference'], (data) => {
-      let isDarkMode = data?.zeus_dark_mode_preference;
-      if (isDarkMode === undefined) {
-        isDarkMode = window.matchMedia('(prefers-color-scheme: dark)').matches;
-      }
-      applyDarkMode(Boolean(isDarkMode));
-    });
-  }
-
-  function applyDarkMode(isDark) {
-    if (isDark) {
-      document.documentElement.setAttribute('data-theme', 'dark');
-      darkModeToggle?.classList.add('active');
-    } else {
-      document.documentElement.removeAttribute('data-theme');
-      darkModeToggle?.classList.remove('active');
-    }
-  }
-
-  function toggleDarkMode() {
-    const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
-    const next = !isDark;
-    applyDarkMode(next);
-    chrome.storage.sync.set({ zeus_dark_mode_preference: next });
-  }
-
   function toggleProviderPanels(selectedProvider) {
     for (const provider in settingsMap) {
       const section = settingsMap[provider].settingsDiv;
       if (!section) continue;
-      section.style.display = provider === selectedProvider ? 'block' : 'none';
+      const isCloudKeySection = ['gemini', 'openai', 'claude', 'openrouter'].includes(provider);
+      section.style.display = (provider === selectedProvider || (selectedProvider === 'auto' && isCloudKeySection))
+        ? 'block'
+        : 'none';
     }
 
     if (providerHelpText) {
@@ -369,6 +344,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   let statusTimeout = null;
   function showStatus(message, type) {
+    if (!statusEl) return;
     clearTimeout(statusTimeout);
     statusEl.textContent = message;
     statusEl.className = `status ${type || ''}`;
@@ -392,7 +368,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (fallbackCountEl) {
       chrome.runtime.sendMessage({ action: 'getTelemetrySummary' }, (response) => {
         const summary = response?.summary;
-        const fallbackEvents = summary?.totalEvents || 0;
+        const fallbackEvents = summary?.fallbackCount !== undefined ? summary.fallbackCount : (summary?.totalEvents || 0);
         fallbackCountEl.textContent = fallbackEvents;
       });
     }
@@ -407,6 +383,10 @@ document.addEventListener('DOMContentLoaded', () => {
     settingsMap.claude.apiKeyInput.value = currentSettings.apiKeys.claude || '';
     settingsMap.openrouter.apiKeyInput.value = currentSettings.apiKeys.openrouter || '';
 
+    const ollamaHostInput = document.getElementById('ollamaHost');
+    if (ollamaHostInput) {
+      ollamaHostInput.value = currentSettings.ollama?.host || settingsModule?.DEFAULT_OLLAMA_HOST || 'http://localhost:11434';
+    }
     const ollamaModelInput = document.getElementById('ollamaModel');
     if (ollamaModelInput) {
       ollamaModelInput.value = currentSettings.ollama?.model || '';
@@ -455,6 +435,7 @@ document.addEventListener('DOMContentLoaded', () => {
           ...(currentSettings.models || {})
         },
         ollama: {
+          host: document.getElementById('ollamaHost')?.value.trim() || '',
           model: document.getElementById('ollamaModel')?.value.trim() || ''
         }
       });
@@ -482,8 +463,6 @@ document.addEventListener('DOMContentLoaded', () => {
       saveBtn.textContent = 'EXECUTE CONFIG';
     }
   }
-
-  darkModeToggle?.addEventListener('click', toggleDarkMode);
 
   aiProviderSelect?.addEventListener('change', () => {
     const selectedProvider = aiProviderSelect.value;
@@ -564,19 +543,5 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  try {
-    const mq = window.matchMedia('(prefers-color-scheme: dark)');
-    mq.addEventListener('change', (event) => {
-      chrome.storage.sync.get(['zeus_dark_mode_preference'], (data) => {
-        if (data?.zeus_dark_mode_preference === undefined) {
-          applyDarkMode(event.matches);
-        }
-      });
-    });
-  } catch (_) {
-    // Ignore browser support edge cases.
-  }
-
-  initializeDarkMode();
   loadSettings();
 });

@@ -441,6 +441,10 @@
     settingsMap.claude.apiKeyInput.value = currentSettings.apiKeys.claude || '';
     settingsMap.openrouter.apiKeyInput.value = currentSettings.apiKeys.openrouter || '';
 
+    const ollamaHostInput = document.getElementById('ollamaHost');
+    if (ollamaHostInput) {
+      ollamaHostInput.value = currentSettings.ollama?.host || settingsModule?.DEFAULT_OLLAMA_HOST || 'http://localhost:11434';
+    }
     const ollamaModelInput = document.getElementById('ollamaModel');
     if (ollamaModelInput) {
       ollamaModelInput.value = currentSettings.ollama?.model || '';
@@ -493,7 +497,11 @@
         copilotEnabled: copilotEnabledCheckbox ? copilotEnabledCheckbox.checked : currentSettings.copilotEnabled,
         copilotProvider: copilotProviderSelect ? copilotProviderSelect.value : currentSettings.copilotProvider,
         copilotMode: copilotModeSelect ? copilotModeSelect.value : currentSettings.copilotMode,
-        copilotMaxTokens: copilotMaxTokensInput ? (Number(copilotMaxTokensInput.value) || 60) : currentSettings.copilotMaxTokens,
+        copilotMaxTokens: copilotMaxTokensInput
+          ? (settingsModule?.clampCopilotMaxTokens
+            ? settingsModule.clampCopilotMaxTokens(copilotMaxTokensInput.value)
+            : Math.min(250, Math.max(10, Math.round(Number(copilotMaxTokensInput.value) || 60))))
+          : currentSettings.copilotMaxTokens,
         apiKeys: {
           gemini: settingsMap.gemini.apiKeyInput?.value.trim() || '',
           openai: settingsMap.openai.apiKeyInput?.value.trim() || '',
@@ -504,6 +512,7 @@
           ...(currentSettings.models || {})
         },
         ollama: {
+          host: document.getElementById('ollamaHost')?.value.trim() || '',
           model: document.getElementById('ollamaModel')?.value.trim() || ''
         }
       });
@@ -550,9 +559,13 @@
     });
 
     chrome.runtime.sendMessage({ action: 'getTelemetrySummary' }, (response) => {
-      const summary = response?.summary || { totalEvents: 0, recent: [] };
-      const fallbackCount = summary.totalEvents || 0;
-      
+      const summary = response?.summary || { totalEvents: 0, fallbackCount: 0, recent: [] };
+      const fallbackCount = summary.fallbackCount !== undefined
+        ? summary.fallbackCount
+        : (Array.isArray(summary.recent) && summary.recent.length > 0
+          ? summary.recent.filter((e) => e.type === 'fallback').length
+          : (summary.totalEvents || 0));
+
       const fallbacksEl = document.getElementById('telemetryFallbacks');
       if (fallbacksEl) {
         fallbacksEl.textContent = fallbackCount;
@@ -561,7 +574,7 @@
       const listEl = document.getElementById('telemetryEventList');
       if (listEl) {
         listEl.replaceChildren();
-        const recentEvents = summary.recent || [];
+        const recentEvents = Array.isArray(summary.recent) ? summary.recent.slice().reverse() : [];
 
         if (recentEvents.length === 0) {
           const emptyLi = document.createElement('li');

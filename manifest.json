@@ -14,6 +14,7 @@
   "host_permissions": [
     "https://chatgpt.com/*",
     "https://chat.openai.com/*",
+    "https://kimi.com/*",
     "https://www.kimi.com/*",
     "https://claude.ai/*",
     "https://gemini.google.com/*",
@@ -22,7 +23,11 @@
     "https://chat.deepseek.com/*",
     "https://grok.com/*",
     "https://openrouter.ai/*",
-    "http://localhost:11434/*"
+    "https://api.openai.com/*",
+    "https://generativelanguage.googleapis.com/*",
+    "https://api.anthropic.com/*",
+    "http://localhost:11434/*",
+    "http://127.0.0.1:11434/*"
   ],
   "background": {
     "service_worker": "background.js"
@@ -34,6 +39,7 @@
         "https://chat.openai.com/*",
         "https://claude.ai/*",
         "https://gemini.google.com/*",
+        "https://kimi.com/*",
         "https://www.kimi.com/*",
         "https://bard.google.com/*",
         "https://deepseek.com/*",

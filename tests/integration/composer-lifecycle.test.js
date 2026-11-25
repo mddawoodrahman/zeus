@@ -141,3 +141,76 @@ it('loads custom redaction rules before dispatching a click during initializatio
   expect(outgoing.prompt).toBe('Use [[ZEUS_SECRET_1]]');
   expect(editor.value).toBe('Use fixture-private-label');
 });
+
+it('surfaces specific normalized provider errors in the status notice instead of masking them', async () => {
+  let capturedShadow = null;
+  const origAttachShadow = Element.prototype.attachShadow;
+  Element.prototype.attachShadow = function patchedAttachShadow(init) {
+    const sr = origAttachShadow.call(this, init);
+    capturedShadow = sr;
+    return sr;
+  };
+  try {
+    ZeusContentRuntime.destroy();
+    manifest.content_scripts[0].js.forEach(loadScript);
+    editor.focus();
+    await Promise.resolve();
+    const errMsg = 'OpenAI quota or credits are insufficient for this project or org. Check billing and usage limits in your OpenAI dashboard.';
+    const req = ZeusContentRuntime.enhanceInput(editor);
+    pending({ success: false, error: errMsg });
+    expect(await req).toBe('failed');
+    expect(capturedShadow.querySelector('[role=status]').textContent).toBe(errMsg);
+  } finally {
+    Element.prototype.attachShadow = origAttachShadow;
+  }
+});
+
+it('displays full untruncated Ollama origin errors and specific Gemini model errors', async () => {
+  let capturedShadow = null;
+  const origAttachShadow = Element.prototype.attachShadow;
+  Element.prototype.attachShadow = function patchedAttachShadow(init) {
+    const sr = origAttachShadow.call(this, init);
+    capturedShadow = sr;
+    return sr;
+  };
+  try {
+    ZeusContentRuntime.destroy();
+    manifest.content_scripts[0].js.forEach(loadScript);
+    editor.focus();
+    await Promise.resolve();
+
+    const longOllamaErr = 'Ollama blocked extension origin (HTTP 403). Add OLLAMA_ORIGINS=chrome-extension://abcdefghijklmnop to your environment and restart Ollama completely so local models can accept requests from the extension background service worker.';
+    const req1 = ZeusContentRuntime.enhanceInput(editor);
+    pending({ success: false, error: longOllamaErr });
+    expect(await req1).toBe('failed');
+    expect(capturedShadow.querySelector('[role=status]').textContent).toBe(longOllamaErr);
+
+    const geminiModelErr = "Model 'gemini-custom-preview' may not be available for Gemini. Choose another model or verify your API access.";
+    const req2 = ZeusContentRuntime.enhanceInput(editor);
+    pending({ success: false, error: geminiModelErr });
+    expect(await req2).toBe('failed');
+    expect(capturedShadow.querySelector('[role=status]').textContent).toBe(geminiModelErr);
+  } finally {
+    Element.prototype.attachShadow = origAttachShadow;
+  }
+});
+
+it('allows in-place replacement when warnings contain only NOTICE audit messages', async () => {
+  editor.value = 'Draft prompt';
+  const req1 = ZeusContentRuntime.enhanceInput(editor);
+  pending({
+    success: true,
+    enhancedText: 'Refined draft prompt',
+    warnings: ['NOTICE: Defense-in-depth scrubbing occurred server-side.']
+  });
+  expect(await req1).toBe('enhanced');
+  expect(editor.value).toBe('Refined draft prompt');
+
+  const req2 = ZeusContentRuntime.enhanceInput(editor);
+  pending({
+    success: true,
+    enhancedText: 'Refined draft without secret',
+    warnings: ['Sensitive placeholder [[ZEUS_SECRET_1]] was omitted by the model.']
+  });
+  expect(await req2).toBe('preview');
+});

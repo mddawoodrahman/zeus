@@ -11,12 +11,29 @@
     return TRANSIENT_STATUS_CODES.includes(Number(status));
   }
 
-  async function waitBackoff(attempt) {
+  async function waitBackoff(attempt, signal) {
     if (retry && typeof retry.waitWithBackoff === 'function') {
-      await retry.waitWithBackoff(attempt);
+      await retry.waitWithBackoff(attempt, undefined, undefined, signal);
     } else {
+      if (signal?.aborted) {
+        const abortErr = new Error('The operation was aborted');
+        abortErr.name = 'AbortError';
+        throw abortErr;
+      }
       const delay = 400 * Math.pow(2, Math.max(0, Number(attempt) || 0));
-      await new Promise((resolve) => setTimeout(resolve, delay));
+      await new Promise((resolve, reject) => {
+        const onAbort = () => {
+          clearTimeout(timer);
+          const abortErr = new Error('The operation was aborted');
+          abortErr.name = 'AbortError';
+          reject(abortErr);
+        };
+        const timer = setTimeout(() => {
+          signal?.removeEventListener('abort', onAbort);
+          resolve();
+        }, delay);
+        signal?.addEventListener('abort', onAbort, { once: true });
+      });
     }
   }
 
@@ -99,7 +116,7 @@
         }
         // Pre-first-byte transient network error: retry if attempts remain
         if (attempt < maxRetries - 1) {
-          await waitBackoff(attempt);
+          await waitBackoff(attempt, signal);
           continue;
         }
         throw fetchErr;
@@ -119,7 +136,7 @@
       const retryable = isTransientStatus(response.status) || (typeof customIsRetryable === 'function' && customIsRetryable(response.status, errData, null));
 
       if (retryable && attempt < maxRetries - 1 && !signal?.aborted) {
-        await waitBackoff(attempt);
+        await waitBackoff(attempt, signal);
         continue;
       }
 
@@ -175,7 +192,12 @@
         }
         // RETRY INVARIANT: Retries only allowed pre-first-byte
         if (!hasEmittedFirstChunk && attempt < maxRetries - 1) {
-          await waitBackoff(attempt);
+          try {
+            await waitBackoff(attempt, signal);
+          } catch (backoffErr) {
+            if (signal?.aborted) return;
+            throw backoffErr;
+          }
           continue;
         }
         throw fetchErr;
@@ -187,7 +209,12 @@
 
         // Pre-first-byte HTTP retry
         if (retryable && !hasEmittedFirstChunk && attempt < maxRetries - 1 && !signal?.aborted) {
-          await waitBackoff(attempt);
+          try {
+            await waitBackoff(attempt, signal);
+          } catch (backoffErr) {
+            if (signal?.aborted) return;
+            throw backoffErr;
+          }
           continue;
         }
 

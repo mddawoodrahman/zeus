@@ -21,6 +21,15 @@
   const GEMINI_API_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/models';
   const GEMINI_MAX_RETRIES = 3;
 
+  function extractCandidateText(payload) {
+    const parts = payload?.candidates?.[0]?.content?.parts;
+    if (!Array.isArray(parts)) return '';
+    return parts
+      .filter((part) => part && part.thought !== true && typeof part.text === 'string')
+      .map((part) => part.text)
+      .join('');
+  }
+
   function extractSignal(errData) {
     const code = String(errData?.error?.code ?? errData?.code ?? '').toLowerCase();
     const status = String(errData?.error?.status ?? errData?.status ?? '').toLowerCase();
@@ -75,19 +84,23 @@
       generationConfig: { temperature: 0.4, maxOutputTokens: 2048 }
     };
 
+    const signal = config?.signal;
     const modelCandidates = providerUtils.buildModelCandidates('gemini', model);
     let lastError = null;
 
     for (let modelIndex = 0; modelIndex < modelCandidates.length; modelIndex += 1) {
+      if (signal?.aborted) break;
       const currentModel = modelCandidates[modelIndex];
       const apiUrl = `${GEMINI_API_BASE_URL}/${encodeURIComponent(currentModel)}:generateContent`;
 
       for (let attempt = 0; attempt < GEMINI_MAX_RETRIES; attempt += 1) {
+        if (signal?.aborted) break;
         const result = await (transport ? transport.execute({
           url: apiUrl,
           method: 'POST',
           headers,
           body,
+          signal,
           maxRetries: 1,
           provider: 'gemini'
         }) : (async () => {
@@ -95,13 +108,13 @@
             method: 'POST',
             headers,
             body: JSON.stringify(body)
-          });
+          }, undefined, signal);
           const data = await providerUtils.readJsonSafe(response);
           return { ok: response.ok, status: response.status, data };
         })());
 
         if (result.ok) {
-          const enhancedText = result.data?.candidates?.[0]?.content?.parts?.[0]?.text;
+          const enhancedText = extractCandidateText(result.data);
           if (!enhancedText) throw new Error('Provider responded without enhanced text.');
           return String(enhancedText).trim();
         }
@@ -123,7 +136,7 @@
 
         const canRetry = attempt < GEMINI_MAX_RETRIES - 1 && isRetryable(result.status, errData);
         if (canRetry) {
-          await retry.waitWithBackoff(attempt);
+          await retry.waitWithBackoff(attempt, undefined, undefined, signal);
           continue;
         }
 
@@ -131,6 +144,11 @@
       }
     }
 
+    if (signal?.aborted) {
+      const abortErr = new Error('The operation was aborted');
+      abortErr.name = 'AbortError';
+      throw abortErr;
+    }
     if (lastError) throw lastError;
     throw new Error('Gemini request failed.');
   }
@@ -161,7 +179,7 @@
       }, {
         signal,
         onChunk: (chunk) => {
-          const content = chunk?.candidates?.[0]?.content?.parts?.[0]?.text;
+          const content = extractCandidateText(chunk);
           if (content && !signal?.aborted) {
             port.postMessage({ type: 'chunk', text: content });
           }
@@ -181,7 +199,7 @@
       }
 
       await providerUtils.parseSseStream(response, (chunk) => {
-        const content = chunk?.candidates?.[0]?.content?.parts?.[0]?.text;
+        const content = extractCandidateText(chunk);
         if (content && !signal?.aborted) {
           port.postMessage({ type: 'chunk', text: content });
         }

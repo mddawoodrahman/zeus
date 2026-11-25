@@ -61,22 +61,30 @@
     if (!apiKey) throw new Error('Missing OpenAI API key.');
     if (!model) throw new Error('Missing OpenAI model.');
 
+    const signal = config?.signal;
     const modelCandidates = providerUtils.buildModelCandidates('openai', model);
     let lastError = null;
 
     for (let modelIndex = 0; modelIndex < modelCandidates.length; modelIndex += 1) {
+      if (signal?.aborted) break;
       const currentModel = modelCandidates[modelIndex];
       let tokenParam = providerUtils.inferChatTokenParam('openai', currentModel);
+      let includeTemperature = providerUtils.supportsSamplingTemperature('openai', currentModel);
 
       for (let attempt = 0; attempt < OPENAI_MAX_RETRIES; attempt += 1) {
+        if (signal?.aborted) break;
         const body = {
           model: currentModel,
           messages: [
             { role: 'system', content: prompts.getRewriteSystemInstruction() },
             { role: 'user', content: prompts.buildEnhancePrompt(prompt) }
           ],
-          temperature: 0.4,
-          ...providerUtils.buildChatTokenLimit(tokenParam, 1024)
+          ...providerUtils.buildChatCompletionOptions('openai', currentModel, {
+            temperature: 0.4,
+            maxTokens: 1024,
+            tokenParam,
+            includeTemperature
+          })
         };
 
         const result = await (transport ? transport.execute({
@@ -87,6 +95,7 @@
             'Authorization': `Bearer ${apiKey}`
           },
           body,
+          signal,
           maxRetries: 1,
           provider: 'openai'
         }) : (async () => {
@@ -97,7 +106,7 @@
               'Authorization': `Bearer ${apiKey}`
             },
             body: JSON.stringify(body)
-          });
+          }, undefined, signal);
           const data = await providerUtils.readJsonSafe(response);
           return { ok: response.ok, status: response.status, data };
         })());
@@ -119,6 +128,11 @@
           }
         }
 
+        if (result.status === 400 && includeTemperature && providerUtils.isUnsupportedTemperatureError(errData)) {
+          includeTemperature = false;
+          continue;
+        }
+
         if (modelIndex < modelCandidates.length - 1 && shouldFallback(result.status, errData)) {
           providerUtils.trackFallbackEvent({
             provider: 'openai',
@@ -133,7 +147,7 @@
 
         const canRetry = attempt < OPENAI_MAX_RETRIES - 1 && isRetryable(result.status, errData);
         if (canRetry) {
-          await retry.waitWithBackoff(attempt);
+          await retry.waitWithBackoff(attempt, undefined, undefined, signal);
           continue;
         }
 
@@ -141,6 +155,11 @@
       }
     }
 
+    if (signal?.aborted) {
+      const abortErr = new Error('The operation was aborted');
+      abortErr.name = 'AbortError';
+      throw abortErr;
+    }
     if (lastError) throw lastError;
     throw new Error('OpenAI request failed.');
   }
@@ -156,8 +175,10 @@
         { role: 'system', content: "You are a concise prompt-completion assistant. Continue the user's incomplete prompt with at most 2 sentences. Do not repeat what they already typed." },
         { role: 'user', content: `Prompt: ${text}` }
       ],
-      temperature: 0.3,
-      max_tokens: settings.copilotMaxTokens || 60,
+      ...providerUtils.buildChatCompletionOptions('openai', model, {
+        temperature: 0.3,
+        maxTokens: settings.copilotMaxTokens || 60
+      }),
       stream: true
     };
 

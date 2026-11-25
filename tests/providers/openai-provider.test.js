@@ -56,6 +56,73 @@ describe('OpenAI provider with mocked fetch', () => {
     const requestBody = JSON.parse(globalThis.fetch.mock.calls[0][1].body);
     expect(requestBody.max_completion_tokens).toBe(1024);
     expect(requestBody.max_tokens).toBeUndefined();
+    expect(requestBody.temperature).toBeUndefined();
+  });
+
+  it('omits temperature for reasoning models and strips unsupported temperature on 400 recovery', async () => {
+    globalThis.fetch
+      .mockResolvedValueOnce(
+        makeResponse(400, {
+          error: {
+            type: 'invalid_request_error',
+            message: "Unsupported value: 'temperature' does not support 0.4 with this model."
+          }
+        })
+      )
+      .mockResolvedValueOnce(
+        makeResponse(200, {
+          choices: [{ message: { content: 'Recovered without temperature' } }]
+        })
+      );
+
+    const result = await globalThis.ZeusProviders.openai('raw prompt', {
+      apiKeys: { openai: 'sk-test' },
+      models: { openai: 'custom-reasoning-model' }
+    });
+
+    expect(result).toBe('Recovered without temperature');
+    const firstBody = JSON.parse(globalThis.fetch.mock.calls[0][1].body);
+    const secondBody = JSON.parse(globalThis.fetch.mock.calls[1][1].body);
+    expect(firstBody.temperature).toBe(0.4);
+    expect(secondBody.temperature).toBeUndefined();
+  });
+
+  it('uses max_completion_tokens and omits temperature in suggest() for gpt-5 and o-series models', async () => {
+    const encoder = new TextEncoder();
+    globalThis.fetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      headers: new Headers({ 'content-type': 'text/event-stream' }),
+      body: {
+        getReader: () => {
+          let sent = false;
+          return {
+            read: async () => {
+              if (!sent) {
+                sent = true;
+                return { done: false, value: encoder.encode('data: {"choices":[{"delta":{"content":" next step"}}]}\n\ndata: [DONE]\n\n') };
+              }
+              return { done: true, value: undefined };
+            },
+            releaseLock: () => {}
+          };
+        }
+      }
+    });
+
+    const port = { postMessage: vi.fn() };
+    await globalThis.ZeusProviders.openai.suggest('Draft', {
+      apiKeys: { openai: 'sk-test' },
+      models: { openai: 'gpt-5.4-mini' },
+      copilotMaxTokens: 75
+    }, port, null);
+
+    const reqBody = JSON.parse(globalThis.fetch.mock.calls[0][1].body);
+    expect(reqBody.max_completion_tokens).toBe(75);
+    expect(reqBody.max_tokens).toBeUndefined();
+    expect(reqBody.temperature).toBeUndefined();
+    expect(port.postMessage).toHaveBeenCalledWith({ type: 'chunk', text: ' next step' });
+    expect(port.postMessage).toHaveBeenCalledWith({ type: 'done' });
   });
 
   it('retries with alternate token parameter when model rejects max_tokens field', async () => {

@@ -63,13 +63,16 @@
     if (!apiKey) throw new Error('Missing Claude API key.');
     if (!model) throw new Error('Missing Claude model.');
 
+    const signal = config?.signal;
     const modelCandidates = providerUtils.buildModelCandidates('claude', model);
     let lastError = null;
 
     for (let modelIndex = 0; modelIndex < modelCandidates.length; modelIndex += 1) {
+      if (signal?.aborted) break;
       const currentModel = modelCandidates[modelIndex];
 
       for (let attempt = 0; attempt < CLAUDE_MAX_RETRIES; attempt += 1) {
+        if (signal?.aborted) break;
         const body = {
           model: currentModel,
           system: prompts.getRewriteSystemInstruction(),
@@ -87,6 +90,7 @@
             'anthropic-version': '2023-06-01'
           },
           body,
+          signal,
           maxRetries: 1,
           provider: 'claude'
         }) : (async () => {
@@ -98,7 +102,7 @@
               'anthropic-version': '2023-06-01'
             },
             body: JSON.stringify(body)
-          });
+          }, undefined, signal);
           const data = await providerUtils.readJsonSafe(response);
           return { ok: response.ok, status: response.status, data };
         })());
@@ -126,7 +130,7 @@
 
         const canRetry = attempt < CLAUDE_MAX_RETRIES - 1 && isRetryable(result.status, errData);
         if (canRetry) {
-          await retry.waitWithBackoff(attempt);
+          await retry.waitWithBackoff(attempt, undefined, undefined, signal);
           continue;
         }
 
@@ -134,6 +138,11 @@
       }
     }
 
+    if (signal?.aborted) {
+      const abortErr = new Error('The operation was aborted');
+      abortErr.name = 'AbortError';
+      throw abortErr;
+    }
     if (lastError) throw lastError;
     throw new Error('Claude request failed.');
   }

@@ -4,6 +4,7 @@
   const registry = globalScope.ZeusModelRegistry || null;
 
   const SCHEMA_VERSION = 3;
+  const DEFAULT_OLLAMA_HOST = 'http://localhost:11434';
   const SUPPORTED_PROVIDERS = Object.freeze(['gemini', 'openai', 'claude', 'openrouter', 'ollama', 'auto']);
   const MODEL_PROVIDERS = Object.freeze(['gemini', 'openai', 'claude', 'openrouter']);
   const API_KEY_PROVIDERS = Object.freeze(['gemini', 'openai', 'claude', 'openrouter']);
@@ -31,6 +32,7 @@
       openrouter: 'string'
     }),
     ollama: Object.freeze({
+      host: 'string',
       model: 'string'
     })
   });
@@ -104,6 +106,29 @@
     return String(value || '').trim();
   }
 
+  function clampCopilotMaxTokens(value, fallback = 60) {
+    const num = Number(value);
+    if (!Number.isFinite(num) || num <= 0) {
+      return fallback;
+    }
+    return Math.min(250, Math.max(10, Math.round(num)));
+  }
+
+  function normalizeOllamaHost(value) {
+    const raw = sanitizeString(value).replace(/\/+$/, '');
+    if (!raw) return DEFAULT_OLLAMA_HOST;
+    try {
+      const parsed = new URL(raw);
+      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+        return DEFAULT_OLLAMA_HOST;
+      }
+      const cleanPath = parsed.pathname === '/' ? '' : parsed.pathname.replace(/\/+$/, '');
+      return `${parsed.origin}${cleanPath}`;
+    } catch (_) {
+      return DEFAULT_OLLAMA_HOST;
+    }
+  }
+
   function readRegistryDefault(provider) {
     const reg = globalScope.ZeusModelRegistry || registry;
     const defaultFromRegistry = String(reg?.getDefaultModel?.(provider) || '').trim();
@@ -139,6 +164,7 @@
         openrouter: readRegistryDefault('openrouter')
       },
       ollama: {
+        host: DEFAULT_OLLAMA_HOST,
         model: ''
       }
     };
@@ -205,6 +231,7 @@
     };
 
     const ollama = {
+      host: normalizeOllamaHost(stored?.ollama?.host),
       model: sanitizeString(stored?.ollama?.model ?? stored?.zeus_ollama_model)
     };
 
@@ -212,7 +239,7 @@
     const copilotEnabled = stored?.copilotEnabled !== undefined ? Boolean(stored.copilotEnabled) : defaults.copilotEnabled;
     const copilotMode = stored?.copilotMode !== undefined ? sanitizeString(stored.copilotMode) : defaults.copilotMode;
     const copilotProvider = stored?.copilotProvider !== undefined ? sanitizeString(stored.copilotProvider) : defaults.copilotProvider;
-    const copilotMaxTokens = stored?.copilotMaxTokens !== undefined ? Number(stored.copilotMaxTokens) : defaults.copilotMaxTokens;
+    const copilotMaxTokens = clampCopilotMaxTokens(stored?.copilotMaxTokens, defaults.copilotMaxTokens);
     const redactionEnabled = stored?.redactionEnabled !== undefined ? Boolean(stored.redactionEnabled) : defaults.redactionEnabled;
     const customRedactionPatterns = Array.isArray(stored?.customRedactionPatterns)
       ? stored.customRedactionPatterns.map(sanitizeString).filter(Boolean)
@@ -578,6 +605,9 @@
     SYNC_STORAGE_KEYS,
     LOCAL_STORAGE_KEYS,
     LEGACY_STORAGE_KEYS,
+    DEFAULT_OLLAMA_HOST,
+    normalizeOllamaHost,
+    clampCopilotMaxTokens,
     get,
     update,
     getPublic,

@@ -128,24 +128,7 @@
     const startTime = Date.now();
     const warningsList = [];
 
-    // 1. Defense-in-Depth Scrubbing:
-    // If background is invoked directly without client-side scrubbing, scrub internally
-    let scrubbedPrompt = rawInput;
-    let internalSecretMap = null;
-    const redactor = getRedactor();
-
-    if (redactor && typeof redactor.hasSensitive === 'function' && typeof redactor.scrub === 'function') {
-      if (redactor.hasSensitive(rawInput)) {
-        const scrubRes = redactor.scrub(rawInput);
-        if (scrubRes.hasRedactions) {
-          scrubbedPrompt = scrubRes.text;
-          internalSecretMap = scrubRes.secretMap;
-          warningsList.push('NOTICE: Defense-in-depth redaction applied to background enhancement');
-        }
-      }
-    }
-
-    // 2. Resolve settings
+    // 1. Resolve authoritative settings before evaluating redaction rules
     const settingsStore = getSettingsStore();
     const baseConfig = settingsStore && typeof settingsStore.loadSettings === 'function'
       ? await settingsStore.loadSettings()
@@ -161,6 +144,56 @@
         ...(options?.model && options?.provider ? { [options.provider]: options.model } : {})
       }
     };
+
+    // 2. Defense-in-Depth Scrubbing (honors SettingsStore redactionEnabled and customRedactionPatterns)
+    let scrubbedPrompt = rawInput;
+    let internalSecretMap = null;
+    const redactor = getRedactor();
+    const redactionOptions = {
+      redactionEnabled: config.redactionEnabled !== false,
+      customRedactionPatterns: config.customRedactionPatterns
+    };
+
+    if (
+      redactionOptions.redactionEnabled &&
+      redactor &&
+      typeof redactor.hasSensitive === 'function' &&
+      typeof redactor.scrub === 'function'
+    ) {
+      if (redactor.hasSensitive(rawInput, redactionOptions)) {
+        const scrubRes = redactor.scrub(rawInput, redactionOptions);
+        if (scrubRes.hasRedactions) {
+          scrubbedPrompt = scrubRes.text;
+          internalSecretMap = scrubRes.secretMap;
+          warningsList.push('NOTICE: Defense-in-depth redaction applied to background enhancement');
+        }
+      }
+    }
+
+    const timeoutMs = Number(options?.timeoutMs) > 0 ? Number(options.timeoutMs) : 0;
+    const timeoutController = (timeoutMs > 0 || options?.signal) ? new AbortController() : null;
+    let timeoutTimer = null;
+    let externalAbortHandler = null;
+
+    if (timeoutController) {
+      if (options?.signal) {
+        if (options.signal.aborted) {
+          timeoutController.abort(options.signal.reason);
+        } else {
+          externalAbortHandler = () => timeoutController.abort(options.signal.reason);
+          options.signal.addEventListener('abort', externalAbortHandler, { once: true });
+        }
+      }
+      if (timeoutMs > 0) {
+        timeoutTimer = setTimeout(() => {
+          const timeoutErr = new Error(`Enhancement request timed out after ${timeoutMs}ms.`);
+          timeoutErr.name = 'AbortError';
+          timeoutController.abort(timeoutErr);
+        }, timeoutMs);
+      }
+    }
+
+    const runtimeConfig = timeoutController ? { ...config, signal: timeoutController.signal } : config;
 
     const router = getRouter();
     const providers = getProviders();
@@ -193,6 +226,12 @@
         let lastAutoError = null;
 
         for (const route of candidates) {
+          if (timeoutController?.signal?.aborted) {
+            const abortErr = new Error(`Enhancement request timed out after ${timeoutMs}ms.`);
+            abortErr.name = 'AbortError';
+            throw abortErr;
+          }
+
           const provider = route.provider;
           const model = route.model;
 
@@ -206,13 +245,16 @@
           }
 
           try {
-            const candidateConfig = withProviderModelOverride(config, provider, model);
+            const candidateConfig = withProviderModelOverride(runtimeConfig, provider, model);
             finalEnhancedText = await providerFn(scrubbedPrompt, candidateConfig);
             executedProvider = provider;
             executedModel = model || String(candidateConfig.models?.[provider] || '').trim();
             success = true;
             break;
           } catch (error) {
+            if (timeoutController?.signal?.aborted || error?.name === 'AbortError') {
+              throw error;
+            }
             lastAutoError = error;
             trackFallbackEvent({
               provider,
@@ -235,7 +277,7 @@
           throw new Error(`Unsupported provider: ${configuredProvider}`);
         }
 
-        finalEnhancedText = await providerFn(scrubbedPrompt, config);
+        finalEnhancedText = await providerFn(scrubbedPrompt, runtimeConfig);
         executedProvider = configuredProvider;
         executedModel = String(config.models?.[configuredProvider] || '').trim();
       }
@@ -275,6 +317,11 @@
 
       console.error(`${logPrefix.error} NEURAL LINK FAILED`, logStyle.error, error);
       throw error;
+    } finally {
+      if (timeoutTimer) clearTimeout(timeoutTimer);
+      if (options?.signal && externalAbortHandler) {
+        options.signal.removeEventListener('abort', externalAbortHandler);
+      }
     }
   }
 

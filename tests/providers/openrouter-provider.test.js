@@ -55,7 +55,6 @@ describe('OpenRouter provider with mocked fetch', () => {
 
   it('retries with alternate token parameter when model rejects max_tokens field', async () => {
     globalThis.fetch
-      .mockResolvedValueOnce(makeResponse(500, {}))
       .mockResolvedValueOnce(
         makeResponse(400, {
           error: {
@@ -82,10 +81,10 @@ describe('OpenRouter provider with mocked fetch', () => {
     });
 
     expect(result).toBe('Recovered on OpenRouter');
-    expect(globalThis.fetch).toHaveBeenCalledTimes(3);
+    expect(globalThis.fetch).toHaveBeenCalledTimes(2);
 
-    const firstCompletionRequestBody = JSON.parse(globalThis.fetch.mock.calls[1][1].body);
-    const secondCompletionRequestBody = JSON.parse(globalThis.fetch.mock.calls[2][1].body);
+    const firstCompletionRequestBody = JSON.parse(globalThis.fetch.mock.calls[0][1].body);
+    const secondCompletionRequestBody = JSON.parse(globalThis.fetch.mock.calls[1][1].body);
 
     expect(firstCompletionRequestBody.max_tokens).toBe(2048);
     expect(firstCompletionRequestBody.max_completion_tokens).toBeUndefined();
@@ -93,7 +92,24 @@ describe('OpenRouter provider with mocked fetch', () => {
     expect(secondCompletionRequestBody.max_tokens).toBeUndefined();
   });
 
-  it('streams copilot suggestions via ProviderTransport SSE decoder', async () => {
+  it('restricts fallbacks to curated models without sweeping /api/v1/models and retries 429 on the active model', async () => {
+    globalThis.fetch
+      .mockResolvedValueOnce(makeResponse(429, { error: { message: 'Rate limited' } }))
+      .mockResolvedValueOnce(makeResponse(200, { choices: [{ message: { content: 'Recovered after 429 retry' } }] }));
+
+    const result = await globalThis.ZeusProviders.openrouter('raw prompt', {
+      apiKeys: { openrouter: 'or-test' },
+      models: { openrouter: 'openai/gpt-5.4' }
+    });
+
+    expect(result).toBe('Recovered after 429 retry');
+    expect(globalThis.fetch).toHaveBeenCalledTimes(2);
+    expect(globalThis.fetch.mock.calls.every(([url]) => url === 'https://openrouter.ai/api/v1/chat/completions')).toBe(true);
+    expect(JSON.parse(globalThis.fetch.mock.calls[0][1].body).model).toBe('openai/gpt-5.4');
+    expect(JSON.parse(globalThis.fetch.mock.calls[1][1].body).model).toBe('openai/gpt-5.4');
+  });
+
+  it('streams copilot suggestions via ProviderTransport SSE decoder using inferChatTokenParam', async () => {
     const ssePayload = [
       'data: {"choices":[{"delta":{"content":" suggested"}}]}\n\n',
       'data: {"choices":[{"delta":{"content":" completion"}}]}\n\n',
@@ -105,9 +121,13 @@ describe('OpenRouter provider with mocked fetch', () => {
     const port = { postMessage: vi.fn() };
     await globalThis.ZeusProviders.openrouter.suggest('Help me', {
       apiKeys: { openrouter: 'or-key' },
-      models: { openrouter: 'openai/gpt-5.4' }
+      models: { openrouter: 'openai/gpt-5.4' },
+      copilotMaxTokens: 80
     }, port, null);
 
+    const reqBody = JSON.parse(globalThis.fetch.mock.calls[0][1].body);
+    expect(reqBody.max_completion_tokens).toBe(80);
+    expect(reqBody.max_tokens).toBeUndefined();
     expect(port.postMessage).toHaveBeenCalledWith({ type: 'chunk', text: ' suggested' });
     expect(port.postMessage).toHaveBeenCalledWith({ type: 'chunk', text: ' completion' });
     expect(port.postMessage).toHaveBeenCalledWith({ type: 'done' });

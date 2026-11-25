@@ -17,12 +17,28 @@
   })() : null);
   const providers = providerUtils.ensureProviderBag();
 
-  const OLLAMA_API_URL = 'http://localhost:11434/api/generate';
-  const OLLAMA_HEALTH_URL = 'http://localhost:11434/api/version';
-  const OLLAMA_RUNNING_MODELS_URL = 'http://localhost:11434/api/ps';
-  const OLLAMA_MODELS_URL = 'http://localhost:11434/api/tags';
+  const DEFAULT_OLLAMA_HOST = 'http://localhost:11434';
   const OLLAMA_NOT_RUNNING_MESSAGE = 'Ollama not running. Start with: ollama run qwen3:8b';
   const OLLAMA_NO_MODEL_MESSAGE = 'No local Ollama model detected. Start one with: ollama run qwen3:8b';
+
+  function resolveBaseUrl(config) {
+    const store = globalScope.ZeusSettingsStore || globalScope.ZeusSettings;
+    if (store && typeof store.normalizeOllamaHost === 'function') {
+      return store.normalizeOllamaHost(config?.ollama?.host);
+    }
+    const raw = String(config?.ollama?.host || '').trim().replace(/\/+$/, '');
+    if (!raw) return DEFAULT_OLLAMA_HOST;
+    try {
+      const parsed = new URL(raw);
+      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+        return DEFAULT_OLLAMA_HOST;
+      }
+      const cleanPath = parsed.pathname === '/' ? '' : parsed.pathname.replace(/\/+$/, '');
+      return `${parsed.origin}${cleanPath}`;
+    } catch (_) {
+      return DEFAULT_OLLAMA_HOST;
+    }
+  }
 
   function getOllamaOrigin(customId) {
     const id = customId || (typeof chrome !== 'undefined' && chrome?.runtime?.id) || '<YOUR_EXTENSION_ID>';
@@ -45,7 +61,7 @@
     return `Ollama blocked extension origin '${origin}'. Start Ollama with OLLAMA_ORIGINS="${origin}" (or run 'launchctl setenv OLLAMA_ORIGINS "${origin}"' for macOS Ollama Desktop) and restart Ollama.`;
   }
 
-  async function fetchModels(url) {
+  async function fetchModels(url, signal) {
     if (transport && typeof transport.execute === 'function') {
       let result;
       try {
@@ -53,10 +69,12 @@
           url,
           method: 'GET',
           timeoutMs: 5000,
+          signal,
           maxRetries: 1,
           provider: 'ollama'
         });
       } catch (error) {
+        if (signal?.aborted || error?.name === 'AbortError') throw error;
         return [];
       }
 
@@ -74,7 +92,7 @@
         .filter(Boolean);
     }
 
-    const response = await retry.fetchWithTimeout(url, { method: 'GET' }, 5000);
+    const response = await retry.fetchWithTimeout(url, { method: 'GET' }, 5000, signal);
 
     if (response.status === 403) {
       throw new Error(buildOllamaOriginBlockedMessage());
@@ -92,13 +110,15 @@
       .filter(Boolean);
   }
 
-  async function checkHealth() {
+  async function checkHealth(signal, baseUrl = DEFAULT_OLLAMA_HOST) {
+    const healthUrl = `${baseUrl}/api/version`;
     try {
       if (transport && typeof transport.execute === 'function') {
         const result = await transport.execute({
-          url: OLLAMA_HEALTH_URL,
+          url: healthUrl,
           method: 'GET',
           timeoutMs: 5000,
+          signal,
           maxRetries: 1,
           provider: 'ollama'
         });
@@ -112,7 +132,7 @@
         return;
       }
 
-      const response = await retry.fetchWithTimeout(OLLAMA_HEALTH_URL, { method: 'GET' }, 5000);
+      const response = await retry.fetchWithTimeout(healthUrl, { method: 'GET' }, 5000, signal);
       if (response.status === 403) {
         throw new Error(buildOllamaOriginBlockedMessage());
       }
@@ -120,6 +140,9 @@
         throw new Error('Ollama health check failed.');
       }
     } catch (error) {
+      if (signal?.aborted || error?.name === 'AbortError') {
+        throw error;
+      }
       const msg = String(error?.message || '');
       if (msg.includes('Ollama blocked extension origin')) {
         throw error;
@@ -128,18 +151,18 @@
     }
   }
 
-  async function detectModel(config) {
+  async function detectModel(config, signal, baseUrl = resolveBaseUrl(config)) {
     const preferredModel = String(config?.ollama?.model || '').trim();
     if (preferredModel) {
       return preferredModel;
     }
 
-    const running = await fetchModels(OLLAMA_RUNNING_MODELS_URL);
+    const running = await fetchModels(`${baseUrl}/api/ps`, signal);
     if (running.length > 0) {
       return running[0];
     }
 
-    const installed = await fetchModels(OLLAMA_MODELS_URL);
+    const installed = await fetchModels(`${baseUrl}/api/tags`, signal);
     if (installed.length > 0) {
       return installed[0];
     }
@@ -148,10 +171,13 @@
   }
 
   async function enhance(prompt, config) {
-    await checkHealth();
+    const signal = config?.signal;
+    const baseUrl = resolveBaseUrl(config);
+    const generateUrl = `${baseUrl}/api/generate`;
+    await checkHealth(signal, baseUrl);
 
     try {
-      const model = await detectModel(config);
+      const model = await detectModel(config, signal, baseUrl);
       const body = {
         model,
         prompt: prompts.buildEnhancePrompt(prompt),
@@ -160,10 +186,11 @@
 
       if (transport && typeof transport.execute === 'function') {
         const result = await transport.execute({
-          url: OLLAMA_API_URL,
+          url: generateUrl,
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body,
+          signal,
           maxRetries: 1,
           provider: 'ollama'
         });
@@ -180,11 +207,11 @@
         return String(enhancedText).trim();
       }
 
-      const response = await retry.fetchWithTimeout(OLLAMA_API_URL, {
+      const response = await retry.fetchWithTimeout(generateUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body)
-      });
+      }, undefined, signal);
 
       if (!response.ok) {
         const errData = await providerUtils.readJsonSafe(response);
@@ -199,6 +226,10 @@
 
       return String(enhancedText).trim();
     } catch (error) {
+      if (signal?.aborted || error?.name === 'AbortError') {
+        throw error;
+      }
+
       if (error instanceof errors.ProviderHttpError) {
         throw error;
       }
@@ -212,8 +243,10 @@
   }
 
   async function suggest(text, settings, port, signal) {
-    await checkHealth();
-    const model = await detectModel(settings);
+    const baseUrl = resolveBaseUrl(settings);
+    const generateUrl = `${baseUrl}/api/generate`;
+    await checkHealth(signal, baseUrl);
+    const model = await detectModel(settings, signal, baseUrl);
 
     const promptText = `You are a concise prompt-completion assistant. Continue the user's incomplete prompt with at most 2 sentences. Do not repeat what they already typed. Prompt: ${text}`;
     const body = {
@@ -227,7 +260,7 @@
 
     if (transport && typeof transport.stream === 'function') {
       await transport.stream({
-        url: OLLAMA_API_URL,
+        url: generateUrl,
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: { ...body, stream: true },
@@ -245,7 +278,7 @@
       });
     } else if (transport && typeof transport.execute === 'function') {
       const result = await transport.execute({
-        url: OLLAMA_API_URL,
+        url: generateUrl,
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: { ...body, stream: false },
@@ -263,7 +296,7 @@
         port.postMessage({ type: 'chunk', text: String(content).trim() });
       }
     } else {
-      const response = await retry.fetchWithTimeout(OLLAMA_API_URL, {
+      const response = await retry.fetchWithTimeout(generateUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...body, stream: false }),

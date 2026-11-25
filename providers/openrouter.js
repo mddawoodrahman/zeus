@@ -18,16 +18,9 @@
   const providers = providerUtils.ensureProviderBag();
 
   const OPENROUTER_API_URL = 'https://openrouter.ai/api/v1/chat/completions';
-  const OPENROUTER_MODELS_URL = 'https://openrouter.ai/api/v1/models';
   const OPENROUTER_APP_REFERER = 'https://zeus-extension.local';
   const OPENROUTER_APP_TITLE = 'Zeus Prompt Enhancer';
   const OPENROUTER_MAX_RETRIES = 3;
-  const OPENROUTER_CATALOG_TTL_MS = 10 * 60 * 1000;
-
-  let catalogCache = {
-    expiresAt: 0,
-    models: []
-  };
 
   function extractSignal(errData) {
     const code = String(errData?.error?.code ?? errData?.code ?? '').toLowerCase();
@@ -38,7 +31,7 @@
 
   function shouldFallback(status, errData) {
     const signal = extractSignal(errData);
-    if (status === 404 || status === 429) return true;
+    if (status === 404) return true;
 
     return (
       (signal.includes('model') && (
@@ -64,101 +57,36 @@
     );
   }
 
-  function extractModelIds(payload) {
-    const rows = Array.isArray(payload?.data) ? payload.data : [];
-    return rows
-      .map((item) => String(item?.id || '').trim())
-      .filter(Boolean)
-      .slice(0, 50);
-  }
-
-  async function fetchCatalog(apiKey) {
-    const now = Date.now();
-    if (catalogCache.expiresAt > now && catalogCache.models.length > 0) {
-      return catalogCache.models;
-    }
-
-    try {
-      if (transport && typeof transport.execute === 'function') {
-        const result = await transport.execute({
-          url: OPENROUTER_MODELS_URL,
-          method: 'GET',
-          headers: {
-            'Authorization': `Bearer ${apiKey}`,
-            'HTTP-Referer': OPENROUTER_APP_REFERER,
-            'X-Title': OPENROUTER_APP_TITLE
-          },
-          timeoutMs: 8000,
-          maxRetries: 1,
-          provider: 'openrouter'
-        });
-
-        if (!result.ok) {
-          return [];
-        }
-
-        const models = extractModelIds(result.data);
-        catalogCache = {
-          expiresAt: now + OPENROUTER_CATALOG_TTL_MS,
-          models
-        };
-
-        return models;
-      }
-
-      const response = await retry.fetchWithTimeout(OPENROUTER_MODELS_URL, {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${apiKey}`,
-          'HTTP-Referer': OPENROUTER_APP_REFERER,
-          'X-Title': OPENROUTER_APP_TITLE
-        }
-      }, 8000);
-
-      if (!response.ok) {
-        return [];
-      }
-
-      const data = await providerUtils.readJsonSafe(response);
-      const models = extractModelIds(data);
-      catalogCache = {
-        expiresAt: now + OPENROUTER_CATALOG_TTL_MS,
-        models
-      };
-
-      return models;
-    } catch (_) {
-      return [];
-    }
-  }
-
-  async function buildModelCandidates(preferredModel, apiKey) {
-    const dynamicModels = await fetchCatalog(apiKey);
-    return providerUtils.buildModelCandidates('openrouter', preferredModel, dynamicModels);
-  }
-
   async function enhance(prompt, config) {
     const apiKey = String(config?.apiKeys?.openrouter || '').trim();
     const model = String(config?.models?.openrouter || '').trim();
     if (!apiKey) throw new Error('Missing OpenRouter API key.');
     if (!model) throw new Error('Missing OpenRouter model.');
 
-    const modelCandidates = await buildModelCandidates(model, apiKey);
+    const signal = config?.signal;
+    const modelCandidates = providerUtils.buildModelCandidates('openrouter', model);
     let lastError = null;
 
     for (let modelIndex = 0; modelIndex < modelCandidates.length; modelIndex += 1) {
+      if (signal?.aborted) break;
       const currentModel = modelCandidates[modelIndex];
       let tokenParam = providerUtils.inferChatTokenParam('openrouter', currentModel);
+      let includeTemperature = providerUtils.supportsSamplingTemperature('openrouter', currentModel);
 
       for (let attempt = 0; attempt < OPENROUTER_MAX_RETRIES; attempt += 1) {
+        if (signal?.aborted) break;
         const body = {
           model: currentModel,
           messages: [
             { role: 'system', content: prompts.getRewriteSystemInstruction() },
             { role: 'user', content: prompts.buildEnhancePrompt(prompt) }
           ],
-          temperature: 0.4,
-          ...providerUtils.buildChatTokenLimit(tokenParam, 2048)
+          ...providerUtils.buildChatCompletionOptions('openrouter', currentModel, {
+            temperature: 0.4,
+            maxTokens: 2048,
+            tokenParam,
+            includeTemperature
+          })
         };
 
         const result = await (transport ? transport.execute({
@@ -171,6 +99,7 @@
             'X-Title': OPENROUTER_APP_TITLE
           },
           body,
+          signal,
           maxRetries: 1,
           provider: 'openrouter'
         }) : (async () => {
@@ -183,7 +112,7 @@
               'X-Title': OPENROUTER_APP_TITLE
             },
             body: JSON.stringify(body)
-          });
+          }, undefined, signal);
           const data = await providerUtils.readJsonSafe(response);
           return { ok: response.ok, status: response.status, data };
         })());
@@ -205,6 +134,11 @@
           }
         }
 
+        if (result.status === 400 && includeTemperature && providerUtils.isUnsupportedTemperatureError(errData)) {
+          includeTemperature = false;
+          continue;
+        }
+
         if (modelIndex < modelCandidates.length - 1 && shouldFallback(result.status, errData)) {
           providerUtils.trackFallbackEvent({
             provider: 'openrouter',
@@ -219,7 +153,7 @@
 
         const canRetry = attempt < OPENROUTER_MAX_RETRIES - 1 && isRetryable(result.status, errData);
         if (canRetry) {
-          await retry.waitWithBackoff(attempt);
+          await retry.waitWithBackoff(attempt, undefined, undefined, signal);
           continue;
         }
 
@@ -227,6 +161,11 @@
       }
     }
 
+    if (signal?.aborted) {
+      const abortErr = new Error('The operation was aborted');
+      abortErr.name = 'AbortError';
+      throw abortErr;
+    }
     if (lastError) throw lastError;
     throw new Error('OpenRouter request failed.');
   }
@@ -242,8 +181,10 @@
         { role: 'system', content: "You are a concise prompt-completion assistant. Continue the user's incomplete prompt with at most 2 sentences. Do not repeat what they already typed." },
         { role: 'user', content: `Prompt: ${text}` }
       ],
-      temperature: 0.3,
-      max_tokens: settings.copilotMaxTokens || 60,
+      ...providerUtils.buildChatCompletionOptions('openrouter', model, {
+        temperature: 0.3,
+        maxTokens: settings.copilotMaxTokens || 60
+      }),
       stream: true
     };
 

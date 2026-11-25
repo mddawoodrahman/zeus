@@ -134,4 +134,35 @@ describe('Router and provider integration', () => {
     );
     expect(port.postMessage).toHaveBeenCalledWith({ type: 'chunk', text: 'suggested' });
   });
+
+  it('routes to openrouter in auto mode when only an OpenRouter API key is configured', async () => {
+    clearZeusGlobals();
+    loadScript('model-registry.js');
+
+    const providers = {
+      openai: vi.fn().mockRejectedValue(new Error('missing')),
+      claude: vi.fn().mockRejectedValue(new Error('missing')),
+      gemini: vi.fn().mockRejectedValue(new Error('missing')),
+      openrouter: vi.fn().mockResolvedValue('enhanced-by-openrouter'),
+      ollama: vi.fn().mockRejectedValue(new Error('ollama offline'))
+    };
+
+    globalThis.ZeusSettings = {
+      createDefaultSettings: () => ({ provider: 'gemini' }),
+      loadSettings: vi.fn().mockResolvedValue({
+        provider: 'auto',
+        apiKeys: { openai: '', claude: '', gemini: '', openrouter: 'or-key' },
+        models: { openrouter: 'openai/gpt-5.4' },
+        ollama: { model: '' }
+      })
+    };
+
+    globalThis.ZeusProviders = providers;
+    globalThis.ZeusTelemetry = { trackFallback: vi.fn() };
+    loadScript('core/router.js');
+
+    const result = await globalThis.ZeusRouter.enhancePrompt('Improve this marketing summary');
+    expect(result).toBe('enhanced-by-openrouter');
+    expect(providers.openrouter).toHaveBeenCalledTimes(1);
+  });
 });

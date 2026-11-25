@@ -202,6 +202,99 @@ describe('Ticket 04: MV3 Process-Split Prompt Architecture (PromptClient & Promp
         })
       );
     });
+
+    it('honors redactionEnabled: false and customRedactionPatterns from SettingsStore before scrubbing', async () => {
+      globalThis.ZeusSettings.loadSettings = vi.fn().mockResolvedValue({
+        provider: 'gemini',
+        redactionEnabled: false,
+        customRedactionPatterns: ['PROJECT_OMEGA'],
+        apiKeys: { gemini: 'gm-key' },
+        models: { gemini: 'gemini-3-flash' }
+      });
+
+      const rawPrompt = `Direct prompt with ${FIXTURES.postgresUri} and PROJECT_OMEGA`;
+      const result = await globalThis.ZeusPromptEngine.execute(rawPrompt);
+
+      expect(globalThis.ZeusProviders.gemini.mock.calls[0][0]).toBe(rawPrompt);
+      expect(result.warnings).toEqual([]);
+
+      globalThis.ZeusSettings.loadSettings = vi.fn().mockResolvedValue({
+        provider: 'gemini',
+        redactionEnabled: true,
+        customRedactionPatterns: ['PROJECT_OMEGA'],
+        apiKeys: { gemini: 'gm-key' },
+        models: { gemini: 'gemini-3-flash' }
+      });
+
+      const scrubbedResult = await globalThis.ZeusPromptEngine.execute('Direct prompt for PROJECT_OMEGA');
+      expect(globalThis.ZeusProviders.gemini.mock.calls[1][0]).toContain('[[ZEUS_SECRET_1]]');
+      expect(scrubbedResult.warnings.some((w) => w.includes('Defense-in-depth'))).toBe(true);
+    });
+
+    it('propagates options.timeoutMs via AbortController and stops fallback attempts on timeout', async () => {
+      globalThis.ZeusSettings.loadSettings = vi.fn().mockResolvedValue({
+        provider: 'auto',
+        apiKeys: { openai: 'sk-key', claude: 'cl-key' },
+        models: { openai: 'gpt-5.3-codex', claude: 'claude-sonnet-4.6' }
+      });
+
+      let capturedSignal = null;
+      globalThis.ZeusProviders.openai.mockImplementation((_prompt, cfg) => {
+        capturedSignal = cfg.signal;
+        return new Promise((_resolve, reject) => {
+          cfg.signal?.addEventListener('abort', () => {
+            const err = new Error('The operation was aborted');
+            err.name = 'AbortError';
+            reject(err);
+          });
+        });
+      });
+
+      await expect(
+        globalThis.ZeusPromptEngine.execute('debug this python function', { timeoutMs: 25 })
+      ).rejects.toThrow();
+
+      expect(capturedSignal).toBeDefined();
+      expect(capturedSignal.aborted).toBe(true);
+      expect(globalThis.ZeusProviders.claude).not.toHaveBeenCalled();
+    });
+
+    it('interrupts provider retry backoff immediately on timeoutMs abort instead of throwing stale ProviderHttpError', async () => {
+      const origFetch = globalThis.fetch;
+      globalThis.ZeusSettings.loadSettings = vi.fn().mockResolvedValue({
+        provider: 'openai',
+        apiKeys: { openai: 'sk-key' },
+        models: { openai: 'gpt-5-mini' }
+      });
+
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 503,
+        headers: { get: () => null },
+        json: async () => ({ error: { message: 'Temporary service unavailable' } }),
+        text: async () => JSON.stringify({ error: { message: 'Temporary service unavailable' } })
+      });
+
+      try {
+        loadScript('core/errors.js');
+        loadScript('core/retry.js');
+        loadScript('providers/utils.js');
+        loadScript('core/prompts.js');
+        loadScript('providers/openai.js');
+        loadScript('core/promptEngine.js');
+
+        const startedAt = Date.now();
+        await expect(
+          globalThis.ZeusPromptEngine.execute('Polish this prompt', { timeoutMs: 30 })
+        ).rejects.toMatchObject({
+          name: 'AbortError'
+        });
+        expect(Date.now() - startedAt).toBeLessThan(500);
+        expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+      } finally {
+        globalThis.fetch = origFetch;
+      }
+    });
   });
 
   describe('3. Router Delegation Compatibility', () => {

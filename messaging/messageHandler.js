@@ -8,15 +8,53 @@
     return chrome.runtime.getManifest().content_scripts.find(entry => entry.js?.includes('content.js'));
   }
 
+  function syncSidePanelBehavior(sidePanelEnabled) {
+    if (!chrome.sidePanel || typeof chrome.sidePanel.setPanelBehavior !== 'function') {
+      return;
+    }
+    const openPanelOnActionClick = Boolean(sidePanelEnabled);
+    Promise.resolve(
+      chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick })
+    ).catch(() => {});
+  }
+
+  function initSidePanelBehavior() {
+    if (!settingsModule || typeof settingsModule.loadSettings !== 'function') {
+      return;
+    }
+    Promise.resolve(settingsModule.loadSettings())
+      .then((settings) => {
+        syncSidePanelBehavior(settings?.sidePanelEnabled);
+      })
+      .catch(() => {});
+  }
+
   function setupContextMenu() {
     chrome.runtime.onInstalled.addListener(() => {
-      chrome.contextMenus.create({
-        id: 'zeus-enhance-prompt',
-        title: 'Enhance Prompt with Zeus',
-        documentUrlPatterns: composerScripts().matches,
-        contexts: ['editable']
-      });
+      initSidePanelBehavior();
+      const createMenu = () => {
+        chrome.contextMenus.create({
+          id: 'zeus-enhance-prompt',
+          title: 'Enhance Prompt with Zeus',
+          documentUrlPatterns: composerScripts().matches,
+          contexts: ['editable']
+        }, () => {
+          void chrome.runtime?.lastError;
+        });
+      };
+
+      if (typeof chrome.contextMenus.removeAll === 'function') {
+        chrome.contextMenus.removeAll(createMenu);
+      } else {
+        createMenu();
+      }
     });
+
+    if (chrome.runtime.onStartup && typeof chrome.runtime.onStartup.addListener === 'function') {
+      chrome.runtime.onStartup.addListener(() => {
+        initSidePanelBehavior();
+      });
+    }
 
     chrome.contextMenus.onClicked.addListener((info, tab) => {
       if (info.menuItemId === 'zeus-enhance-prompt' && tab?.id) {
@@ -36,13 +74,17 @@
       ? settingsModule.getPublicSettings(settingsPayload)
       : (settingsModule?.serializeSettings ? settingsModule.serializeSettings(settingsPayload) : settingsPayload);
 
-    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-      if (chrome.runtime.lastError) return;
-      if (tabs[0]?.id) {
-        chrome.tabs.sendMessage(tabs[0].id, {
-          action: 'settingsUpdated',
-          settings: publicSettings
-        }).catch(() => {});
+    const urlPatterns = composerScripts()?.matches;
+    const query = Array.isArray(urlPatterns) && urlPatterns.length > 0 ? { url: urlPatterns } : {};
+    chrome.tabs.query(query, (tabs) => {
+      if (chrome.runtime.lastError || !Array.isArray(tabs)) return;
+      for (const tab of tabs) {
+        if (tab?.id !== undefined && tab?.id !== null) {
+          chrome.tabs.sendMessage(tab.id, {
+            action: 'settingsUpdated',
+            settings: publicSettings
+          }).catch(() => {});
+        }
       }
     });
   }
@@ -223,6 +265,11 @@
           return true;
 
         case 'settingsUpdated':
+          if (message?.settings && 'sidePanelEnabled' in message.settings) {
+            syncSidePanelBehavior(message.settings.sidePanelEnabled);
+          } else {
+            initSidePanelBehavior();
+          }
           notifyTabsOfUpdate(message?.settings || {});
           sendResponse({ success: true });
           return true;
@@ -233,7 +280,7 @@
 
         case 'getTelemetrySummary':
           if (!telemetry || typeof telemetry.getSummary !== 'function') {
-            sendResponse({ summary: { totalEvents: 0, byProvider: {}, byReason: {}, recent: [] } });
+            sendResponse({ summary: { totalEvents: 0, fallbackCount: 0, byProvider: {}, byReason: {}, recent: [] } });
             return true;
           }
 
@@ -309,12 +356,14 @@
           startKeepAlive();
 
           try {
-            // Guard against sensitive data transmission over copilot streams
+            const config = await settingsModule.loadSettings();
+
+            // Guard against sensitive data transmission over copilot streams using authoritative SettingsStore rules
             const redactorInstance = globalScope.ZeusRedactor;
             const isSensitive = redactorInstance && typeof redactorInstance.hasSensitive === 'function'
               ? redactorInstance.hasSensitive(msg.text, {
-                  redactionEnabled: msg.settings?.redactionEnabled !== false,
-                  customRedactionPatterns: msg.settings?.customRedactionPatterns
+                  redactionEnabled: config?.redactionEnabled !== false,
+                  customRedactionPatterns: config?.customRedactionPatterns
                 })
               : false;
 
@@ -333,15 +382,23 @@
               return;
             }
 
-            const config = await settingsModule.loadSettings();
-            
             // Isolate settings from untrusted content scripts:
-            // Content scripts may only customize copilot runtime preferences, never inject or overwrite credentials.
-            const safeContentSettings = {
-              copilotMode: msg.settings?.copilotMode,
-              copilotProvider: msg.settings?.copilotProvider,
-              copilotMaxTokens: msg.settings?.copilotMaxTokens
-            };
+            // Content scripts may only customize defined copilot runtime preferences, never inject or overwrite credentials or redaction rules.
+            const safeContentSettings = {};
+            if (typeof msg.settings?.copilotMode === 'string' && msg.settings.copilotMode.trim()) {
+              safeContentSettings.copilotMode = msg.settings.copilotMode.trim();
+            }
+            if (typeof msg.settings?.copilotProvider === 'string' && msg.settings.copilotProvider.trim()) {
+              safeContentSettings.copilotProvider = msg.settings.copilotProvider.trim();
+            }
+            if (msg.settings?.copilotMaxTokens !== undefined && msg.settings?.copilotMaxTokens !== null) {
+              const parsedTokens = Number(msg.settings.copilotMaxTokens);
+              if (Number.isFinite(parsedTokens) && parsedTokens > 0) {
+                safeContentSettings.copilotMaxTokens = settingsModule?.clampCopilotMaxTokens
+                  ? settingsModule.clampCopilotMaxTokens(parsedTokens)
+                  : Math.min(250, Math.max(10, Math.round(parsedTokens)));
+              }
+            }
 
             const mergedSettings = {
               ...config,
@@ -354,8 +411,13 @@
               throw new Error('ZeusRouter streamSuggest is not available');
             }
 
-            await routerInstance.streamSuggest(msg.text, mergedSettings, port, abortController.signal);
+            try {
+              await routerInstance.streamSuggest(msg.text, mergedSettings, port, abortController.signal);
+            } finally {
+              stopKeepAlive();
+            }
           } catch (err) {
+            stopKeepAlive();
             try {
               port.postMessage({ type: 'error', message: err.message || 'Error processing suggestion' });
             } catch (_) {}
@@ -376,68 +438,68 @@
   function setupCommandsListener() {
     if (!chrome.commands || !chrome.commands.onCommand) return;
 
+    const sendCommandToast = (tab, text) => {
+      if (tab?.id !== undefined) {
+        chrome.tabs.sendMessage(tab.id, { action: 'commands:debugToast', text }).catch(() => {});
+        return;
+      }
+      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+        if (tabs?.[0]?.id) {
+          chrome.tabs.sendMessage(tabs[0].id, { action: 'commands:debugToast', text }).catch(() => {});
+        }
+      });
+    };
+
     chrome.commands.onCommand.addListener((command, tab) => {
-      if (command === 'open-side-panel') {
-        if (activeSidepanelPort) {
-          // Send a visual debug notification to the active tab to confirm command execution
-          chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-            if (tabs?.[0]?.id) {
-              chrome.tabs.sendMessage(tabs[0].id, { action: 'commands:debugToast', text: 'ZEUS: CLOSING WORKBENCH' }).catch(() => {});
-            }
-          });
+      if (command !== 'open-side-panel') return;
 
-          // Close the side panel if it's currently open
-          try {
-            activeSidepanelPort.postMessage({ type: 'close' });
-          } catch (_) {}
+      if (activeSidepanelPort) {
+        sendCommandToast(tab, 'ZEUS: CLOSING WORKBENCH');
 
-          // Fallback close call for newer Chrome versions (Chrome 121+)
-          if (chrome.sidePanel && typeof chrome.sidePanel.close === 'function') {
-            chrome.windows.getLastFocused((window) => {
-              const targetWindowId = window?.id || tab?.windowId;
-              if (targetWindowId !== undefined) {
-                chrome.sidePanel.close({ windowId: targetWindowId }).catch(() => {});
+        try {
+          activeSidepanelPort.postMessage({ type: 'close' });
+        } catch (_) {}
+
+        if (chrome.sidePanel && typeof chrome.sidePanel.close === 'function') {
+          if (tab?.windowId !== undefined) {
+            chrome.sidePanel.close({ windowId: tab.windowId }).catch(() => {});
+          } else if (chrome.windows?.getLastFocused) {
+            chrome.windows.getLastFocused((win) => {
+              if (win?.id !== undefined) {
+                chrome.sidePanel.close({ windowId: win.id }).catch(() => {});
               }
             });
           }
-        } else {
-          // Send a visual debug notification to the active tab to confirm command execution
-          chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-            if (tabs?.[0]?.id) {
-              chrome.tabs.sendMessage(tabs[0].id, { action: 'commands:debugToast', text: 'ZEUS: OPENING WORKBENCH' }).catch(() => {});
+        }
+        return;
+      }
+
+      sendCommandToast(tab, 'ZEUS: OPENING WORKBENCH');
+
+      if (chrome.sidePanel && typeof chrome.sidePanel.open === 'function') {
+        if (tab?.windowId !== undefined) {
+          chrome.sidePanel.open({ windowId: tab.windowId }).catch((err) => {
+            console.error('[ZEUS] Failed to open side panel via windowId:', err);
+            if (tab?.id !== undefined) {
+              chrome.sidePanel.open({ tabId: tab.id }).catch(() => {});
             }
           });
-
-          if (chrome.sidePanel && typeof chrome.sidePanel.open === 'function') {
-            // Open the side panel inside the currently focused active window
-            chrome.windows.getLastFocused((window) => {
-              const targetWindowId = window?.id || tab?.windowId;
-              if (targetWindowId !== undefined) {
-                chrome.sidePanel.open({ windowId: targetWindowId }).catch((err) => {
-                  console.error('[ZEUS] Failed to open side panel via windowId:', err);
-                  // Secondary fallback using tabId
-                  if (tab && tab.id) {
-                    chrome.sidePanel.open({ tabId: tab.id }).catch(() => {});
-                  }
-                });
-              } else if (tab && tab.id) {
-                chrome.sidePanel.open({ tabId: tab.id }).catch((err) => {
-                  console.error('[ZEUS] Failed to open side panel via tabId:', err);
-                });
-              } else {
-                chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-                  if (tabs?.[0]?.id) {
-                    chrome.sidePanel.open({ tabId: tabs[0].id }).catch(() => {});
-                  }
-                });
-              }
-            });
-          }
+        } else if (tab?.id !== undefined) {
+          chrome.sidePanel.open({ tabId: tab.id }).catch((err) => {
+            console.error('[ZEUS] Failed to open side panel via tabId:', err);
+          });
+        } else if (chrome.windows?.getLastFocused) {
+          chrome.windows.getLastFocused((win) => {
+            if (win?.id !== undefined) {
+              chrome.sidePanel.open({ windowId: win.id }).catch(() => {});
+            }
+          });
         }
       }
     });
   }
 
+  initSidePanelBehavior();
   setupContextMenu();
   setupRuntimeMessaging();
   setupCopilotStreamListener();

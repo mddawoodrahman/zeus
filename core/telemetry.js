@@ -105,12 +105,16 @@
     readEvents((events) => {
       const summary = {
         totalEvents: events.length,
+        fallbackCount: 0,
         byProvider: {},
         byReason: {},
         recent: events.slice(-20)
       };
 
       for (const event of events) {
+        if (event?.type === 'fallback') {
+          summary.fallbackCount += 1;
+        }
         const provider = safeString(event?.payload?.provider) || 'unknown';
         const reason = safeString(event?.payload?.reason || event?.payload?.reasonCode) || 'unspecified';
 

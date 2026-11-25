@@ -225,9 +225,17 @@ it('exposes the IME pause and restores keyboard activation when composition ends
 
 it('matches legacy origins exactly and keeps provider-only permissions out of generic discovery', () => {
   loadScript('adapters/gemini.js');
+  loadScript('adapters/deepseek.js');
+  loadScript('adapters/kimi.js');
   expect(site.matches('chat.openai.com')).toBe(true);
   expect(site.matches('chatgpt.com.example')).toBe(false);
   expect(ZeusContentAdapters.find((a) => a.id === 'gemini').matches('bard.google.com')).toBe(true);
+  const deepseek = ZeusContentAdapters.find((a) => a.id === 'deepseek');
+  expect(deepseek.matches('deepseek.com')).toBe(true);
+  expect(deepseek.matches('chat.deepseek.com')).toBe(true);
+  const kimi = ZeusContentAdapters.find((a) => a.id === 'kimi');
+  expect(kimi.matches('kimi.com')).toBe(true);
+  expect(kimi.matches('www.kimi.com')).toBe(true);
   const generic = ZeusContentAdapters.find((a) => a.id === 'generic');
   const manifest = require('../../manifest.json');
   vi.stubGlobal('chrome', { runtime: { getManifest: () => manifest } });

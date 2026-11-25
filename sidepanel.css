@@ -539,3 +539,8 @@ textarea.zeus-input {
   border-color: var(--acid-green) !important;
   color: var(--acid-green) !important;
 }
+
+.zeus-toast.warning {
+  border-color: var(--cyber-yellow) !important;
+  color: var(--cyber-yellow) !important;
+}

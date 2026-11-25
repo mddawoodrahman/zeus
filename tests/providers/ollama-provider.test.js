@@ -98,4 +98,60 @@ describe('Ollama provider with mocked fetch', () => {
       globalThis.ZeusProviders.ollama('raw prompt', { ollama: { model: 'qwen3:8b' } })
     ).rejects.toThrow('Ollama not running. Start with: ollama run qwen3:8b');
   });
+
+  it('uses configured ollama.host across health, generate, and suggest endpoints', async () => {
+    globalThis.fetch
+      .mockResolvedValueOnce(makeResponse(200, { version: '0.1.30' }))
+      .mockResolvedValueOnce(makeResponse(200, { response: 'Enhanced via 127.0.0.1' }));
+
+    const result = await globalThis.ZeusProviders.ollama('raw prompt', {
+      ollama: { host: 'http://127.0.0.1:11435/', model: 'qwen3:8b' }
+    });
+
+    expect(result).toBe('Enhanced via 127.0.0.1');
+    expect(globalThis.fetch.mock.calls[0][0]).toBe('http://127.0.0.1:11435/api/version');
+    expect(globalThis.fetch.mock.calls[1][0]).toBe('http://127.0.0.1:11435/api/generate');
+
+    globalThis.fetch
+      .mockResolvedValueOnce(makeResponse(200, { version: '0.1.30' }))
+      .mockResolvedValueOnce(makeStreamResponse([JSON.stringify({ response: ' ok', done: true }) + '\n']));
+
+    const port = { postMessage: vi.fn() };
+    await globalThis.ZeusProviders.ollama.suggest('Prompt', {
+      ollama: { host: 'http://127.0.0.1:11435', model: 'qwen3:8b' }
+    }, port, null);
+
+    expect(globalThis.fetch.mock.calls[2][0]).toBe('http://127.0.0.1:11435/api/version');
+    expect(globalThis.fetch.mock.calls[3][0]).toBe('http://127.0.0.1:11435/api/generate');
+  });
+
+  it('rethrows caller AbortError without misclassifying timeout aborts as OLLAMA_NOT_RUNNING_MESSAGE', async () => {
+    const controller = new AbortController();
+    const timeoutAbortError = new Error('Enhancement request timed out after 25ms.');
+    timeoutAbortError.name = 'AbortError';
+
+    globalThis.fetch
+      .mockResolvedValueOnce(makeResponse(200, { version: '0.1.30' }))
+      .mockImplementationOnce((_url, opts) => new Promise((_resolve, reject) => {
+        if (opts?.signal?.aborted) {
+          reject(timeoutAbortError);
+          return;
+        }
+        opts?.signal?.addEventListener('abort', () => {
+          reject(timeoutAbortError);
+        }, { once: true });
+      }));
+
+    setTimeout(() => controller.abort(timeoutAbortError), 15);
+
+    await expect(
+      globalThis.ZeusProviders.ollama('raw prompt', {
+        ollama: { host: 'http://localhost:11434', model: 'qwen3:8b' },
+        signal: controller.signal
+      })
+    ).rejects.toMatchObject({
+      name: 'AbortError',
+      message: 'Enhancement request timed out after 25ms.'
+    });
+  });
 });

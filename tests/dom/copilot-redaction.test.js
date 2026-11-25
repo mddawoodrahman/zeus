@@ -507,4 +507,45 @@ describe('Background Copilot Stream Handler (Ticket 4)', () => {
     expect(received.some((m) => m.type === 'chunk' && m.text === ' result = 42;')).toBe(true);
     expect(received.some((m) => m.type === 'done')).toBe(true);
   });
+
+  it('enforces persisted SettingsStore redactionEnabled and customRedactionPatterns over untrusted msg.settings and preserves omitted copilot prefs', async () => {
+    globalThis.ZeusSettings.loadSettings = vi.fn().mockResolvedValue({
+      copilotProvider: 'claude',
+      copilotMode: 'aggressive',
+      copilotMaxTokens: 90,
+      redactionEnabled: true,
+      customRedactionPatterns: ['INTERNAL_CODENAME'],
+      apiKeys: { claude: 'sk-ant-test' }
+    });
+
+    const clientPort = globalThis.chrome.runtime.connect({ name: 'copilot-stream' });
+    const received = [];
+    clientPort.onMessage.addListener((msg) => received.push(msg));
+
+    // Untrusted renderer attempts to disable redaction and hide custom pattern
+    clientPort.postMessage({
+      type: 'copilot:start',
+      text: 'Draft using INTERNAL_CODENAME for launch',
+      settings: { redactionEnabled: false }
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(streamSuggestSpy).not.toHaveBeenCalled();
+    expect(received.some((m) => m.type === 'paused' && m.reason === 'sensitive_data')).toBe(true);
+
+    // Non-sensitive prompt with omitted copilot fields must preserve SettingsStore values (no undefined overwrite)
+    const clientPort2 = globalThis.chrome.runtime.connect({ name: 'copilot-stream' });
+    clientPort2.postMessage({
+      type: 'copilot:start',
+      text: 'Summarize key architecture trade-offs cleanly',
+      settings: {}
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(streamSuggestSpy).toHaveBeenCalledTimes(1);
+    const passedSettings = streamSuggestSpy.mock.calls[0][1];
+    expect(passedSettings.copilotMode).toBe('aggressive');
+    expect(passedSettings.copilotProvider).toBe('claude');
+    expect(passedSettings.copilotMaxTokens).toBe(90);
+  });
 });

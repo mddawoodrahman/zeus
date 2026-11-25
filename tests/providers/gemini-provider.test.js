@@ -145,6 +145,44 @@ describe('Gemini provider with mocked fetch', () => {
     expect(port.postMessage).toHaveBeenCalledWith({ type: 'done' });
   });
 
+  it('ignores thought parts in Gemini enhance() and suggest() responses', async () => {
+    globalThis.fetch.mockResolvedValueOnce(
+      makeResponse(200, {
+        candidates: [{
+          content: {
+            parts: [
+              { text: 'internal reasoning trace', thought: true },
+              { text: 'Clean enhanced output' }
+            ]
+          }
+        }]
+      })
+    );
+
+    const enhanced = await globalThis.ZeusProviders.gemini('draft prompt', {
+      apiKeys: { gemini: 'test-key' },
+      models: { gemini: 'gemini-3.1-pro-preview' }
+    });
+    expect(enhanced).toBe('Clean enhanced output');
+
+    const ssePayload = [
+      'data: {"candidates":[{"content":{"parts":[{"text":"thinking...","thought":true}]}}]}\n\n',
+      'data: {"candidates":[{"content":{"parts":[{"text":"still thinking","thought":true},{"text":" actual completion"}]}}]}\n\n',
+      'data: [DONE]\n\n'
+    ];
+    globalThis.fetch.mockResolvedValueOnce(makeStreamResponse(ssePayload));
+
+    const port = { postMessage: vi.fn() };
+    await globalThis.ZeusProviders.gemini.suggest('draft prompt', {
+      apiKeys: { gemini: 'test-key' },
+      models: { gemini: 'gemini-3.1-pro-preview' }
+    }, port, null);
+
+    expect(port.postMessage).toHaveBeenCalledTimes(2);
+    expect(port.postMessage).toHaveBeenNthCalledWith(1, { type: 'chunk', text: ' actual completion' });
+    expect(port.postMessage).toHaveBeenNthCalledWith(2, { type: 'done' });
+  });
+
   it('throws when missing Gemini API key', async () => {
     await expect(
       globalThis.ZeusProviders.gemini('test prompt', {

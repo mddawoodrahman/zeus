@@ -94,6 +94,32 @@ describe('Ticket 7: End-to-End Security & Packaging Verification', () => {
       expect(csp).toContain("frame-ancestors 'none'");
       expect(csp).not.toContain("'unsafe-eval'");
     });
+
+    it('declares explicit host_permissions for all cloud provider APIs, Ollama loopbacks, and Kimi/DeepSeek domains', () => {
+      const srcManifest = JSON.parse(fs.readFileSync(path.join(projectRoot, 'manifest.json'), 'utf8'));
+      const hostPerms = srcManifest.host_permissions || [];
+      const contentMatches = srcManifest.content_scripts?.[0]?.matches || [];
+
+      for (const requiredHost of [
+        'https://api.openai.com/*',
+        'https://generativelanguage.googleapis.com/*',
+        'https://api.anthropic.com/*',
+        'https://openrouter.ai/*',
+        'http://localhost:11434/*',
+        'http://127.0.0.1:11434/*',
+        'https://kimi.com/*',
+        'https://www.kimi.com/*',
+        'https://deepseek.com/*',
+        'https://chat.deepseek.com/*'
+      ]) {
+        expect(hostPerms).toContain(requiredHost);
+      }
+
+      expect(contentMatches).toContain('https://kimi.com/*');
+      expect(contentMatches).toContain('https://www.kimi.com/*');
+      expect(contentMatches).toContain('https://deepseek.com/*');
+      expect(contentMatches).toContain('https://chat.deepseek.com/*');
+    });
   });
 
   describe('2. Safe DOM & Zero-Sink Code Hygiene Audit', () => {

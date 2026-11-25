@@ -26,14 +26,20 @@ function createChromeMock(options = {}) {
   const listeners = {
     onInstalled: [],
     onMessage: [],
-    onContextMenuClicked: []
+    onContextMenuClicked: [],
+    onCommand: []
   };
 
   const calls = {
+    contextMenuRemoveAll: 0,
     contextMenuCreate: [],
     tabsQuery: [],
     tabsSendMessage: [],
-    executeScript: []
+    executeScript: [],
+    sidePanelOpen: [],
+    sidePanelClose: [],
+    sidePanelSetPanelBehavior: [],
+    windowsGetLastFocused: 0
   };
 
   function pickStoreValues(store, keys) {
@@ -123,8 +129,13 @@ function createChromeMock(options = {}) {
       }
     },
     contextMenus: {
-      create(config) {
+      removeAll(callback) {
+        calls.contextMenuRemoveAll += 1;
+        if (typeof callback === 'function') callback();
+      },
+      create(config, callback) {
         calls.contextMenuCreate.push(config);
+        if (typeof callback === 'function') callback();
       },
       onClicked: {
         addListener(fn) {
@@ -135,11 +146,42 @@ function createChromeMock(options = {}) {
     tabs: {
       query(queryInfo, callback) {
         calls.tabsQuery.push(queryInfo);
-        callback([{ id: 777 }]);
+        if (queryInfo && queryInfo.url) {
+          callback([{ id: 777, windowId: 1 }, { id: 888, windowId: 2 }]);
+          return;
+        }
+        callback([{ id: 777, windowId: 1 }]);
       },
       sendMessage(tabId, message) {
         calls.tabsSendMessage.push({ tabId, message });
         return Promise.resolve({ ok: true });
+      }
+    },
+    commands: {
+      onCommand: {
+        addListener(fn) {
+          listeners.onCommand.push(fn);
+        }
+      }
+    },
+    sidePanel: {
+      open(opts) {
+        calls.sidePanelOpen.push(opts);
+        return Promise.resolve();
+      },
+      close(opts) {
+        calls.sidePanelClose.push(opts);
+        return Promise.resolve();
+      },
+      setPanelBehavior(opts) {
+        calls.sidePanelSetPanelBehavior.push(opts);
+        return Promise.resolve();
+      }
+    },
+    windows: {
+      getLastFocused(cb) {
+        calls.windowsGetLastFocused += 1;
+        setTimeout(() => cb({ id: 99 }), 0);
       }
     },
     scripting: {
@@ -354,10 +396,25 @@ async function runMessageActionSmoke() {
   };
 
   await loadScript(path.join('messaging', 'messageHandler.js'));
+  await new Promise((resolve) => setTimeout(resolve, 10));
+
+  assert(
+    env.calls.sidePanelSetPanelBehavior.some((entry) => entry?.openPanelOnActionClick === true),
+    'Expected startup initialization to sync sidePanelEnabled behavior.'
+  );
 
   assert(env.listeners.onInstalled.length === 1, 'Expected onInstalled listener registration.');
   env.listeners.onInstalled[0]();
+  assert(env.calls.contextMenuRemoveAll === 1, 'Expected contextMenus.removeAll to clear menus before create.');
   assert(env.calls.contextMenuCreate.length === 1, 'Expected context menu to be created on install.');
+
+  // Synchronous command invocation must call sidePanel.open immediately with tab.windowId without waiting on async getLastFocused
+  assert(env.listeners.onCommand.length === 1, 'Expected commands.onCommand listener registration.');
+  env.listeners.onCommand[0]('open-side-panel', { id: 777, windowId: 42 });
+  assert(
+    env.calls.sidePanelOpen.length === 1 && env.calls.sidePanelOpen[0]?.windowId === 42,
+    'Expected sidePanel.open to be called synchronously with tab.windowId.'
+  );
 
   const messageListener = env.listeners.onMessage[0];
   assert(typeof messageListener === 'function', 'Expected runtime onMessage listener registration.');
@@ -377,12 +434,19 @@ async function runMessageActionSmoke() {
 
   const updateAck = await invokeMessage(messageListener, {
     action: 'settingsUpdated',
-    settings: { provider: 'openai' }
+    settings: { provider: 'openai', sidePanelEnabled: false }
   });
   assert(updateAck?.success === true, 'Expected settingsUpdated acknowledgment.');
+  const updatedTabIds = env.calls.tabsSendMessage
+    .filter((entry) => entry?.message?.action === 'settingsUpdated' && entry?.message?.settings?.apiKeys === undefined)
+    .map((entry) => entry.tabId);
   assert(
-    env.calls.tabsSendMessage.some((entry) => entry?.message?.action === 'settingsUpdated' && entry?.message?.settings?.apiKeys === undefined),
-    'Expected settingsUpdated to notify active tab with sanitized settings.'
+    updatedTabIds.includes(777) && updatedTabIds.includes(888),
+    'Expected settingsUpdated to broadcast across all matching composer tabs across windows.'
+  );
+  assert(
+    env.calls.sidePanelSetPanelBehavior.at(-1)?.openPanelOnActionClick === false,
+    'Expected settingsUpdated to sync sidePanelEnabled=false to sidePanel.setPanelBehavior.'
   );
 
   const forceInject = await invokeMessage(

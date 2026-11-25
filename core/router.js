@@ -44,7 +44,7 @@
     const text = String(prompt || '').toLowerCase();
 
     const codingSignals = /\b(code|coding|debug|bug|stack trace|refactor|typescript|javascript|python|sql|algorithm|function|compile|test case|unit test|api endpoint)\b/i;
-    const cheapSignals = /\b(cheap|budget|low cost|fast answer|quick rewrite|minimal tokens|lightweight)\b/i;
+    const cheapSignals = /\b(cheap|low[- ]cost|low[- ]budget|on a budget|budget[- ]friendly|fast answer|quick answer|quick rewrite|minimal tokens|lightweight (?:model|answer|response|rewrite|summary))\b/i;
     const longFormSignals = /\b(long form|long-form|essay|detailed report|comprehensive|in-depth|whitepaper|multi section|article|extensive)\b/i;
 
     if (codingSignals.test(text)) return 'coding';
@@ -100,6 +100,7 @@
       { provider: 'openai', model: getProviderDefaultModel('openai') },
       { provider: 'claude', model: getProviderDefaultModel('claude') },
       { provider: 'gemini', model: getProviderDefaultModel('gemini') },
+      { provider: 'openrouter', model: getProviderDefaultModel('openrouter') },
       { provider: 'ollama', model: '' }
     ];
 
@@ -283,46 +284,84 @@
     }
   }
 
+  function failSuggestPort(port, message) {
+    port.postMessage({ type: 'error', message });
+    try {
+      port.disconnect?.();
+    } catch (_) {}
+  }
+
   async function streamSuggest(text, settings, port, abortSignal) {
-    let provider = String(settings?.copilotProvider || 'auto').trim();
+    const requestedProvider = String(settings?.copilotProvider || 'auto').trim();
 
-    if (provider === 'auto') {
-      const hasOllamaModel = Boolean(settings?.ollama?.model);
-      if (hasOllamaModel) {
-        provider = 'ollama';
-      } else {
-        const hasGeminiKey = Boolean(settings?.apiKeys?.gemini);
-        const hasOpenAiKey = Boolean(settings?.apiKeys?.openai);
-        const hasClaudeKey = Boolean(settings?.apiKeys?.claude);
-        const hasOpenRouterKey = Boolean(settings?.apiKeys?.openrouter);
-
-        if (hasGeminiKey) {
-          provider = 'gemini';
-        } else if (hasOpenAiKey) {
-          provider = 'openai';
-        } else if (hasClaudeKey) {
-          provider = 'claude';
-        } else if (hasOpenRouterKey) {
-          provider = 'openrouter';
-        } else {
-          return;
+    if (requestedProvider === 'auto') {
+      const candidates = [];
+      if (Boolean(settings?.ollama?.model)) {
+        candidates.push('ollama');
+      }
+      for (const cloudProvider of ['gemini', 'openai', 'claude', 'openrouter']) {
+        if (Boolean(settings?.apiKeys?.[cloudProvider])) {
+          candidates.push(cloudProvider);
         }
       }
-    } else {
-      if (provider !== 'ollama' && !settings?.apiKeys?.[provider]) {
-        port.postMessage({ type: 'error', message: `Missing API key for provider ${provider}` });
+
+      if (candidates.length === 0) {
+        failSuggestPort(port, 'No configured Copilot provider or API key found.');
         return;
       }
+
+      let lastErr = null;
+      for (let i = 0; i < candidates.length; i += 1) {
+        if (abortSignal?.aborted) return;
+        const candidate = candidates[i];
+        const providerFn = getProviderFunction(candidate);
+        if (typeof providerFn !== 'function' || typeof providerFn.suggest !== 'function') {
+          continue;
+        }
+
+        let hasEmittedChunk = false;
+        const trackedPort = {
+          postMessage(msg) {
+            if (msg?.type === 'chunk') {
+              hasEmittedChunk = true;
+            }
+            return port.postMessage(msg);
+          },
+          disconnect() {
+            return port.disconnect?.();
+          }
+        };
+
+        try {
+          await providerFn.suggest(text, settings, trackedPort, abortSignal);
+          return;
+        } catch (err) {
+          if (abortSignal?.aborted) return;
+          lastErr = err;
+          if (hasEmittedChunk || i === candidates.length - 1) {
+            failSuggestPort(port, err?.message || 'Error fetching suggestion');
+            return;
+          }
+        }
+      }
+
+      failSuggestPort(port, lastErr?.message || 'No available Copilot provider found.');
+      return;
     }
 
-    const providerFn = getProviderFunction(provider);
+    if (requestedProvider !== 'ollama' && !settings?.apiKeys?.[requestedProvider]) {
+      failSuggestPort(port, `Missing API key for provider ${requestedProvider}`);
+      return;
+    }
+
+    const providerFn = getProviderFunction(requestedProvider);
     if (typeof providerFn !== 'function') {
-      port.postMessage({ type: 'error', message: `Unsupported provider: ${provider}` });
+      failSuggestPort(port, `Unsupported provider: ${requestedProvider}`);
       return;
     }
 
     if (typeof providerFn.suggest !== 'function') {
-      port.postMessage({ type: 'error', message: `Provider ${provider} does not support copilot suggestions` });
+      failSuggestPort(port, `Provider ${requestedProvider} does not support copilot suggestions`);
       return;
     }
 
@@ -330,7 +369,7 @@
       await providerFn.suggest(text, settings, port, abortSignal);
     } catch (err) {
       if (abortSignal?.aborted) return;
-      port.postMessage({ type: 'error', message: err.message || 'Error fetching suggestion' });
+      failSuggestPort(port, err.message || 'Error fetching suggestion');
     }
   }
 
